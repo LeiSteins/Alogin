@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.Icon
@@ -235,7 +236,7 @@ fun HomeScreen(
                         performPrimaryAction()
                     },
                     modifier = Modifier
-                        .fillMaxWidth(0.35f)
+                        .width(140.dp)
                         .padding(bottom = 8.dp)
                 )
             }
