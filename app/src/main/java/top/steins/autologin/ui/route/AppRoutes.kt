@@ -92,11 +92,12 @@ fun SettingsRoute(
     if (showUpdateDetails && availableUpdate != null) {
         UpdateDialog(
             update = availableUpdate,
-            onDownload = {
+            download = (updateState as UpdateState.Available).download,
+            onDownload = viewModel::downloadAvailableUpdate,
+            onDismiss = {
                 showUpdateDetails = false
-                viewModel.downloadAvailableUpdate()
-            },
-            onDismiss = { showUpdateDetails = false }
+                viewModel.cancelAutomaticUpdateInstall()
+            }
         )
     }
 

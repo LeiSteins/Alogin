@@ -79,6 +79,15 @@ class AppViewModel(
     )
     val updateState: StateFlow<UpdateState> = updateCoordinator.state
     val updateMessages: SharedFlow<String> = updateCoordinator.messages
+    val updateInstallation = updateCoordinator.installation
+
+    fun setUpdateForeground(value: Boolean) = updateCoordinator.setForeground(value)
+    fun cancelAutomaticUpdateInstall() = updateCoordinator.cancelAutomaticInstall()
+    fun consumeUpdateInstallation() = updateCoordinator.consumeInstallation()
+    fun resumeUpdateInstallation(versionCode: Int) = updateCoordinator.resumeInstallation(versionCode)
+    fun showUpdateMessage(resource: Int) = updateCoordinator.message(resource)
+    suspend fun validatedUpdateDownload(update: top.steins.autologin.network.update.UpdateInfo) =
+        updateCoordinator.validatedDownload(update)
 
     private var refreshJob: Job? = null
     private var networkRefreshDebounceJob: Job? = null

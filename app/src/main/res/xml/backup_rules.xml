@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
+    <exclude domain="sharedpref" path="alogin_updates.xml" />
+    <exclude domain="external" path="Download/updates/" />
     <!-- 凭据及 Tink 密钥集不参与云备份，避免密钥材料随备份离开本机。 -->
     <exclude domain="sharedpref" path="alogin_secure.xml" />
     <exclude domain="sharedpref" path="alogin_tink_keyset.xml" />

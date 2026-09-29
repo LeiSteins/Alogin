@@ -102,9 +102,20 @@
     <string name="update_latest_toast">当前已是最新版本</string>
     <string name="update_failed_toast">检查更新失败，请稍后重试</string>
     <string name="update_download_description">正在下载 Alogin 更新包</string>
-    <string name="update_download_enqueued">正在下载，请在系统通知中查看进度</string>
-    <string name="update_opened_in_browser">已在浏览器中打开下载地址</string>
-    <string name="update_download_failed">无法开始下载，请稍后重试</string>
+    <string name="update_downloading_action">正在下载…</string>
+    <string name="update_download_progress">已下载 %1$d%%</string>
+    <string name="update_waiting_network">等待网络恢复，恢复后将继续下载</string>
+    <string name="update_ready">更新包已下载，点击安装</string>
+    <string name="update_install">安装</string>
+    <string name="update_install_description">将打开系统安装器。首次安装更新需要允许 Alogin 安装应用；取消后可再次点击安装。</string>
+    <string name="update_download_retry">重新下载</string>
+    <string name="update_download_failed">下载失败，请检查网络或系统下载管理器后重试</string>
+    <string name="update_storage_failed">存储不可用或空间不足，请检查后重新下载</string>
+    <string name="update_file_missing">更新包已丢失，请重新下载</string>
+    <string name="update_invalid_apk">更新包无效或版本不匹配，请重新下载</string>
+    <string name="update_install_permission_denied">尚未允许安装应用，更新包已保留，可稍后再次安装</string>
+    <string name="update_installer_unavailable">无法打开安装器或安装设置，更新包已保留</string>
+    <string name="update_install_blocked">系统阻止了安装，请检查安装权限后重试</string>
 
     <!-- 目标 WiFi 配置页 -->
     <string name="wifi_config_title">目标网络</string>

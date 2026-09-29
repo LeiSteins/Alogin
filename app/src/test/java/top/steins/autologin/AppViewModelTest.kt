@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.test.TestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
@@ -41,7 +42,9 @@ import top.steins.autologin.network.LoginResult
 import top.steins.autologin.network.LoginStatus
 import top.steins.autologin.network.NetworkEnvironment
 import top.steins.autologin.network.SelfServiceGateway
-import top.steins.autologin.network.update.UpdateDownloadResult
+import top.steins.autologin.network.update.UpdateDownloadState
+import top.steins.autologin.network.update.UpdateDownloadFailure
+import top.steins.autologin.network.update.UpdateTransfer
 import top.steins.autologin.network.update.UpdateGateway
 import top.steins.autologin.network.update.UpdateInfo
 import top.steins.autologin.network.update.UpdateState
@@ -87,6 +90,125 @@ class AppViewModelTest {
         hasLocationPermission = hasLocationPermission,
         currentTimeMillis = currentTimeMillis
     )
+
+    private fun availableUpdate() = UpdateInfo(
+        version = "99.0.0", versionCode = 990,
+        fileName = "alogin-v99.0.0.apk",
+        downloadUrl = "https://aloginupdate.steins.top/alogin-v99.0.0.apk",
+        releaseNotes = "更新测试"
+    )
+
+    @Test
+    fun download_repeatedClicksAndChecksDoNotReplaceActiveTask() {
+        updates.fetchResult = Result.success(availableUpdate())
+        val viewModel = createViewModel()
+        viewModel.setUpdateForeground(true)
+        viewModel.checkForUpdates(true)
+        viewModel.downloadAvailableUpdate()
+        viewModel.downloadAvailableUpdate()
+        viewModel.checkForUpdates(true)
+
+        assertEquals(1, updates.downloadCount)
+        assertEquals(1, updates.fetchCount)
+        assertEquals(UpdateDownloadState.Downloading(), (viewModel.updateState.value as UpdateState.Available).download)
+        viewModel.setUpdateForeground(false)
+    }
+
+    @Test
+    fun download_completedInForegroundRequestsInstallationOnlyOnce() {
+        updates.fetchResult = Result.success(availableUpdate())
+        val viewModel = createViewModel()
+        viewModel.setUpdateForeground(true)
+        viewModel.checkForUpdates(true)
+        viewModel.downloadAvailableUpdate()
+        updates.publish(UpdateDownloadState.Ready)
+
+        assertEquals(availableUpdate(), viewModel.updateInstallation.value)
+        viewModel.consumeUpdateInstallation()
+        updates.publish(UpdateDownloadState.Ready)
+        assertNull(viewModel.updateInstallation.value)
+        // 从安装器取消返回后，可手动安装同一个包，不再下载。
+        viewModel.setUpdateForeground(false)
+        viewModel.setUpdateForeground(true)
+        assertNull(viewModel.updateInstallation.value)
+        viewModel.downloadAvailableUpdate()
+        assertEquals(availableUpdate(), viewModel.updateInstallation.value)
+        assertEquals(1, updates.downloadCount)
+        viewModel.setUpdateForeground(false)
+    }
+
+    @Test
+    fun download_completedInBackgroundRestoresReadyWithoutLaunchingInstaller() {
+        updates.fetchResult = Result.success(availableUpdate())
+        val viewModel = createViewModel()
+        viewModel.setUpdateForeground(true)
+        viewModel.checkForUpdates(true)
+        viewModel.downloadAvailableUpdate()
+        viewModel.setUpdateForeground(false)
+        updates.publish(UpdateDownloadState.Ready)
+        viewModel.setUpdateForeground(true)
+
+        assertEquals(UpdateState.Available(availableUpdate(), UpdateDownloadState.Ready), viewModel.updateState.value)
+        assertNull(viewModel.updateInstallation.value)
+        viewModel.setUpdateForeground(false)
+    }
+
+    @Test
+    fun download_restoresAfterProcessRestartWithoutCheckingServer() {
+        updates.transfer = UpdateTransfer(availableUpdate(), UpdateDownloadState.Downloading(42, true))
+        val viewModel = createViewModel()
+        viewModel.setUpdateForeground(true)
+        assertEquals(UpdateState.Available(availableUpdate(), updates.transfer!!.state), viewModel.updateState.value)
+        assertEquals(0, updates.fetchCount)
+        assertEquals(0, updates.downloadCount)
+        updates.publish(UpdateDownloadState.Ready)
+        assertNull(viewModel.updateInstallation.value)
+        viewModel.setUpdateForeground(false)
+    }
+
+    @Test
+    fun download_dismissingDialogDisablesAutomaticInstallation() {
+        updates.fetchResult = Result.success(availableUpdate())
+        val viewModel = createViewModel()
+        viewModel.setUpdateForeground(true)
+        viewModel.checkForUpdates(true)
+        viewModel.downloadAvailableUpdate()
+        viewModel.cancelAutomaticUpdateInstall()
+        updates.publish(UpdateDownloadState.Ready)
+        assertNull(viewModel.updateInstallation.value)
+        viewModel.setUpdateForeground(false)
+    }
+
+    @Test
+    fun installation_permissionReturnRequiresSameVersionAndReadyFile() {
+        updates.transfer = UpdateTransfer(availableUpdate(), UpdateDownloadState.Ready)
+        val viewModel = createViewModel()
+        viewModel.setUpdateForeground(true)
+        viewModel.resumeUpdateInstallation(989)
+        assertNull(viewModel.updateInstallation.value)
+        viewModel.resumeUpdateInstallation(990)
+        assertEquals(availableUpdate(), viewModel.updateInstallation.value)
+        viewModel.consumeUpdateInstallation()
+        updates.publish(UpdateDownloadState.Failed(UpdateDownloadFailure.MISSING_FILE))
+        viewModel.resumeUpdateInstallation(990)
+        assertNull(viewModel.updateInstallation.value)
+        viewModel.setUpdateForeground(false)
+    }
+
+    @Test
+    fun installation_revalidatesFileAndOffersRedownloadWhenMissing() = runTest {
+        updates.transfer = UpdateTransfer(availableUpdate(), UpdateDownloadState.Ready)
+        val viewModel = createViewModel()
+        viewModel.setUpdateForeground(true)
+        assertNull(viewModel.validatedUpdateDownload(availableUpdate()))
+        assertEquals(
+            UpdateDownloadState.Failed(UpdateDownloadFailure.INVALID_APK),
+            (viewModel.updateState.value as UpdateState.Available).download
+        )
+        viewModel.downloadAvailableUpdate()
+        assertEquals(1, updates.downloadCount)
+        viewModel.setUpdateForeground(false)
+    }
 
     @Test
     fun refreshStatus_publishesNetworkAndAccountOverviewForLoggedInTargetWifi() {
@@ -755,7 +877,9 @@ private class FakeNetworkEnvironment : NetworkEnvironment {
 
 private class FakeUpdateGateway : UpdateGateway {
     var fetchResult: Result<UpdateInfo> = Result.failure(IllegalStateException("no update"))
-    var downloadResult = UpdateDownloadResult.Failed
+    var transfer: UpdateTransfer? = null
+    var downloadCount = 0
+    private val changes = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     var fetchCount = 0
 
     override suspend fun fetchLatestUpdate(currentVersion: String): UpdateInfo {
@@ -763,5 +887,17 @@ private class FakeUpdateGateway : UpdateGateway {
         return fetchResult.getOrThrow()
     }
 
-    override fun downloadUpdate(update: UpdateInfo): UpdateDownloadResult = downloadResult
+    override suspend fun downloadUpdate(update: UpdateInfo): UpdateTransfer {
+        downloadCount++
+        return UpdateTransfer(update, UpdateDownloadState.Downloading()).also { transfer = it }
+    }
+
+    fun publish(state: UpdateDownloadState) {
+        transfer = transfer?.copy(state = state)
+        changes.tryEmit(Unit)
+    }
+
+    override suspend fun refreshDownload(): UpdateTransfer? = transfer
+    override fun observeDownloadChanges(): Flow<Unit> = changes.onStart { emit(Unit) }
+    override suspend fun validatedDownload(update: UpdateInfo): java.io.File? = null
 }

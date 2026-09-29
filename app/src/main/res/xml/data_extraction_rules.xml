@@ -1,11 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <data-extraction-rules>
     <cloud-backup>
+        <exclude domain="sharedpref" path="alogin_updates.xml" />
+        <exclude domain="external" path="Download/updates/" />
         <exclude domain="sharedpref" path="alogin_secure.xml" />
         <exclude domain="sharedpref" path="alogin_tink_keyset.xml" />
         <exclude domain="sharedpref" path="alogin_tink_fallback_keyset.xml" />
     </cloud-backup>
     <device-transfer>
+        <exclude domain="sharedpref" path="alogin_updates.xml" />
+        <exclude domain="external" path="Download/updates/" />
         <exclude domain="sharedpref" path="alogin_secure.xml" />
         <exclude domain="sharedpref" path="alogin_tink_keyset.xml" />
         <exclude domain="sharedpref" path="alogin_tink_fallback_keyset.xml" />

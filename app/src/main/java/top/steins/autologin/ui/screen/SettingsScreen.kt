@@ -44,6 +44,8 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import top.steins.autologin.BuildConfig
 import top.steins.autologin.network.update.UpdateState
+import top.steins.autologin.network.update.UpdateDownloadState
+import top.steins.autologin.ui.component.updateDownloadSummary
 import top.steins.autologin.ui.component.NavigationTopBar
 import top.steins.autologin.ui.theme.AppCardShape
 import top.steins.autologin.ui.theme.LocalAloginDarkTheme
@@ -253,7 +255,9 @@ fun SettingsScreen(
                                         R.string.update_up_to_date,
                                         BuildConfig.VERSION_NAME
                                     )
-                                    is UpdateState.Available -> stringResource(
+                                    is UpdateState.Available -> if (updateState.download != UpdateDownloadState.None) {
+                                        updateDownloadSummary(updateState.download)
+                                    } else stringResource(
                                         R.string.update_available,
                                         updateState.update.version
                                     )

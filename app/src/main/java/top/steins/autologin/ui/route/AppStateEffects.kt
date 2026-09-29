@@ -64,11 +64,12 @@ fun AppDialogs(
     if (availableUpdate != null && dismissedUpdateVersion != availableUpdate.version) {
         UpdateDialog(
             update = availableUpdate,
-            onDownload = {
+            download = (updateState as UpdateState.Available).download,
+            onDownload = viewModel::downloadAvailableUpdate,
+            onDismiss = {
                 dismissedUpdateVersion = availableUpdate.version
-                viewModel.downloadAvailableUpdate()
-            },
-            onDismiss = { dismissedUpdateVersion = availableUpdate.version }
+                viewModel.cancelAutomaticUpdateInstall()
+            }
         )
     }
 
