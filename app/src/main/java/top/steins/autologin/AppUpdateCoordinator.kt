@@ -25,6 +25,7 @@ internal class AppUpdateCoordinator(
     private val updates: UpdateGateway,
     private val hasValidatedInternet: () -> Boolean,
     private val currentVersion: String,
+    private val currentVersionCode: Int,
     private val currentTimeMillis: () -> Long,
     private val automaticCheckDelayMs: Long,
     private val automaticCheckIntervalMs: Long
@@ -83,7 +84,9 @@ internal class AppUpdateCoordinator(
         try {
             val update = updates.fetchLatestUpdate(currentVersion)
             settings.setLastUpdateCheckAt(checkedAt)
-            val result = if (SemanticVersion.isNewer(update.version, currentVersion)) {
+            val result = if (SemanticVersion.isNewer(update.version, currentVersion) &&
+                update.versionCode > currentVersionCode
+            ) {
                 UpdateState.Available(update)
             } else {
                 UpdateState.UpToDate(update.version)

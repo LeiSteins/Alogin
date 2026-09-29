@@ -72,6 +72,7 @@ class AppViewModel(
         updates = updates,
         hasValidatedInternet = network::hasValidatedInternet,
         currentVersion = BuildConfig.VERSION_NAME,
+        currentVersionCode = BuildConfig.VERSION_CODE,
         currentTimeMillis = currentTimeMillis,
         automaticCheckDelayMs = AUTOMATIC_UPDATE_CHECK_DELAY_MS,
         automaticCheckIntervalMs = AUTOMATIC_UPDATE_CHECK_INTERVAL_MS

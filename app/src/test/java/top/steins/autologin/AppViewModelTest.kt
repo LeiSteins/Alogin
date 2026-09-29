@@ -406,7 +406,8 @@ class AppViewModelTest {
                 UpdateInfo(
                     version = "0.2.0",
                     fileName = "alogin-v0.2.0.apk",
-                    downloadUrl = "https://aloginupdate.steins.top/alogin-v0.2.0.apk"
+                    downloadUrl = "https://aloginupdate.steins.top/alogin-v0.2.0.apk",
+                    versionCode = BuildConfig.VERSION_CODE + 1
                 )
             )
             val viewModel = createViewModel(currentTimeMillis = { now })
@@ -484,7 +485,8 @@ class AppViewModelTest {
                 UpdateInfo(
                     version = "0.2.0",
                     fileName = "alogin-v0.2.0.apk",
-                    downloadUrl = "https://aloginupdate.steins.top/alogin-v0.2.0.apk"
+                    downloadUrl = "https://aloginupdate.steins.top/alogin-v0.2.0.apk",
+                    versionCode = BuildConfig.VERSION_CODE + 1
                 )
             )
             val viewModel = createViewModel()
@@ -506,7 +508,9 @@ class AppViewModelTest {
         val update = UpdateInfo(
             version = "0.2.0",
             fileName = "alogin-v0.2.0.apk",
-            downloadUrl = "https://aloginupdate.steins.top/alogin-v0.2.0.apk"
+            downloadUrl = "https://aloginupdate.steins.top/alogin-v0.2.0.apk",
+            versionCode = BuildConfig.VERSION_CODE + 1,
+            releaseNotes = "- 新增更新说明"
         )
         updates.fetchResult = Result.success(update)
         val viewModel = createViewModel()
@@ -514,6 +518,23 @@ class AppViewModelTest {
         viewModel.checkForUpdates(manual = true)
 
         assertEquals(UpdateState.Available(update), viewModel.updateState.value)
+    }
+
+    @Test
+    fun checkForUpdates_doesNotOfferVersionWithNonIncreasingVersionCode() {
+        listOf(BuildConfig.VERSION_CODE, BuildConfig.VERSION_CODE - 1).forEach { code ->
+            updates.fetchResult = Result.success(
+                UpdateInfo(
+                    version = "99.0.0",
+                    fileName = "alogin-v99.0.0.apk",
+                    downloadUrl = "https://aloginupdate.steins.top/alogin-v99.0.0.apk",
+                    versionCode = code
+                )
+            )
+            val viewModel = createViewModel()
+            viewModel.checkForUpdates(manual = true)
+            assertEquals(UpdateState.UpToDate("99.0.0"), viewModel.updateState.value)
+        }
     }
 
     @Test

@@ -2,9 +2,14 @@ package top.steins.autologin.ui.route
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import top.steins.autologin.AppViewModel
+import top.steins.autologin.network.update.UpdateState
 import top.steins.autologin.ui.component.CapsuleToastState
+import top.steins.autologin.ui.component.UpdateDialog
 import top.steins.autologin.ui.screen.AboutScreen
 import top.steins.autologin.ui.screen.AccountScreen
 import top.steins.autologin.ui.screen.HomeScreen
@@ -82,6 +87,18 @@ fun SettingsRoute(
     val httpLogEnabled by viewModel.httpLogEnabled.collectAsStateWithLifecycle()
     val httpLogs by viewModel.httpLogs.collectAsStateWithLifecycle()
     val updateState by viewModel.updateState.collectAsStateWithLifecycle()
+    var showUpdateDetails by rememberSaveable { mutableStateOf(false) }
+    val availableUpdate = (updateState as? UpdateState.Available)?.update
+    if (showUpdateDetails && availableUpdate != null) {
+        UpdateDialog(
+            update = availableUpdate,
+            onDownload = {
+                showUpdateDetails = false
+                viewModel.downloadAvailableUpdate()
+            },
+            onDismiss = { showUpdateDetails = false }
+        )
+    }
 
     SettingsScreen(
         targetWifiCount = targetWifis.size,
@@ -95,7 +112,7 @@ fun SettingsRoute(
         onNavigateToWifiConfig = onNavigateToWifiConfig,
         onNavigateToAbout = onNavigateToAbout,
         onCheckForUpdates = { viewModel.checkForUpdates(manual = true) },
-        onDownloadUpdate = viewModel::downloadAvailableUpdate
+        onDownloadUpdate = { showUpdateDetails = true }
     )
 }
 

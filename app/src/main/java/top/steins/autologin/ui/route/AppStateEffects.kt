@@ -15,10 +15,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import top.steins.autologin.AppViewModel
-import top.steins.autologin.BuildConfig
 import top.steins.autologin.R
 import top.steins.autologin.network.update.UpdateState
 import top.steins.autologin.ui.component.CapsuleToastState
+import top.steins.autologin.ui.component.UpdateDialog
 
 /** 将权限副作用限制在独立重组作用域中。 */
 @Composable
@@ -62,36 +62,13 @@ fun AppDialogs(
 
     val availableUpdate = (updateState as? UpdateState.Available)?.update
     if (availableUpdate != null && dismissedUpdateVersion != availableUpdate.version) {
-        AlertDialog(
-            onDismissRequest = { dismissedUpdateVersion = availableUpdate.version },
-            title = {
-                Text(stringResource(R.string.update_dialog_title, availableUpdate.version))
+        UpdateDialog(
+            update = availableUpdate,
+            onDownload = {
+                dismissedUpdateVersion = availableUpdate.version
+                viewModel.downloadAvailableUpdate()
             },
-            text = {
-                Text(
-                    stringResource(
-                        R.string.update_dialog_message,
-                        BuildConfig.VERSION_NAME
-                    )
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        dismissedUpdateVersion = availableUpdate.version
-                        viewModel.downloadAvailableUpdate()
-                    }
-                ) {
-                    Text(stringResource(R.string.update_download))
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = { dismissedUpdateVersion = availableUpdate.version }
-                ) {
-                    Text(stringResource(R.string.update_later))
-                }
-            }
+            onDismiss = { dismissedUpdateVersion = availableUpdate.version }
         )
     }
 

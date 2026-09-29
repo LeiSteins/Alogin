@@ -55,6 +55,36 @@ Debug APK 的默认输出位置为 `app/build/outputs/apk/debug/`。
 
 推送 `v*` 标签会触发 Release 工作流，在测试和签名构建成功后创建 GitHub Release，并将 APK 上传到更新服务器。
 
+发布前同步递增 `app/build.gradle.kts` 中的 `versionName` 和 `versionCode`，并新增
+[`release-notes/<版本号>.md`](release-notes/README.md) 中文更新说明。标签需与 `versionName`
+一致。工作流生成的 `latest.json` 和 APK 一同附加到 GitHub Release，更新说明作为 Release 正文。
+
+应用从 `https://aloginupdate.steins.top/latest.json` 检查版本，并在下载前显示更新说明。
+版本文件格式如下（数值仅为示例）：
+
+```json
+{
+  "schemaVersion": 1,
+  "version": "0.2.0",
+  "versionCode": 20,
+  "fileName": "alogin-v0.2.0.apk",
+  "releaseNotes": "- 新增更新说明\n- 修复登录问题"
+}
+```
+
+客户端仅在版本名称和版本代码均高于当前安装版本时提示更新；下载地址由可信服务器地址与
+匹配版本的 APK 文件名组成。清单缺失或损坏时显示检查失败，允许重试。
+
+服务器部署沿用现有 `production` 环境中的 `DEPLOY_HOST`、`DEPLOY_PATH`、`DEPLOY_PORT`、
+`DEPLOY_USER` 和 SSH secrets，无需新增凭据。工作流先上传 APK 及校验文件，再上传临时版本文件，
+最后通过同目录重命名原子替换 `latest.json`。部署串行执行，拒绝较小 `versionCode` 或不同版本复用
+相同 `versionCode` 覆盖最新标识；相同版本允许重跑。服务器必须允许访问该 JSON 文件；建议为
+`latest.json` 配置 `Cache-Control: no-cache`，使用 CDN 时同时配置缓存规则。
+
+首次启用需要完成一次发布以创建服务器上的 `latest.json`。旧版应用仍可通过现有目录列表发现 APK，
+因此迁移期间保留目录列表及原有 APK 文件。更新说明不会在 Release 正文被手工编辑后自动重新同步；
+需要修改仓库中的对应说明并走发布流程。
+
 ## 技术栈
 
 - Kotlin + Jetpack Compose + Material 3

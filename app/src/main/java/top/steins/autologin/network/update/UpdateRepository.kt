@@ -9,6 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONObject
 import top.steins.autologin.network.executeCancellable
 import top.steins.autologin.R
 import java.io.IOException
@@ -19,7 +20,9 @@ private const val UPDATE_BASE_URL = "https://aloginupdate.steins.top/"
 data class UpdateInfo(
     val version: String,
     val fileName: String,
-    val downloadUrl: String
+    val downloadUrl: String,
+    val versionCode: Int,
+    val releaseNotes: String = ""
 )
 
 sealed interface UpdateState {
@@ -59,8 +62,9 @@ class UpdateRepository(context: Context) : UpdateGateway {
 
     override suspend fun fetchLatestUpdate(currentVersion: String): UpdateInfo = withContext(Dispatchers.IO) {
         val request = Request.Builder()
-            .url(UPDATE_BASE_URL)
+            .url(UPDATE_BASE_URL + "latest.json")
             .header("User-Agent", "Alogin $currentVersion")
+            .header("Cache-Control", "no-cache")
             .get()
             .build()
 
@@ -68,9 +72,8 @@ class UpdateRepository(context: Context) : UpdateGateway {
             if (!response.isSuccessful) {
                 throw IOException("更新服务器返回 HTTP ${response.code}")
             }
-            val html = response.body.string()
-            parseLatestUpdate(html)
-                ?: throw IOException("更新服务器未提供有效的 APK")
+            parseLatestUpdate(response.body.string())
+                ?: throw IOException("更新服务器未提供有效的版本信息")
         }
     }
 
@@ -106,23 +109,24 @@ class UpdateRepository(context: Context) : UpdateGateway {
     }
 }
 
-private val apkLinkPattern = Regex(
-    """href\s*=\s*["'](alogin-v((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?)\.apk)["']""",
-    RegexOption.IGNORE_CASE
-)
-
-internal fun parseLatestUpdate(html: String): UpdateInfo? {
-    return apkLinkPattern.findAll(html)
-        .mapNotNull { match ->
-            val fileName = match.groupValues[1]
-            val versionName = match.groupValues[2]
-            val semanticVersion = SemanticVersion.parseOrNull(versionName) ?: return@mapNotNull null
-            semanticVersion to UpdateInfo(
-                version = versionName,
-                fileName = fileName,
-                downloadUrl = UPDATE_BASE_URL + fileName
-            )
-        }
-        .maxWithOrNull(compareBy { it.first })
-        ?.second
-}
+/** 下载地址由可信服务器和受限文件名组成，不接受清单指定的任意 URL。 */
+internal fun parseLatestUpdate(json: String): UpdateInfo? = runCatching {
+    val manifest = JSONObject(json)
+    require(manifest.opt("schemaVersion") == 1)
+    val version = manifest.opt("version") as? String ?: return null
+    require(version == version.trim() && !version.startsWith("v"))
+    require(SemanticVersion.parseOrNull(version) != null)
+    val versionCode = manifest.opt("versionCode") as? Int ?: return null
+    require(versionCode in 1..2_100_000_000)
+    val fileName = manifest.opt("fileName") as? String ?: return null
+    require(fileName == "alogin-v$version.apk")
+    val releaseNotes = (manifest.opt("releaseNotes") as? String ?: return null).trim()
+    require(releaseNotes.isNotEmpty() && releaseNotes.length <= 20_000)
+    UpdateInfo(
+        version = version,
+        fileName = fileName,
+        downloadUrl = UPDATE_BASE_URL + fileName,
+        versionCode = versionCode,
+        releaseNotes = releaseNotes
+    )
+}.getOrNull()
