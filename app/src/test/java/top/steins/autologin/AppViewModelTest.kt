@@ -660,6 +660,28 @@ class AppViewModelTest {
     }
 
     @Test
+    fun selectedAccount_isUsedByNextLogin() = runTest {
+        settings.accounts.value = listOf(
+            top.steins.autologin.data.SavedAccount("alice", "a"),
+            top.steins.autologin.data.SavedAccount("bob", "b")
+        )
+        network.info = CurrentNetworkInfo(
+            wifiName = "bjut_wifi", ipAddress = "10.1.2.3",
+            isWifi = true, isCellular = false, isConnected = true
+        )
+        val viewModel = createViewModel()
+        assertEquals(CredentialSaveResult.SAVED, viewModel.selectAccount("bob"))
+        viewModel.login()
+        assertEquals("bob" to "b", network.performedLogin)
+        viewModel.removeAccount("bob")
+        viewModel.login()
+        assertEquals("alice" to "a", network.performedLogin)
+        viewModel.removeAccount("alice")
+        assertEquals("", viewModel.username.value)
+        assertEquals("", viewModel.password.value)
+    }
+
+    @Test
     fun saveCredentials_forwardsResultAndDoesNotStoreOnFailure() {
         settings.saveResult = CredentialSaveResult.ENCRYPTION_UNAVAILABLE
         val viewModel = createViewModel()
@@ -733,6 +755,22 @@ class AppViewModelTest {
 }
 
 private class FakeSettingsGateway : SettingsGateway {
+    override val accounts = MutableStateFlow<List<top.steins.autologin.data.SavedAccount>>(emptyList())
+    override fun selectAccount(username: String): CredentialSaveResult {
+        val account = accounts.value.find { it.username == username }
+            ?: return CredentialSaveResult.INVALID_INPUT
+        setCredentials(account.username, account.password)
+        return CredentialSaveResult.SAVED
+    }
+    override fun removeAccount(username: String): CredentialSaveResult {
+        accounts.value = accounts.value.filterNot { it.username == username }
+        if (this.username.value == username) {
+            val next = accounts.value.firstOrNull()
+            setCredentials(next?.username.orEmpty(), next?.password.orEmpty())
+        }
+        return CredentialSaveResult.SAVED
+    }
+
     private val _targetWifis = MutableStateFlow(listOf("bjut_wifi"))
     override val targetWifis: StateFlow<List<String>> = _targetWifis.asStateFlow()
 

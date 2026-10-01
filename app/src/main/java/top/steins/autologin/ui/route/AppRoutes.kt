@@ -63,11 +63,13 @@ fun AccountRoute(
     onNavigateBack: () -> Unit
 ) {
     val username by viewModel.username.collectAsStateWithLifecycle()
-    val password by viewModel.password.collectAsStateWithLifecycle()
+    val accounts by viewModel.accounts.collectAsStateWithLifecycle()
 
     AccountScreen(
         username = username,
-        password = password,
+        accounts = accounts,
+        onSelectAccount = viewModel::selectAccount,
+        onRemoveAccount = viewModel::removeAccount,
         onSaveCredentials = viewModel::saveCredentials,
         onShowToast = toastState::show,
         onNavigateBack = onNavigateBack

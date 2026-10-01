@@ -46,6 +46,7 @@ class AppViewModel(
     private val currentTimeMillis: () -> Long = System::currentTimeMillis
 ) : ViewModel() {
 
+    val accounts = settings.accounts
     val username: StateFlow<String> = settings.username
     val password: StateFlow<String> = settings.password
     val targetWifis: StateFlow<List<String>> = settings.targetWifis
@@ -124,6 +125,10 @@ class AppViewModel(
 
     fun saveCredentials(username: String, password: String): CredentialSaveResult =
         settings.saveCredentials(username, password)
+
+    fun selectAccount(username: String) = settings.selectAccount(username)
+
+    fun removeAccount(username: String) = settings.removeAccount(username)
 
     fun addTargetWifi(ssid: String) = settings.addTargetWifi(ssid)
 

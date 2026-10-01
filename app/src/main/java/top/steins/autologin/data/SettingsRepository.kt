@@ -30,7 +30,8 @@ enum class AppearanceMode {
  */
 enum class CredentialSaveResult {
     SAVED,
-    ENCRYPTION_UNAVAILABLE
+    ENCRYPTION_UNAVAILABLE,
+    INVALID_INPUT
 }
 
 /**
@@ -40,6 +41,7 @@ enum class CredentialSaveResult {
 interface SettingsGateway {
     val targetWifis: StateFlow<List<String>>
     val targetWifiConfigChanges: SharedFlow<TargetWifiConfigChange>
+    val accounts: StateFlow<List<SavedAccount>>
     val username: StateFlow<String>
     val password: StateFlow<String>
     val appearanceMode: StateFlow<AppearanceMode>
@@ -53,6 +55,10 @@ interface SettingsGateway {
     fun removeTargetWifi(ssid: String)
 
     fun saveCredentials(username: String, password: String): CredentialSaveResult
+
+    fun selectAccount(username: String): CredentialSaveResult
+
+    fun removeAccount(username: String): CredentialSaveResult
 
     fun saveAppearanceMode(mode: AppearanceMode)
 
@@ -95,16 +101,20 @@ class SettingsRepository(context: Context) : SettingsGateway {
     private val _credentialResetPending = MutableStateFlow(false)
     override val credentialResetPending: StateFlow<Boolean> = _credentialResetPending.asStateFlow()
 
-    // 旧版本把凭据明文存在 alogin_settings 中，首次构造时迁移到加密的 alogin_secure。
-    init {
-        migrateLegacyCredentials()
-    }
-
-    private val _username = MutableStateFlow(readCredential(KEY_USERNAME))
+    private var savedAccounts = readSavedAccounts()
+    private val _accounts = MutableStateFlow(savedAccounts.accounts)
+    override val accounts: StateFlow<List<SavedAccount>> = _accounts.asStateFlow()
+    private val _username = MutableStateFlow(savedAccounts.active?.username.orEmpty())
     override val username: StateFlow<String> = _username.asStateFlow()
-
-    private val _password = MutableStateFlow(readCredential(KEY_PASSWORD))
+    private val _password = MutableStateFlow(savedAccounts.active?.password.orEmpty())
     override val password: StateFlow<String> = _password.asStateFlow()
+
+    init {
+        // 新格式加密成功后才删除旧凭据，迁移失败仍保留旧账号。
+        if (!securePrefs.contains(KEY_ACCOUNTS) && savedAccounts.accounts.isNotEmpty()) {
+            persistAccounts(savedAccounts)
+        }
+    }
 
     private val _appearanceMode = MutableStateFlow(getAppearanceMode())
     override val appearanceMode: StateFlow<AppearanceMode> = _appearanceMode.asStateFlow()
@@ -172,20 +182,31 @@ class SettingsRepository(context: Context) : SettingsGateway {
         .distinct()
 
     override fun saveCredentials(username: String, password: String): CredentialSaveResult {
-        val encryptedUsername = credentialCipher.encrypt(KEY_USERNAME, username)
-        val encryptedPassword = credentialCipher.encrypt(KEY_PASSWORD, password)
-        if (encryptedUsername == null || encryptedPassword == null) {
-            // 两条加密路径都不可用时拒绝保存，绝不把凭据降级为明文落盘。
-            return CredentialSaveResult.ENCRYPTION_UNAVAILABLE
-        }
+        if (username.isBlank() || password.isBlank()) return CredentialSaveResult.INVALID_INPUT
+        return persistAccounts(savedAccounts.save(username, password))
+    }
 
+    override fun selectAccount(username: String): CredentialSaveResult {
+        if (savedAccounts.accounts.none { it.username == username }) {
+            return CredentialSaveResult.INVALID_INPUT
+        }
+        return persistAccounts(savedAccounts.select(username))
+    }
+
+    override fun removeAccount(username: String): CredentialSaveResult =
+        persistAccounts(savedAccounts.remove(username))
+
+    private fun persistAccounts(value: SavedAccounts): CredentialSaveResult {
+        val encrypted = credentialCipher.encrypt(KEY_ACCOUNTS, SavedAccountsCodec.encode(value))
+            ?: return CredentialSaveResult.ENCRYPTION_UNAVAILABLE
         securePrefs.edit()
-            .putString(KEY_USERNAME, encryptedUsername)
-            .putString(KEY_PASSWORD, encryptedPassword)
-            .apply()
+            .putString(KEY_ACCOUNTS, encrypted)
+            .remove(KEY_USERNAME).remove(KEY_PASSWORD).apply()
         prefs.edit().remove(KEY_USERNAME).remove(KEY_PASSWORD).apply()
-        _username.value = username
-        _password.value = password
+        savedAccounts = value
+        _accounts.value = value.accounts
+        _username.value = value.active?.username.orEmpty()
+        _password.value = value.active?.password.orEmpty()
         return CredentialSaveResult.SAVED
     }
 
@@ -226,25 +247,16 @@ class SettingsRepository(context: Context) : SettingsGateway {
         }
     }
 
-    private fun migrateLegacyCredentials() {
-        val removedLegacyKeys = mutableListOf<String>()
-        val secureEditor = securePrefs.edit()
-        for (key in listOf(KEY_USERNAME, KEY_PASSWORD)) {
-            if (!securePrefs.contains(key)) {
-                prefs.getString(key, null)?.let { legacy ->
-                    credentialCipher.encrypt(key, legacy)?.let { encrypted ->
-                        secureEditor.putString(key, encrypted)
-                        removedLegacyKeys += key
-                    }
-                }
-            }
+    private fun readSavedAccounts(): SavedAccounts {
+        if (securePrefs.contains(KEY_ACCOUNTS)) {
+            val decoded = SavedAccountsCodec.decode(readCredential(KEY_ACCOUNTS))
+            if (decoded == null) _credentialResetPending.value = true
+            return decoded ?: SavedAccounts()
         }
-        if (removedLegacyKeys.isNotEmpty()) {
-            secureEditor.apply()
-            val legacyEditor = prefs.edit()
-            removedLegacyKeys.forEach { legacyEditor.remove(it) }
-            legacyEditor.apply()
-        }
+        val username = readCredential(KEY_USERNAME)
+        val password = readCredential(KEY_PASSWORD)
+        if (_credentialResetPending.value || username.isBlank()) return SavedAccounts()
+        return SavedAccounts(listOf(SavedAccount(username, password)), username)
     }
 
     private fun handleCredentialKeyInvalidation() {
@@ -258,6 +270,7 @@ class SettingsRepository(context: Context) : SettingsGateway {
 
     companion object {
         private const val KEY_TARGET_WIFIS = "target_wifis"
+        private const val KEY_ACCOUNTS = "saved_accounts_v1"
         private const val KEY_USERNAME = "username"
         private const val KEY_PASSWORD = "password"
         private const val KEY_APPEARANCE_MODE = "appearance_mode"

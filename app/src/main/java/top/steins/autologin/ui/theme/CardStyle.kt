@@ -6,7 +6,7 @@ import androidx.compose.material3.CardElevation
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.dp
 
-val AppCardShape = RoundedCornerShape(16.dp)
+val AppCardShape = RoundedCornerShape(24.dp)
 
 @Composable
 fun appCardElevation(): CardElevation {
