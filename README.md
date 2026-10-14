@@ -6,6 +6,8 @@
 
 一款 Android 网络认证助手，用于在已配置的目标 Wi-Fi 上完成认证，并查看网络与账号状态。
 
+官网：[https://steins.top/alogin/](https://steins.top/alogin/)
+
 ## 功能
 
 - 一键认证：保存账号和密码后，可在目标 Wi-Fi 上发起认证。
