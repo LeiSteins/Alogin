@@ -92,7 +92,7 @@ fun AccountScreen(
                     Column(
                         modifier = Modifier.fillMaxWidth().background(
                             Brush.linearGradient(listOf(colors.primaryContainer, colors.surfaceContainer))
-                        ).padding(24.dp),
+                        ).padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Icon(
@@ -142,7 +142,7 @@ fun AccountScreen(
                         colors = CardDefaults.cardColors(containerColor = colors.surfaceContainer)
                     ) {
                         Column(
-                            Modifier.fillMaxWidth().padding(24.dp),
+                            Modifier.fillMaxWidth().padding(16.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             Text(stringResource(R.string.account_empty_title), style = MaterialTheme.typography.titleMedium)
@@ -225,7 +225,7 @@ fun AccountScreen(
             existingUsernames = accounts.map { it.username },
             onDismiss = { showEditor = false },
             onSave = { user, pass ->
-                if (report(onSaveCredentials(user, pass), R.string.account_saved_success)) showEditor = false
+                report(onSaveCredentials(user, pass), R.string.account_saved_success)
             }
         )
     }

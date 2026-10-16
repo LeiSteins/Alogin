@@ -30,6 +30,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,6 +54,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 import top.steins.autologin.R
 import top.steins.autologin.data.SavedAccount
 
@@ -62,30 +64,44 @@ internal fun AccountEditorSheet(
     account: SavedAccount?,
     existingUsernames: List<String>,
     onDismiss: () -> Unit,
-    onSave: (String, String) -> Unit
+    onSave: (String, String) -> Boolean
 ) {
     // 密码仅保留在当前组合内，不写入 SavedInstanceState。
     var username by remember { mutableStateOf(account?.username.orEmpty()) }
     var password by remember { mutableStateOf(account?.password.orEmpty()) }
     var passwordVisible by remember { mutableStateOf(false) }
     var attempted by remember { mutableStateOf(false) }
+    var isClosing by remember { mutableStateOf(false) }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
     val passwordFocus = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
-    val duplicate = account == null && username.trim() in existingUsernames
+    val duplicate = !isClosing && account == null && username.trim() in existingUsernames
     val usernameError = (attempted && username.isBlank()) || duplicate
     val passwordError = attempted && password.isBlank()
 
     fun save() {
+        if (isClosing) return
         attempted = true
         if (username.isNotBlank() && password.isNotBlank() && !duplicate) {
             focusManager.clearFocus()
-            onSave(username.trim(), password)
+            if (onSave(username.trim(), password)) {
+                isClosing = true
+                scope.launch {
+                    try {
+                        sheetState.hide()
+                        if (!sheetState.isVisible) onDismiss()
+                    } finally {
+                        isClosing = false
+                    }
+                }
+            }
         }
     }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        sheetState = sheetState
     ) {
         Column(
             Modifier.fillMaxWidth().imePadding().verticalScroll(rememberScrollState())
@@ -149,6 +165,7 @@ internal fun AccountEditorSheet(
             }
             Button(
                 onClick = ::save,
+                enabled = !isClosing,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
                 shape = RoundedCornerShape(16.dp)
             ) {

@@ -1,6 +1,7 @@
 package top.steins.autologin.ui.screen
 
 import android.graphics.Bitmap
+import androidx.compose.runtime.mutableStateOf
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
 import androidx.compose.ui.test.*
@@ -39,6 +40,49 @@ class AccountScreenTest {
         compose.onNodeWithContentDescription("隐藏密码").assertExists()
         compose.onNodeWithText("保存并使用").performScrollTo().performClick()
         compose.runOnIdle { assertEquals("alice" to "secret", saved) }
+    }
+
+    @Test
+    fun savingAccount_keepsEditorUntilExitAnimationCompletes() {
+        val accounts = mutableStateOf(emptyList<SavedAccount>())
+        var saveCount = 0
+        compose.setContent {
+            AloginTheme(darkTheme = false) {
+                AccountScreen("", accounts.value,
+                    onSaveCredentials = { user, pass ->
+                        saveCount++
+                        accounts.value = listOf(SavedAccount(user, pass))
+                        CredentialSaveResult.SAVED
+                    },
+                    onSelectAccount = { CredentialSaveResult.SAVED },
+                    onRemoveAccount = { CredentialSaveResult.SAVED },
+                    onShowToast = {}, onNavigateBack = {})
+            }
+        }
+        compose.onNodeWithText("添加第一个账号").performClick()
+        compose.onNodeWithContentDescription("用户名").performTextInput("alice")
+        compose.onNodeWithContentDescription("密码").performTextInput("secret")
+        compose.onNodeWithText("保存并使用").performScrollTo()
+        compose.waitForIdle()
+
+        compose.mainClock.autoAdvance = false
+        try {
+            compose.onNodeWithText("保存并使用").performClick()
+            compose.mainClock.advanceTimeByFrame()
+            compose.onNodeWithText("保存并使用").assertIsNotEnabled()
+            compose.onNodeWithContentDescription("用户名").assertExists()
+            compose.onNodeWithText("此账号已保存，请返回列表编辑密码或直接切换。").assertDoesNotExist()
+            compose.runOnIdle {
+                assertEquals(1, saveCount)
+                assertEquals(listOf(SavedAccount("alice", "secret")), accounts.value)
+            }
+
+            compose.mainClock.advanceTimeBy(1_000)
+            compose.onNodeWithText("保存并使用").assertDoesNotExist()
+            compose.onNodeWithContentDescription("用户名").assertDoesNotExist()
+        } finally {
+            compose.mainClock.autoAdvance = true
+        }
     }
 
     @Test
