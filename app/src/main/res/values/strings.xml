@@ -72,7 +72,9 @@
     <string name="about_package_label">应用标识</string>
     <string name="about_license_label">开源许可</string>
     <string name="about_license_value">GPL-3.0</string>
-    <string name="about_source_code">项目主页</string>
+    <string name="about_project_homepage">项目主页</string>
+    <string name="about_project_homepage_summary">访问项目官方网站</string>
+    <string name="about_source_code">项目源码</string>
     <string name="about_source_code_summary">在 GitHub 上查看源代码</string>
     <string name="about_license_details">许可说明</string>
     <string name="about_license_details_summary">查看完整许可条款</string>
@@ -256,10 +258,10 @@
     <string name="account_add">添加账号</string>
     <string name="account_empty_title">还没有保存的账号</string>
     <string name="account_empty_hint">添加校园网账号，登录时无需重复输入。你也可以保存多个账号，随时切换。</string>
-    <string name="account_add_first">添加第一个账号</string>
     <string name="account_selected">已选用</string>
     <string name="account_tap_to_use">点击切换</string>
     <string name="account_edit_named">编辑账号 %1$s</string>
+    <string name="account_delete">删除账号</string>
     <string name="account_delete_named">删除账号 %1$s</string>
     <string name="account_storage_hint">账号与密码仅加密保存在此设备上。</string>
     <string name="account_delete_title">删除已保存的账号？</string>

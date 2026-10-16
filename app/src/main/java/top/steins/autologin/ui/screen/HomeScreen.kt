@@ -289,7 +289,7 @@ fun HomeScreen(
                     top = innerPadding.calculateTopPadding(),
                     bottom = innerPadding.calculateBottomPadding() + 96.dp
                 ),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 if (renderNetworkCard) {
                     item(key = "network-info") {

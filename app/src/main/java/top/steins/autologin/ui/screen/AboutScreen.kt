@@ -41,8 +41,9 @@ import top.steins.autologin.ui.theme.AppCardShape
 import top.steins.autologin.ui.theme.ScreenHorizontalPadding
 import top.steins.autologin.ui.theme.appCardElevation
 
-private const val PROJECT_URL = "https://github.com/LeiSteins/alogin"
-private const val LICENSE_URL = "$PROJECT_URL/blob/main/LICENSE"
+private const val PROJECT_URL = "https://steins.top/alogin/"
+private const val SOURCE_CODE_URL = "https://github.com/LeiSteins/Alogin"
+private const val LICENSE_URL = "$SOURCE_CODE_URL/blob/main/LICENSE"
 
 @Composable
 fun AboutScreen(
@@ -158,9 +159,15 @@ fun AboutScreen(
                         elevation = appCardElevation()
                     ) {
                         AboutLinkRow(
+                            title = stringResource(R.string.about_project_homepage),
+                            summary = stringResource(R.string.about_project_homepage_summary),
+                            onClick = { uriHandler.openUri(PROJECT_URL) }
+                        )
+                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                        AboutLinkRow(
                             title = stringResource(R.string.about_source_code),
                             summary = stringResource(R.string.about_source_code_summary),
-                            onClick = { uriHandler.openUri(PROJECT_URL) }
+                            onClick = { uriHandler.openUri(SOURCE_CODE_URL) }
                         )
                         HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
                         AboutLinkRow(

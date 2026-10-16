@@ -66,7 +66,7 @@ internal fun DeviceCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 16.dp, top = 12.dp, end = 12.dp, bottom = 12.dp),
+                .padding(start = 16.dp, top = 8.dp, end = 12.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {

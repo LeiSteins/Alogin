@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -18,7 +17,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -124,11 +122,12 @@ fun AccountScreen(
                 ) {
                     Text(
                         stringResource(R.string.account_saved_count, accounts.size),
+                        modifier = Modifier.padding(start = 4.dp),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold
                     )
                     TextButton(onClick = { editingAccount = null; showEditor = true }) {
-                        Icon(painterResource(R.drawable.add_circle), null, Modifier.size(18.dp))
+                        Icon(painterResource(R.drawable.add_circle), null, Modifier.size(16.dp))
                         Spacer(Modifier.width(6.dp))
                         Text(stringResource(R.string.account_add))
                     }
@@ -150,10 +149,6 @@ fun AccountScreen(
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = colors.onSurfaceVariant
                             )
-                            Button(
-                                onClick = { editingAccount = null; showEditor = true },
-                                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
-                            ) { Text(stringResource(R.string.account_add_first)) }
                         }
                     }
                 }
@@ -198,20 +193,13 @@ fun AccountScreen(
                         IconButton(onClick = { editingAccount = account; showEditor = true }) {
                             Icon(painterResource(R.drawable.account_edit), stringResource(R.string.account_edit_named, account.username))
                         }
-                        IconButton(onClick = { deletingAccount = account.username }) {
-                            Icon(
-                                painterResource(R.drawable.delete),
-                                stringResource(R.string.account_delete_named, account.username),
-                                tint = colors.onSurfaceVariant
-                            )
-                        }
                     }
                 }
             }
             item {
                 Text(
                     stringResource(R.string.account_storage_hint),
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp),
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 16.dp),
                     style = MaterialTheme.typography.bodySmall,
                     color = colors.onSurfaceVariant
                 )
@@ -223,6 +211,7 @@ fun AccountScreen(
             account = editingAccount,
             existingUsernames = accounts.map { it.username },
             onDismiss = { showEditor = false },
+            onDelete = { deletingAccount = editingAccount?.username },
             onSave = { user, pass ->
                 report(onSaveCredentials(user, pass), R.string.account_saved_success)
             }
@@ -235,7 +224,10 @@ fun AccountScreen(
             text = { Text(stringResource(R.string.account_delete_message, target)) },
             confirmButton = {
                 TextButton(onClick = {
-                    if (report(onRemoveAccount(target), R.string.account_deleted)) deletingAccount = null
+                    if (report(onRemoveAccount(target), R.string.account_deleted)) {
+                        deletingAccount = null
+                        showEditor = false
+                    }
                 }) { Text(stringResource(R.string.action_delete), color = colors.error) }
             },
             dismissButton = {

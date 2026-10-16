@@ -19,12 +19,14 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -67,6 +69,7 @@ internal fun AccountEditorSheet(
     account: SavedAccount?,
     existingUsernames: List<String>,
     onDismiss: () -> Unit,
+    onDelete: () -> Unit,
     onSave: (String, String) -> Boolean
 ) {
     // 密码仅保留在当前组合内，不写入 SavedInstanceState。
@@ -201,6 +204,21 @@ internal fun AccountEditorSheet(
                 shape = RoundedCornerShape(16.dp)
             ) {
                 Text(stringResource(R.string.account_save_and_use), style = MaterialTheme.typography.titleSmall)
+            }
+            if (account != null) {
+                val deleteDescription = stringResource(R.string.account_delete_named, account.username)
+                TextButton(
+                    onClick = {
+                        focusManager.clearFocus()
+                        onDelete()
+                    },
+                    enabled = !isClosing,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                        .semantics { contentDescription = deleteDescription },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text(stringResource(R.string.account_delete), style = MaterialTheme.typography.titleSmall)
+                }
             }
         }
     }

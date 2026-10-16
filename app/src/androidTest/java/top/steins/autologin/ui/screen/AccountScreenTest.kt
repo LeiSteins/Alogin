@@ -30,7 +30,8 @@ class AccountScreenTest {
             }
         }
         capture("account-empty")
-        compose.onNodeWithText("添加第一个账号").performClick()
+        compose.onNodeWithText("添加账号").performClick()
+        compose.onNodeWithText("删除账号").assertDoesNotExist()
         capture("account-add")
         compose.onNodeWithText("保存并使用").performScrollTo().performClick()
         compose.onNodeWithText("请填写用户名和密码").assertIsDisplayed()
@@ -64,7 +65,7 @@ class AccountScreenTest {
                     onShowToast = {}, onNavigateBack = {})
             }
         }
-        compose.onNodeWithText("添加第一个账号").performClick()
+        compose.onNodeWithText("添加账号").performClick()
         compose.onNodeWithContentDescription("用户名").performTextInput("alice")
         compose.onNodeWithContentDescription("密码").performTextInput("secret")
         compose.onNodeWithText("保存并使用").performScrollTo()
@@ -106,13 +107,19 @@ class AccountScreenTest {
         capture("account-list")
         compose.onNodeWithText("bob").performClick()
         compose.runOnIdle { assertEquals("bob", selected) }
-        compose.onNodeWithContentDescription("删除账号 bob").performClick()
+        compose.onNodeWithContentDescription("删除账号 bob").assertDoesNotExist()
+        compose.onNodeWithContentDescription("编辑账号 bob").performClick()
+        compose.onNodeWithContentDescription("密码").performTextReplacement("updated")
+        capture("account-edit-delete")
+        compose.onNodeWithContentDescription("删除账号 bob").performScrollTo().performClick()
         compose.runOnIdle { assertEquals("", deleted) }
         compose.onNodeWithText("取消").performClick()
         compose.runOnIdle { assertEquals("", deleted) }
-        compose.onNodeWithContentDescription("删除账号 bob").performClick()
+        compose.onNodeWithContentDescription("密码").assertTextEquals("updated")
+        compose.onNodeWithContentDescription("删除账号 bob").performScrollTo().performClick()
         compose.onNodeWithText("删除", useUnmergedTree = true).performClick()
         compose.runOnIdle { assertEquals("bob", deleted) }
+        compose.onNodeWithContentDescription("密码").assertDoesNotExist()
     }
     @Test
     fun editingAccount_inDarkThemeKeepsUsernameAndUpdatesPassword() {
