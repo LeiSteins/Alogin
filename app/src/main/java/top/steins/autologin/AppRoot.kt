@@ -27,6 +27,7 @@ import top.steins.autologin.ui.route.AppDialogs
 import top.steins.autologin.ui.route.HomeRoute
 import top.steins.autologin.ui.route.LocationPermissionEffect
 import top.steins.autologin.ui.route.LogRoute
+import top.steins.autologin.ui.route.SoftwareSettingsRoute
 import top.steins.autologin.ui.route.SettingsRoute
 import top.steins.autologin.ui.route.UpdateMessageEffect
 import top.steins.autologin.ui.route.WifiConfigRoute
@@ -120,8 +121,13 @@ fun AppRoot(viewModel: AppViewModel) {
                     onNavigateBack = onNavigateBack,
                     onNavigateToLog = { navigateTo(AppDestination.Log) },
                     onNavigateToWifiConfig = { navigateTo(AppDestination.WifiConfig) },
+                    onNavigateToSoftwareSettings = { navigateTo(AppDestination.SoftwareSettings) },
                     onNavigateToAbout = { navigateTo(AppDestination.About) }
                 )
+            }
+
+            appComposable(AppDestination.SoftwareSettings, navController) { onNavigateBack ->
+                SoftwareSettingsRoute(viewModel = viewModel, onNavigateBack = onNavigateBack)
             }
 
             appComposable(AppDestination.About, navController) { onNavigateBack ->

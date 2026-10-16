@@ -14,6 +14,7 @@ import top.steins.autologin.ui.screen.AboutScreen
 import top.steins.autologin.ui.screen.AccountScreen
 import top.steins.autologin.ui.screen.HomeScreen
 import top.steins.autologin.ui.screen.LogScreen
+import top.steins.autologin.ui.screen.SoftwareSettingsScreen
 import top.steins.autologin.ui.screen.SettingsScreen
 import top.steins.autologin.ui.screen.WifiConfigScreen
 
@@ -82,10 +83,10 @@ fun SettingsRoute(
     onNavigateBack: () -> Unit,
     onNavigateToLog: () -> Unit,
     onNavigateToWifiConfig: () -> Unit,
+    onNavigateToSoftwareSettings: () -> Unit,
     onNavigateToAbout: () -> Unit
 ) {
     val targetWifis by viewModel.targetWifis.collectAsStateWithLifecycle()
-    val appearanceMode by viewModel.appearanceMode.collectAsStateWithLifecycle()
     val httpLogEnabled by viewModel.httpLogEnabled.collectAsStateWithLifecycle()
     val httpLogs by viewModel.httpLogs.collectAsStateWithLifecycle()
     val updateState by viewModel.updateState.collectAsStateWithLifecycle()
@@ -105,17 +106,33 @@ fun SettingsRoute(
 
     SettingsScreen(
         targetWifiCount = targetWifis.size,
-        appearanceMode = appearanceMode,
-        onAppearanceModeChange = viewModel::saveAppearanceMode,
         httpLogEnabled = httpLogEnabled,
         logEntryCount = httpLogs.size,
         updateState = updateState,
         onNavigateBack = onNavigateBack,
         onNavigateToLog = onNavigateToLog,
         onNavigateToWifiConfig = onNavigateToWifiConfig,
+        onNavigateToSoftwareSettings = onNavigateToSoftwareSettings,
         onNavigateToAbout = onNavigateToAbout,
         onCheckForUpdates = { viewModel.checkForUpdates(manual = true) },
         onDownloadUpdate = { showUpdateDetails = true }
+    )
+}
+
+@Composable
+fun SoftwareSettingsRoute(
+    viewModel: AppViewModel,
+    onNavigateBack: () -> Unit
+) {
+    val appearanceMode by viewModel.appearanceMode.collectAsStateWithLifecycle()
+    val autoLoginOnStartup by viewModel.autoLoginOnStartup.collectAsStateWithLifecycle()
+
+    SoftwareSettingsScreen(
+        appearanceMode = appearanceMode,
+        onAppearanceModeChange = viewModel::saveAppearanceMode,
+        autoLoginOnStartup = autoLoginOnStartup,
+        onAutoLoginOnStartupChange = viewModel::setAutoLoginOnStartup,
+        onNavigateBack = onNavigateBack
     )
 }
 

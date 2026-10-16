@@ -6,6 +6,7 @@ import top.steins.autologin.network.DefaultNetworkChange
 
 internal enum class RefreshAttemptOutcome {
     Complete,
+    LoginSucceeded,
     RetryableFailure
 }
 

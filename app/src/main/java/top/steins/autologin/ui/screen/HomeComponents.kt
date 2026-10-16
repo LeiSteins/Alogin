@@ -117,7 +117,7 @@ internal fun NetworkInfoSummary(
         )
         Text(
             text = ipAddress,
-            style = MaterialTheme.typography.labelSmall.copy(lineHeight = 10.sp),
+            style = MaterialTheme.typography.labelSmall.copy(lineHeight = 14.sp),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis

@@ -9,6 +9,7 @@ sealed class AppDestination(val route: String) {
     data object Home : AppDestination("home")
     data object Account : AppDestination("account")
     data object Settings : AppDestination("settings")
+    data object SoftwareSettings : AppDestination("software_settings")
     data object About : AppDestination("about")
     data object Log : AppDestination("log")
     data object WifiConfig : AppDestination("wifi_config")

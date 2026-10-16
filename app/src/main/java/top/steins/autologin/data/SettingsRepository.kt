@@ -45,6 +45,7 @@ interface SettingsGateway {
     val username: StateFlow<String>
     val password: StateFlow<String>
     val appearanceMode: StateFlow<AppearanceMode>
+    val autoLoginOnStartup: StateFlow<Boolean>
     val httpLogEnabled: StateFlow<Boolean>
     val credentialResetPending: StateFlow<Boolean>
 
@@ -61,6 +62,8 @@ interface SettingsGateway {
     fun removeAccount(username: String): CredentialSaveResult
 
     fun saveAppearanceMode(mode: AppearanceMode)
+
+    fun setAutoLoginOnStartup(enabled: Boolean)
 
     fun setHttpLogEnabled(enabled: Boolean)
 
@@ -118,6 +121,9 @@ class SettingsRepository(context: Context) : SettingsGateway {
 
     private val _appearanceMode = MutableStateFlow(getAppearanceMode())
     override val appearanceMode: StateFlow<AppearanceMode> = _appearanceMode.asStateFlow()
+
+    private val _autoLoginOnStartup = MutableStateFlow(prefs.getBoolean(KEY_AUTO_LOGIN_ON_STARTUP, false))
+    override val autoLoginOnStartup: StateFlow<Boolean> = _autoLoginOnStartup.asStateFlow()
 
     private val _httpLogEnabled = MutableStateFlow(prefs.getBoolean(KEY_HTTP_LOG_ENABLED, false))
     override val httpLogEnabled: StateFlow<Boolean> = _httpLogEnabled.asStateFlow()
@@ -221,6 +227,11 @@ class SettingsRepository(context: Context) : SettingsGateway {
         _httpLogEnabled.value = enabled
     }
 
+    override fun setAutoLoginOnStartup(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_AUTO_LOGIN_ON_STARTUP, enabled).apply()
+        _autoLoginOnStartup.value = enabled
+    }
+
     override fun getLastUpdateCheckAt(): Long =
         prefs.getLong(KEY_LAST_UPDATE_CHECK_AT, 0L)
 
@@ -274,6 +285,7 @@ class SettingsRepository(context: Context) : SettingsGateway {
         private const val KEY_USERNAME = "username"
         private const val KEY_PASSWORD = "password"
         private const val KEY_APPEARANCE_MODE = "appearance_mode"
+        private const val KEY_AUTO_LOGIN_ON_STARTUP = "auto_login_on_startup"
         private const val KEY_HTTP_LOG_ENABLED = "http_log_enabled"
         private const val KEY_LAST_UPDATE_CHECK_AT = "last_update_check_at"
         private const val DEFAULT_WIFI = "bjut_wifi"

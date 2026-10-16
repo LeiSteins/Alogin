@@ -80,7 +80,10 @@
         <item quantity="other">%1$d 项记录</item>
     </plurals>
 
-    <!-- 外观设置 -->
+    <!-- 软件设置 -->
+    <string name="software_settings_title">软件设置</string>
+    <string name="auto_login_on_startup">启动软件后尝试自动登录</string>
+    <string name="software_settings_summary">外观与自动登录</string>
     <string name="appearance_title">外观设置</string>
     <string name="appearance_system">跟随系统</string>
     <string name="appearance_light">浅色</string>

@@ -118,6 +118,212 @@ class AppViewModelTest {
         return createViewModel().also { it.refreshStatus() }
     }
 
+    private fun createStartupViewModel(enabled: Boolean = true): AppViewModel {
+        settings.setAutoLoginOnStartup(enabled)
+        settings.setCredentials("2021001", "secret")
+        network.info = CurrentNetworkInfo(
+            wifiName = "bjut_wifi", ipAddress = "10.1.2.3",
+            isWifi = true, isCellular = false, isConnected = true
+        )
+        return createViewModel()
+    }
+
+    @Test
+    fun startupAutoLogin_disabledDoesNotSubmitCredentials() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val viewModel = createStartupViewModel(enabled = false)
+            viewModel.onAppForegrounded()
+            advanceUntilIdle()
+
+            assertEquals(0, network.loginCount)
+        }
+
+    @Test
+    fun startupAutoLogin_successConfirmsStatusAndLoadsAccountOverview() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val viewModel = createStartupViewModel()
+            network.loginResult = LoginResult.Success
+            network.loginStatusAfterLogin = LoginStatus(isLoggedIn = true, uid = "2021001")
+            val overview = AccountOverview("2021001", "100", "900", "20", emptyList())
+            selfService.overviewResult = AccountOverviewResult.Success(overview)
+
+            viewModel.onAppForegrounded()
+            advanceUntilIdle()
+
+            assertEquals(1, network.loginCount)
+            assertEquals("2021001" to "secret", network.performedLogin)
+            assertTrue(viewModel.uiState.value.isOnline)
+            assertFalse(viewModel.uiState.value.isAccountInfoLoading)
+            assertEquals(overview, viewModel.uiState.value.accountOverview)
+        }
+
+    @Test
+    fun startupAutoLogin_failureDoesNotRepeatOnRefreshOrForegroundAndAllowsManualLogin() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val viewModel = createStartupViewModel()
+            network.loginResult = LoginResult.Failure("bad password")
+            viewModel.onAppForegrounded()
+            advanceUntilIdle()
+
+            assertEquals(1, network.loginCount)
+            assertEquals("bad password", viewModel.uiState.value.networkStatusError)
+            assertFalse(viewModel.uiState.value.isAccountInfoLoading)
+
+            viewModel.refreshStatus()
+            viewModel.onAppForegrounded()
+            advanceUntilIdle()
+            assertEquals(1, network.loginCount)
+
+            viewModel.login()
+            assertEquals(2, network.loginCount)
+        }
+
+    @Test
+    fun startupAutoLogin_networkErrorEndsLoadingWithoutRetryingLogin() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val viewModel = createStartupViewModel()
+            network.loginResult = LoginResult.NetworkError("unreachable")
+            viewModel.onAppForegrounded()
+            advanceUntilIdle()
+
+            assertEquals(1, network.loginCount)
+            assertEquals("unreachable", viewModel.uiState.value.networkStatusError)
+            assertFalse(viewModel.uiState.value.isAccountInfoLoading)
+        }
+
+    @Test
+    fun startupAutoLogin_alreadyOnlineDoesNotLoginLaterWhenOffline() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val viewModel = createStartupViewModel()
+            network.loginStatus = LoginStatus(isLoggedIn = true, uid = "2021001")
+            viewModel.onAppForegrounded()
+            advanceUntilIdle()
+
+            network.loginStatus = LoginStatus(isLoggedIn = false)
+            viewModel.refreshStatus()
+            advanceUntilIdle()
+            assertEquals(0, network.loginCount)
+        }
+
+    @Test
+    fun startupAutoLogin_missingCredentialsDoesNotLoginWhenCredentialsAreAddedLater() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val viewModel = createStartupViewModel()
+            settings.setCredentials("", "")
+            viewModel.onAppForegrounded()
+            advanceUntilIdle()
+
+            settings.setCredentials("2021001", "secret")
+            viewModel.refreshStatus()
+            advanceUntilIdle()
+            assertEquals(0, network.loginCount)
+        }
+
+    @Test
+    fun startupAutoLogin_nonTargetWifiDoesNotLoginAfterSwitchingToTargetWifi() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val viewModel = createStartupViewModel()
+            network.info = network.info.copy(wifiName = "other_wifi")
+            viewModel.onAppForegrounded()
+            advanceUntilIdle()
+
+            network.info = network.info.copy(wifiName = "bjut_wifi")
+            network.emitDefaultNetworkChange(DefaultNetworkChange.SSID_CHANGED)
+            advanceUntilIdle()
+            assertEquals(0, network.loginCount)
+        }
+
+    @Test
+    fun startupAutoLogin_cellularNetworkDoesNotSubmitCredentials() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val viewModel = createStartupViewModel()
+            network.info = network.info.copy(isWifi = false, isCellular = true)
+            viewModel.onAppForegrounded()
+            advanceUntilIdle()
+            assertEquals(0, network.loginCount)
+        }
+
+    @Test
+    fun startupAutoLogin_waitsForLocationPermissionResult() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            settings.setAutoLoginOnStartup(true)
+            settings.setCredentials("2021001", "secret")
+            network.info = CurrentNetworkInfo(
+                wifiName = "unknown", ipAddress = "10.1.2.3",
+                isWifi = true, isCellular = false, isConnected = true
+            )
+            var granted = false
+            val viewModel = createViewModel(hasLocationPermission = { granted })
+            viewModel.onAppForegrounded()
+            advanceUntilIdle()
+            assertEquals(0, network.loginCount)
+
+            granted = true
+            network.info = network.info.copy(wifiName = "bjut_wifi")
+            viewModel.onLocationPermissionChanged()
+            advanceUntilIdle()
+            assertEquals(1, network.loginCount)
+        }
+
+    @Test
+    fun startupAutoLogin_statusErrorIsRetriedBeforeAttemptingLogin() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val viewModel = createStartupViewModel()
+            network.loginStatus = LoginStatus(isLoggedIn = false, error = "not ready")
+            viewModel.onAppForegrounded()
+            advanceTimeBy(AppViewModel.FOREGROUND_REFRESH_INITIAL_DELAY_MS)
+            runCurrent()
+            assertEquals(0, network.loginCount)
+
+            network.loginStatus = LoginStatus(isLoggedIn = false)
+            advanceUntilIdle()
+            assertEquals(1, network.loginCount)
+        }
+
+    @Test
+    fun startupAutoLogin_exhaustedStatusChecksDoNotLoginOnLaterForeground() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val viewModel = createStartupViewModel()
+            network.loginStatus = LoginStatus(isLoggedIn = false, error = "unreachable")
+            viewModel.onAppForegrounded()
+            advanceUntilIdle()
+            assertEquals(AppViewModel.FOREGROUND_REFRESH_ATTEMPTS, network.loginStatusFetchCount)
+
+            network.loginStatus = LoginStatus(isLoggedIn = false)
+            viewModel.onAppForegrounded()
+            advanceUntilIdle()
+            assertEquals(0, network.loginCount)
+        }
+
+    @Test
+    fun startupAutoLogin_changingSettingAffectsNextStartupOnly() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val viewModel = createStartupViewModel(enabled = false)
+            viewModel.setAutoLoginOnStartup(true)
+            assertTrue(settings.autoLoginOnStartup.value)
+            viewModel.onAppForegrounded()
+            advanceUntilIdle()
+            assertEquals(0, network.loginCount)
+
+            val restartedViewModel = createViewModel()
+            restartedViewModel.onAppForegrounded()
+            restartedViewModel.setAutoLoginOnStartup(false)
+            advanceUntilIdle()
+            assertFalse(settings.autoLoginOnStartup.value)
+            assertEquals(0, network.loginCount)
+        }
+
+    @Test
+    fun startupAutoLogin_manualLoginConsumesPendingAttempt() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val viewModel = createStartupViewModel()
+            viewModel.onAppForegrounded()
+            viewModel.login()
+            viewModel.onAppForegrounded()
+            advanceUntilIdle()
+            assertEquals(1, network.loginCount)
+        }
+
     @Test
     fun download_repeatedClicksAndChecksDoNotReplaceActiveTask() {
         updates.fetchResult = Result.success(availableUpdate())
@@ -900,6 +1106,11 @@ class AppViewModelTest {
 }
 
 private class FakeSettingsGateway : SettingsGateway {
+    override val autoLoginOnStartup = MutableStateFlow(false)
+
+    override fun setAutoLoginOnStartup(enabled: Boolean) {
+        autoLoginOnStartup.value = enabled
+    }
     override val accounts = MutableStateFlow<List<top.steins.autologin.data.SavedAccount>>(emptyList())
     override fun selectAccount(username: String): CredentialSaveResult {
         val account = accounts.value.find { it.username == username }
@@ -1034,6 +1245,8 @@ private class FakeNetworkEnvironment : NetworkEnvironment {
     var loginStatus = LoginStatus(isLoggedIn = false)
     var loginResult: LoginResult = LoginResult.Failure("")
     var performedLogin: Pair<String, String>? = null
+    var loginCount = 0
+    var loginStatusAfterLogin: LoginStatus? = null
     var validatedInternet = false
     var loginStatusFetchCount = 0
 
@@ -1057,7 +1270,9 @@ private class FakeNetworkEnvironment : NetworkEnvironment {
         username: String,
         password: String
     ): LoginResult {
+        loginCount += 1
         performedLogin = username to password
+        loginStatusAfterLogin?.let { loginStatus = it }
         return loginResult
     }
 }

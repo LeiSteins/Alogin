@@ -1,43 +1,25 @@
 package top.steins.autologin.ui.screen
 
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import top.steins.autologin.R
-import top.steins.autologin.data.AppearanceMode
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.res.pluralStringResource
@@ -46,29 +28,24 @@ import top.steins.autologin.BuildConfig
 import top.steins.autologin.network.update.UpdateState
 import top.steins.autologin.network.update.UpdateDownloadState
 import top.steins.autologin.ui.component.updateDownloadSummary
+import top.steins.autologin.ui.component.SettingsOptionCard
 import top.steins.autologin.ui.component.NavigationTopBar
-import top.steins.autologin.ui.theme.AppCardShape
-import top.steins.autologin.ui.theme.LocalAloginDarkTheme
 import top.steins.autologin.ui.theme.ScreenHorizontalPadding
-import top.steins.autologin.ui.theme.appCardElevation
 
 @Composable
 fun SettingsScreen(
     targetWifiCount: Int,
-    appearanceMode: AppearanceMode,
-    onAppearanceModeChange: (AppearanceMode) -> Unit,
     httpLogEnabled: Boolean,
     logEntryCount: Int,
     updateState: UpdateState,
     onNavigateBack: () -> Unit,
     onNavigateToLog: () -> Unit,
     onNavigateToWifiConfig: () -> Unit,
+    onNavigateToSoftwareSettings: () -> Unit,
     onNavigateToAbout: () -> Unit,
     onCheckForUpdates: () -> Unit,
     onDownloadUpdate: () -> Unit
 ) {
-    var showAppearanceDialog by remember { mutableStateOf(false) }
-
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
             topBar = {
@@ -121,23 +98,23 @@ fun SettingsScreen(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // App 显示设置
+                // 软件设置入口
                 SettingsOptionCard {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { showAppearanceDialog = true }
+                            .clickable { onNavigateToSoftwareSettings() }
                             .padding(horizontal = 16.dp, vertical = 14.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Column {
                             Text(
-                                stringResource(R.string.appearance_title),
+                                stringResource(R.string.software_settings_title),
                                 style = MaterialTheme.typography.titleMedium
                             )
                             Text(
-                                appearanceMode.label(),
+                                stringResource(R.string.software_settings_summary),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -283,67 +260,4 @@ fun SettingsScreen(
         }
     }
 
-    if (showAppearanceDialog) {
-        AlertDialog(
-            onDismissRequest = { showAppearanceDialog = false },
-            title = { Text(stringResource(R.string.appearance_title)) },
-            text = {
-                Column {
-                    AppearanceMode.entries.forEach { mode ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    onAppearanceModeChange(mode)
-                                    showAppearanceDialog = false
-                                }
-                                .padding(vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RadioButton(
-                                selected = mode == appearanceMode,
-                                onClick = null
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Text(mode.label())
-                        }
-                    }
-                }
-            },
-            confirmButton = {},
-            dismissButton = {
-                TextButton(onClick = { showAppearanceDialog = false }) {
-                    Text(stringResource(R.string.cancel))
-                }
-            }
-        )
-    }
 }
-
-@Composable
-private fun SettingsOptionCard(content: @Composable ColumnScope.() -> Unit) {
-    val isDarkTheme = LocalAloginDarkTheme.current
-
-    // Material 3's non-clickable Card remembers its initial elevation. Recreate it when the
-    // effective theme changes so a dark-theme shadow cannot remain after switching to light.
-    key(isDarkTheme) {
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = AppCardShape,
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainer
-            ),
-            elevation = appCardElevation(),
-            content = content
-        )
-    }
-}
-
-@Composable
-private fun AppearanceMode.label(): String = when (this) {
-    AppearanceMode.SYSTEM -> stringResource(R.string.appearance_system)
-    AppearanceMode.LIGHT -> stringResource(R.string.appearance_light)
-    AppearanceMode.DARK -> stringResource(R.string.appearance_dark)
-}
-
-// ==================== 目标 WiFi 配置页 ====================

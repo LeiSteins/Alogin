@@ -51,6 +51,7 @@ class AppViewModel(
     val password: StateFlow<String> = settings.password
     val targetWifis: StateFlow<List<String>> = settings.targetWifis
     val appearanceMode: StateFlow<AppearanceMode> = settings.appearanceMode
+    val autoLoginOnStartup: StateFlow<Boolean> = settings.autoLoginOnStartup
     val httpLogEnabled: StateFlow<Boolean> = settings.httpLogEnabled
     val credentialResetPending: StateFlow<Boolean> = settings.credentialResetPending
     val httpLogs: StateFlow<List<HttpLogEntry>> = HttpLogStorage.logs
@@ -94,6 +95,8 @@ class AppViewModel(
     private var networkRefreshDebounceJob: Job? = null
     private var refreshGeneration = 0L
     private var versionTapCount = 0
+    // 只读取启动时的开关；本次运行中开启设置不会立即触发登录。
+    private var startupAutoLoginPending = autoLoginOnStartup.value
 
     init {
         HttpLogStorage.setEnabled(httpLogEnabled.value)
@@ -135,6 +138,11 @@ class AppViewModel(
     fun removeTargetWifi(ssid: String) = settings.removeTargetWifi(ssid)
 
     fun saveAppearanceMode(mode: AppearanceMode) = settings.saveAppearanceMode(mode)
+
+    fun setAutoLoginOnStartup(enabled: Boolean) {
+        settings.setAutoLoginOnStartup(enabled)
+        if (!enabled) startupAutoLoginPending = false
+    }
 
     /** 返回 true 表示本次点击刚刚解锁了 HTTP 日志。 */
     fun onAboutVersionClicked(): Boolean {
@@ -263,44 +271,77 @@ class AppViewModel(
                         showFinalError = attempt == attempts - 1
                     )
                 }
+                if (outcome == RefreshAttemptOutcome.LoginSucceeded) {
+                    confirmLogin()
+                    return@launch
+                }
                 if (outcome == RefreshAttemptOutcome.Complete) {
                     return@launch
                 }
+                // 启动状态检查耗尽后结束本次机会，避免稍后回到前台时才自动登录。
+                if (attempt == attempts - 1) startupAutoLoginPending = false
                 if (attempt < attempts - 1) delay(REFRESH_RETRY_DELAY_MS)
             }
         }
     }
 
     suspend fun login(): LoginResult {
+        startupAutoLoginPending = false
         updateCoordinator.cancelForLogin()
         cancelPendingRefreshForLogin()
-        val result = accountOperationMutex.withLock {
-            val networkInfo = network.awaitCurrentNetworkInfo(
-                canReadWifiName = _uiState.value.hasLocationPermission
-            )
-            if (networkInfo.isWifi) {
-                settings.addAutoDetectedTargetWifi(networkInfo.wifiName)
-            }
-            val username = settings.username.value
-            val password = settings.password.value
-            when {
-                username.isBlank() || password.isBlank() -> {
-                    LoginResult.Failure(strings.get(R.string.login_no_credentials))
-                }
-
-                networkInfo.isCellular -> {
-                    LoginResult.Failure(strings.get(R.string.login_cellular_blocked))
-                }
-
-                !networkInfo.isWifi || networkInfo.wifiName !in settings.targetWifis.value -> {
-                    LoginResult.Failure(strings.get(R.string.login_wrong_network))
-                }
-
-                else -> network.performLogin(username, password)
-            }
-        }
+        val result = accountOperationMutex.withLock { loginOnCurrentNetwork() }
         if (result is LoginResult.Success) updateCoordinator.scheduleAutomaticCheck()
         return result
+    }
+
+    private suspend fun loginOnCurrentNetwork(): LoginResult {
+        val networkInfo = network.awaitCurrentNetworkInfo(
+            canReadWifiName = _uiState.value.hasLocationPermission
+        )
+        if (networkInfo.isWifi) {
+            settings.addAutoDetectedTargetWifi(networkInfo.wifiName)
+        }
+        val username = settings.username.value
+        val password = settings.password.value
+        return when {
+            username.isBlank() || password.isBlank() ->
+                LoginResult.Failure(strings.get(R.string.login_no_credentials))
+            networkInfo.isCellular ->
+                LoginResult.Failure(strings.get(R.string.login_cellular_blocked))
+            !networkInfo.isWifi || networkInfo.wifiName !in settings.targetWifis.value ->
+                LoginResult.Failure(strings.get(R.string.login_wrong_network))
+            else -> network.performLogin(username, password)
+        }
+    }
+
+    private suspend fun tryStartupAutoLogin(generation: Long): RefreshAttemptOutcome {
+        if (!startupAutoLoginPending) return RefreshAttemptOutcome.Complete
+        startupAutoLoginPending = false
+        if (!autoLoginOnStartup.value || !_uiState.value.hasLocationPermission ||
+            username.value.isBlank() || password.value.isBlank()
+        ) {
+            return RefreshAttemptOutcome.Complete
+        }
+        updateState(generation) { copy(isAccountInfoLoading = true) }
+        updateCoordinator.cancelForLogin()
+        return when (val result = loginOnCurrentNetwork()) {
+            LoginResult.Success -> {
+                updateCoordinator.scheduleAutomaticCheck()
+                RefreshAttemptOutcome.LoginSucceeded
+            }
+            is LoginResult.Failure -> {
+                updateState(generation) {
+                    copy(isAccountInfoLoading = false, networkStatusError = result.message)
+                }
+                RefreshAttemptOutcome.Complete
+            }
+            is LoginResult.NetworkError -> {
+                updateState(generation) {
+                    copy(isAccountInfoLoading = false, networkStatusError = result.message)
+                }
+                RefreshAttemptOutcome.Complete
+            }
+        }
     }
 
     /** 用户主动登录优先于后台状态刷新，避免认证请求排在刷新重试之后。 */
@@ -347,6 +388,10 @@ class AppViewModel(
                 networkInfo.wifiName in settings.targetWifis.value
 
         if (!isTargetWifi) {
+            // 初次权限弹窗期间可能读不到 SSID，保留机会直到权限结果返回。
+            if (_uiState.value.hasLocationPermission || !networkInfo.isWifi) {
+                startupAutoLoginPending = false
+            }
             selfService.clearSession()
             updateState(generation) {
                 copy(
@@ -407,8 +452,10 @@ class AppViewModel(
                 )
             }
             // 已成功访问校园网状态页，只是尚未认证；继续检查只会阻塞用户登录。
-            return RefreshAttemptOutcome.Complete
+            return tryStartupAutoLogin(generation)
         }
+
+        startupAutoLoginPending = false
 
         // 自助服务账号必须与当前校园网认证账号一致，直接采用 lgn 注销页返回的 uid。
         val username = status.uid
