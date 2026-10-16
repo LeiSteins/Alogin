@@ -26,6 +26,7 @@ import top.steins.autologin.ui.route.AccountRoute
 import top.steins.autologin.ui.route.AppDialogs
 import top.steins.autologin.ui.route.HomeRoute
 import top.steins.autologin.ui.route.LocationPermissionEffect
+import top.steins.autologin.ui.route.LoginMessageEffect
 import top.steins.autologin.ui.route.LogRoute
 import top.steins.autologin.ui.route.SoftwareSettingsRoute
 import top.steins.autologin.ui.route.SettingsRoute
@@ -59,6 +60,7 @@ fun AppRoot(viewModel: AppViewModel) {
 
     LocationPermissionEffect(viewModel)
     UpdateMessageEffect(viewModel, toastState)
+    LoginMessageEffect(viewModel, toastState)
 
     Box(modifier = Modifier.fillMaxSize()) {
         NavHost(

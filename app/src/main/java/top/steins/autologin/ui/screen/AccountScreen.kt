@@ -30,6 +30,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,6 +44,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 import top.steins.autologin.R
 import top.steins.autologin.data.CredentialSaveResult
 import top.steins.autologin.data.SavedAccount
@@ -54,15 +56,17 @@ import top.steins.autologin.ui.theme.ScreenHorizontalPadding
 fun AccountScreen(
     username: String,
     accounts: List<SavedAccount>,
-    onSaveCredentials: (String, String) -> CredentialSaveResult,
-    onSelectAccount: (String) -> CredentialSaveResult,
-    onRemoveAccount: (String) -> CredentialSaveResult,
+    onSaveCredentials: suspend (String, String) -> CredentialSaveResult,
+    onSelectAccount: suspend (String) -> CredentialSaveResult,
+    onRemoveAccount: suspend (String) -> CredentialSaveResult,
     onShowToast: (String) -> Unit,
     onNavigateBack: () -> Unit
 ) {
     var showEditor by remember { mutableStateOf(false) }
     var editingAccount by remember { mutableStateOf<SavedAccount?>(null) }
     var deletingAccount by remember { mutableStateOf<String?>(null) }
+    var isMutating by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
     val resources = LocalResources.current
     val colors = MaterialTheme.colorScheme
 
@@ -70,6 +74,7 @@ fun AccountScreen(
         onShowToast(resources.getString(when (result) {
             CredentialSaveResult.SAVED -> success
             CredentialSaveResult.ENCRYPTION_UNAVAILABLE -> R.string.account_save_encryption_unavailable
+            CredentialSaveResult.STORAGE_UNAVAILABLE -> R.string.account_save_storage_unavailable
             CredentialSaveResult.INVALID_INPUT -> R.string.account_fields_required
         }))
         return result == CredentialSaveResult.SAVED
@@ -162,8 +167,17 @@ fun AccountScreen(
                     Row(
                         modifier = Modifier.fillMaxWidth()
                             .semantics { selected = isActive }
-                            .clickable(role = Role.RadioButton) {
-                                if (!isActive) report(onSelectAccount(account.username), R.string.account_switched)
+                            .clickable(enabled = !isMutating, role = Role.RadioButton) {
+                                if (!isActive) {
+                                    isMutating = true
+                                    scope.launch {
+                                        try {
+                                            report(onSelectAccount(account.username), R.string.account_switched)
+                                        } finally {
+                                            isMutating = false
+                                        }
+                                    }
+                                }
                             }.padding(start = 16.dp, end = 4.dp, top = 12.dp, bottom = 12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -213,25 +227,39 @@ fun AccountScreen(
             onDismiss = { showEditor = false },
             onDelete = { deletingAccount = editingAccount?.username },
             onSave = { user, pass ->
-                report(onSaveCredentials(user, pass), R.string.account_saved_success)
+                if (isMutating) false else {
+                    isMutating = true
+                    try {
+                        report(onSaveCredentials(user, pass), R.string.account_saved_success)
+                    } finally {
+                        isMutating = false
+                    }
+                }
             }
         )
     }
     deletingAccount?.let { target ->
         AlertDialog(
-            onDismissRequest = { deletingAccount = null },
+            onDismissRequest = { if (!isMutating) deletingAccount = null },
             title = { Text(stringResource(R.string.account_delete_title)) },
             text = { Text(stringResource(R.string.account_delete_message, target)) },
             confirmButton = {
-                TextButton(onClick = {
-                    if (report(onRemoveAccount(target), R.string.account_deleted)) {
-                        deletingAccount = null
-                        showEditor = false
+                TextButton(enabled = !isMutating, onClick = {
+                    isMutating = true
+                    scope.launch {
+                        try {
+                            if (report(onRemoveAccount(target), R.string.account_deleted)) {
+                                deletingAccount = null
+                                showEditor = false
+                            }
+                        } finally {
+                            isMutating = false
+                        }
                     }
                 }) { Text(stringResource(R.string.action_delete), color = colors.error) }
             },
             dismissButton = {
-                TextButton(onClick = { deletingAccount = null }) { Text(stringResource(R.string.action_cancel)) }
+                TextButton(enabled = !isMutating, onClick = { deletingAccount = null }) { Text(stringResource(R.string.action_cancel)) }
             }
         )
     }

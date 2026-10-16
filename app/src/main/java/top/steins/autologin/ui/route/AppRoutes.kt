@@ -35,6 +35,7 @@ fun HomeRoute(
         wifiName = uiState.wifiName,
         ipAddress = uiState.ipAddress,
         isOnline = uiState.isOnline,
+        isLoggingIn = uiState.isLoggingIn,
         accountOverview = uiState.accountOverview,
         isAccountInfoLoading = uiState.isAccountInfoLoading,
         accountInfoError = uiState.accountInfoError,
@@ -45,8 +46,7 @@ fun HomeRoute(
         onRefreshAccountInfo = viewModel::refreshAccountInfo,
         onCheckNetworkStatus = viewModel::refreshStatus,
         onRetryAccountInfo = viewModel::retryAccountInfo,
-        onLogin = viewModel::login,
-        onConfirmLogin = viewModel::confirmLogin,
+        onLogin = viewModel::requestLogin,
         onLogoutDevice = viewModel::logoutDevice,
         onRefreshAfterDeviceLogout = viewModel::refreshAfterDeviceLogout,
         onRefreshAfterIndeterminateDeviceLogout =

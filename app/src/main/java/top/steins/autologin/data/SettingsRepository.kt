@@ -2,12 +2,16 @@ package top.steins.autologin.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 enum class TargetWifiConfigChangeType {
     ADDED,
@@ -31,6 +35,7 @@ enum class AppearanceMode {
 enum class CredentialSaveResult {
     SAVED,
     ENCRYPTION_UNAVAILABLE,
+    STORAGE_UNAVAILABLE,
     INVALID_INPUT
 }
 
@@ -39,6 +44,9 @@ enum class CredentialSaveResult {
  * 使 ViewModel 与界面层不直接依赖存储实现，也便于单元测试注入替身。
  */
 interface SettingsGateway {
+    /** 在后台完成凭据读取与迁移；认证前必须等待初始化。 */
+    suspend fun initialize() = Unit
+
     val targetWifis: StateFlow<List<String>>
     val targetWifiConfigChanges: SharedFlow<TargetWifiConfigChange>
     val accounts: StateFlow<List<SavedAccount>>
@@ -55,11 +63,13 @@ interface SettingsGateway {
 
     fun removeTargetWifi(ssid: String)
 
-    fun saveCredentials(username: String, password: String): CredentialSaveResult
+    suspend fun saveCredentials(username: String, password: String): CredentialSaveResult
 
-    fun selectAccount(username: String): CredentialSaveResult
+    suspend fun selectAccount(username: String): CredentialSaveResult
 
-    fun removeAccount(username: String): CredentialSaveResult
+    suspend fun removeAccount(username: String): CredentialSaveResult
+
+    suspend fun readActiveAccount(): SavedAccount?
 
     fun saveAppearanceMode(mode: AppearanceMode)
 
@@ -70,6 +80,10 @@ interface SettingsGateway {
     fun getLastUpdateCheckAt(): Long
 
     fun setLastUpdateCheckAt(timestampMillis: Long)
+
+    fun getUpdateCheckRetryAt(): Long
+
+    fun setUpdateCheckRetryAt(timestampMillis: Long)
 
     fun acknowledgeCredentialReset()
 }
@@ -104,7 +118,9 @@ class SettingsRepository(context: Context) : SettingsGateway {
     private val _credentialResetPending = MutableStateFlow(false)
     override val credentialResetPending: StateFlow<Boolean> = _credentialResetPending.asStateFlow()
 
-    private var savedAccounts = readSavedAccounts()
+    private val accountsMutex = Mutex()
+    private var initialized = false
+    private var savedAccounts = SavedAccounts()
     private val _accounts = MutableStateFlow(savedAccounts.accounts)
     override val accounts: StateFlow<List<SavedAccount>> = _accounts.asStateFlow()
     private val _username = MutableStateFlow(savedAccounts.active?.username.orEmpty())
@@ -112,11 +128,18 @@ class SettingsRepository(context: Context) : SettingsGateway {
     private val _password = MutableStateFlow(savedAccounts.active?.password.orEmpty())
     override val password: StateFlow<String> = _password.asStateFlow()
 
-    init {
-        // 新格式加密成功后才删除旧凭据，迁移失败仍保留旧账号。
+    override suspend fun initialize() = withContext(Dispatchers.IO) {
+        accountsMutex.withLock { initializeAccountsLocked() }
+    }
+
+    private fun initializeAccountsLocked() {
+        if (initialized) return
+        publishAccounts(readSavedAccounts())
+        // 新密文确认写盘后才删除旧凭据；迁移失败保留可重试的旧账号。
         if (!securePrefs.contains(KEY_ACCOUNTS) && savedAccounts.accounts.isNotEmpty()) {
             persistAccounts(savedAccounts)
         }
+        initialized = true
     }
 
     private val _appearanceMode = MutableStateFlow(getAppearanceMode())
@@ -187,33 +210,73 @@ class SettingsRepository(context: Context) : SettingsGateway {
         .filter(String::isNotEmpty)
         .distinct()
 
-    override fun saveCredentials(username: String, password: String): CredentialSaveResult {
-        if (username.isBlank() || password.isBlank()) return CredentialSaveResult.INVALID_INPUT
-        return persistAccounts(savedAccounts.save(username, password))
-    }
-
-    override fun selectAccount(username: String): CredentialSaveResult {
-        if (savedAccounts.accounts.none { it.username == username }) {
-            return CredentialSaveResult.INVALID_INPUT
+    override suspend fun saveCredentials(username: String, password: String): CredentialSaveResult =
+        withContext(Dispatchers.IO) {
+            accountsMutex.withLock {
+                initializeAccountsLocked()
+                if (username.isBlank() || password.isBlank()) {
+                    return@withLock CredentialSaveResult.INVALID_INPUT
+                }
+                persistAccounts(savedAccounts.save(username, password))
+            }
         }
-        return persistAccounts(savedAccounts.select(username))
+
+    override suspend fun selectAccount(username: String): CredentialSaveResult = withContext(Dispatchers.IO) {
+        accountsMutex.withLock {
+            initializeAccountsLocked()
+            if (savedAccounts.accounts.none { it.username == username }) {
+                return@withLock CredentialSaveResult.INVALID_INPUT
+            }
+            persistAccounts(savedAccounts.select(username))
+        }
     }
 
-    override fun removeAccount(username: String): CredentialSaveResult =
-        persistAccounts(savedAccounts.remove(username))
+    override suspend fun removeAccount(username: String): CredentialSaveResult = withContext(Dispatchers.IO) {
+        accountsMutex.withLock {
+            initializeAccountsLocked()
+            persistAccounts(savedAccounts.remove(username))
+        }
+    }
+
+    override suspend fun readActiveAccount(): SavedAccount? = withContext(Dispatchers.IO) {
+        accountsMutex.withLock {
+            initializeAccountsLocked()
+            savedAccounts.active
+        }
+    }
 
     private fun persistAccounts(value: SavedAccounts): CredentialSaveResult {
         val encrypted = credentialCipher.encrypt(KEY_ACCOUNTS, SavedAccountsCodec.encode(value))
             ?: return CredentialSaveResult.ENCRYPTION_UNAVAILABLE
-        securePrefs.edit()
-            .putString(KEY_ACCOUNTS, encrypted)
-            .remove(KEY_USERNAME).remove(KEY_PASSWORD).apply()
-        prefs.edit().remove(KEY_USERNAME).remove(KEY_PASSWORD).apply()
+        val previous = securePrefs.getString(KEY_ACCOUNTS, null)
+        val written = runCatching {
+            securePrefs.edit().putString(KEY_ACCOUNTS, encrypted).commit()
+        }.getOrDefault(false)
+        if (!written) {
+            // commit 失败也可能更新 SharedPreferences 内存，恢复旧值以免后续读取误认保存成功。
+            runCatching {
+                val editor = securePrefs.edit()
+                if (previous == null) editor.remove(KEY_ACCOUNTS) else editor.putString(KEY_ACCOUNTS, previous)
+                editor.commit()
+            }
+            return CredentialSaveResult.STORAGE_UNAVAILABLE
+        }
+        publishAccounts(value)
+        // 清理失败时保留旧数据；新密文已经落盘且读取优先使用新格式，下次初始化重试清理。
+        clearLegacyCredentials()
+        return CredentialSaveResult.SAVED
+    }
+
+    private fun publishAccounts(value: SavedAccounts) {
         savedAccounts = value
         _accounts.value = value.accounts
         _username.value = value.active?.username.orEmpty()
         _password.value = value.active?.password.orEmpty()
-        return CredentialSaveResult.SAVED
+    }
+
+    private fun clearLegacyCredentials() {
+        runCatching { securePrefs.edit().remove(KEY_USERNAME).remove(KEY_PASSWORD).commit() }
+        runCatching { prefs.edit().remove(KEY_USERNAME).remove(KEY_PASSWORD).commit() }
     }
 
     override fun saveAppearanceMode(mode: AppearanceMode) {
@@ -239,6 +302,12 @@ class SettingsRepository(context: Context) : SettingsGateway {
         prefs.edit().putLong(KEY_LAST_UPDATE_CHECK_AT, timestampMillis).apply()
     }
 
+    override fun getUpdateCheckRetryAt(): Long = prefs.getLong(KEY_UPDATE_CHECK_RETRY_AT, 0L)
+
+    override fun setUpdateCheckRetryAt(timestampMillis: Long) {
+        prefs.edit().putLong(KEY_UPDATE_CHECK_RETRY_AT, timestampMillis).apply()
+    }
+
     override fun acknowledgeCredentialReset() {
         _credentialResetPending.value = false
     }
@@ -262,6 +331,7 @@ class SettingsRepository(context: Context) : SettingsGateway {
         if (securePrefs.contains(KEY_ACCOUNTS)) {
             val decoded = SavedAccountsCodec.decode(readCredential(KEY_ACCOUNTS))
             if (decoded == null) _credentialResetPending.value = true
+            if (decoded != null) clearLegacyCredentials()
             return decoded ?: SavedAccounts()
         }
         val username = readCredential(KEY_USERNAME)
@@ -288,6 +358,7 @@ class SettingsRepository(context: Context) : SettingsGateway {
         private const val KEY_AUTO_LOGIN_ON_STARTUP = "auto_login_on_startup"
         private const val KEY_HTTP_LOG_ENABLED = "http_log_enabled"
         private const val KEY_LAST_UPDATE_CHECK_AT = "last_update_check_at"
+        private const val KEY_UPDATE_CHECK_RETRY_AT = "update_check_retry_at"
         private const val DEFAULT_WIFI = "bjut_wifi"
     }
 }

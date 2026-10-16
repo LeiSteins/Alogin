@@ -12,6 +12,8 @@ data class AppUiState(
     val wifiName: String = "",
     val ipAddress: String = "",
     val isOnline: Boolean = false,
+    val isLoggingIn: Boolean = false,
+    val loginMessage: String? = null,
     val accountOverview: AccountOverview? = null,
     val isAccountInfoLoading: Boolean = false,
     val accountInfoError: String = "",

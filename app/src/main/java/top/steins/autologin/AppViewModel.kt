@@ -3,6 +3,8 @@ package top.steins.autologin
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
@@ -57,6 +59,8 @@ class AppViewModel(
     val httpLogs: StateFlow<List<HttpLogEntry>> = HttpLogStorage.logs
 
     private val accountOperationMutex = Mutex()
+    private val settingsReady = viewModelScope.async { settings.initialize() }
+    private var loginJob: Deferred<LoginResult>? = null
 
     private val _uiState = MutableStateFlow(
         AppUiState(
@@ -126,12 +130,12 @@ class AppViewModel(
         )
     }
 
-    fun saveCredentials(username: String, password: String): CredentialSaveResult =
+    suspend fun saveCredentials(username: String, password: String): CredentialSaveResult =
         settings.saveCredentials(username, password)
 
-    fun selectAccount(username: String) = settings.selectAccount(username)
+    suspend fun selectAccount(username: String) = settings.selectAccount(username)
 
-    fun removeAccount(username: String) = settings.removeAccount(username)
+    suspend fun removeAccount(username: String) = settings.removeAccount(username)
 
     fun addTargetWifi(ssid: String) = settings.addTargetWifi(ssid)
 
@@ -259,6 +263,7 @@ class AppViewModel(
         val generation = refreshGeneration
         refreshJob?.cancel()
         refreshJob = viewModelScope.launch {
+            settingsReady.await()
             if (initialDelayMs > 0) delay(initialDelayMs)
             repeat(attempts) { attempt ->
                 HttpLogStorage.logAccountInfoRefresh(
@@ -285,13 +290,43 @@ class AppViewModel(
         }
     }
 
-    suspend fun login(): LoginResult {
+    fun requestLogin() {
+        beginLogin()
+    }
+
+    /** 等待结果的调用方取消时，认证任务仍由 ViewModel 持有。 */
+    suspend fun login(): LoginResult = beginLogin().await()
+
+    fun consumeLoginMessage() {
+        _uiState.update { it.copy(loginMessage = null) }
+    }
+
+    private fun beginLogin(): Deferred<LoginResult> {
+        loginJob?.takeIf { it.isActive }?.let { return it }
         startupAutoLoginPending = false
         updateCoordinator.cancelForLogin()
-        cancelPendingRefreshForLogin()
-        val result = accountOperationMutex.withLock { loginOnCurrentNetwork() }
-        if (result is LoginResult.Success) updateCoordinator.scheduleAutomaticCheck()
-        return result
+        _uiState.update { it.copy(isLoggingIn = true, loginMessage = null) }
+        return viewModelScope.async {
+            try {
+                settingsReady.await()
+                cancelPendingRefreshForLogin()
+                _uiState.update { it.copy(isAccountInfoLoading = false) }
+                val result = accountOperationMutex.withLock { loginOnCurrentNetwork() }
+                val message = when (result) {
+                    LoginResult.Success -> {
+                        confirmLogin()
+                        updateCoordinator.scheduleAutomaticCheck()
+                        strings.get(R.string.home_login_success_fetching)
+                    }
+                    is LoginResult.Failure -> result.message
+                    is LoginResult.NetworkError -> result.message
+                }
+                _uiState.update { it.copy(loginMessage = message) }
+                result
+            } finally {
+                _uiState.update { it.copy(isLoggingIn = false) }
+            }
+        }.also { loginJob = it }
     }
 
     private suspend fun loginOnCurrentNetwork(): LoginResult {
@@ -301,8 +336,10 @@ class AppViewModel(
         if (networkInfo.isWifi) {
             settings.addAutoDetectedTargetWifi(networkInfo.wifiName)
         }
-        val username = settings.username.value
-        val password = settings.password.value
+        // 后台保存/切换账号时，读取同一份快照，避免把不同账号的用户名和密码拼在一起。
+        val account = settings.readActiveAccount()
+        val username = account?.username.orEmpty()
+        val password = account?.password.orEmpty()
         return when {
             username.isBlank() || password.isBlank() ->
                 LoginResult.Failure(strings.get(R.string.login_no_credentials))

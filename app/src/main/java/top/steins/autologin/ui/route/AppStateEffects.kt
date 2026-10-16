@@ -50,6 +50,18 @@ fun UpdateMessageEffect(viewModel: AppViewModel, toastState: CapsuleToastState) 
     }
 }
 
+/** 登录结果随 ViewModel 保留，离开主页或 Activity 重建不会中断认证和确认刷新。 */
+@Composable
+fun LoginMessageEffect(viewModel: AppViewModel, toastState: CapsuleToastState) {
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    LaunchedEffect(uiState.loginMessage) {
+        uiState.loginMessage?.let {
+            toastState.show(it)
+            viewModel.consumeLoginMessage()
+        }
+    }
+}
+
 /** 只在弹窗区域订阅全局状态。 */
 @Composable
 fun AppDialogs(

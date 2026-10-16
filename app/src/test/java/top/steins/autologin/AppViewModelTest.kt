@@ -1,6 +1,9 @@
 package top.steins.autologin
 
+import androidx.lifecycle.ViewModelStore
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -10,7 +13,6 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.test.TestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
@@ -128,6 +130,187 @@ class AppViewModelTest {
         )
         return createViewModel()
     }
+
+    @Test
+    fun login_callerCancellationKeepsSingleTaskAndConfirmsStatus() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val gate = CompletableDeferred<Unit>()
+            network.loginGate = gate
+            network.loginResult = LoginResult.Success
+            network.loginStatusAfterLogin = LoginStatus(isLoggedIn = true, uid = "2021001")
+            val overview = AccountOverview("2021001", "100", "900", "20", emptyList())
+            selfService.overviewResult = AccountOverviewResult.Success(overview)
+            val viewModel = createStartupViewModel(enabled = false)
+            val caller = launch { viewModel.login() }
+            runCurrent()
+            assertTrue(viewModel.uiState.value.isLoggingIn)
+            viewModel.requestLogin()
+            assertEquals(1, network.loginCount)
+
+            caller.cancelAndJoin()
+            assertTrue(viewModel.uiState.value.isLoggingIn)
+            gate.complete(Unit)
+            advanceUntilIdle()
+
+            assertEquals(1, network.loginCount)
+            assertFalse(viewModel.uiState.value.isLoggingIn)
+            assertTrue(viewModel.uiState.value.isOnline)
+            assertEquals(overview, viewModel.uiState.value.accountOverview)
+            assertEquals("msg:${R.string.home_login_success_fetching}", viewModel.uiState.value.loginMessage)
+            viewModel.consumeLoginMessage()
+            assertNull(viewModel.uiState.value.loginMessage)
+        }
+
+    @Test
+    fun startupAutoLogin_waitsForCredentialInitialization() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val gate = CompletableDeferred<Unit>()
+            settings.initializationGate = gate
+            val viewModel = createStartupViewModel()
+            network.loginResult = LoginResult.Failure("bad password")
+            viewModel.onAppForegrounded()
+            advanceTimeBy(2_000)
+            runCurrent()
+            assertEquals(0, network.loginCount)
+            gate.complete(Unit)
+            advanceUntilIdle()
+            assertEquals(1, network.loginCount)
+            assertFalse(viewModel.uiState.value.isLoggingIn)
+        }
+
+    @Test
+    fun login_viewModelClearedCancelsTaskAndClearsLoading() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            network.loginGate = CompletableDeferred()
+            val viewModel = createStartupViewModel(enabled = false)
+            val store = ViewModelStore()
+            store.put("app", viewModel)
+            viewModel.requestLogin()
+            runCurrent()
+            assertTrue(viewModel.uiState.value.isLoggingIn)
+            store.clear()
+            runCurrent()
+            assertFalse(viewModel.uiState.value.isLoggingIn)
+            assertNull(viewModel.uiState.value.loginMessage)
+        }
+
+    @Test
+    fun download_idleReadyAndFailedStatesDoNotPoll() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val viewModel = createViewModel()
+            val terminalStates = listOf(
+                null,
+                UpdateTransfer(availableUpdate(), UpdateDownloadState.Ready),
+                UpdateTransfer(availableUpdate(), UpdateDownloadState.Failed(UpdateDownloadFailure.DOWNLOAD))
+            )
+            for (transfer in terminalStates) {
+                updates.transfer = transfer
+                val before = updates.refreshCount
+                viewModel.setUpdateForeground(true)
+                runCurrent()
+                assertEquals(before + 1, updates.refreshCount)
+                advanceTimeBy(60_000)
+                runCurrent()
+                assertEquals(before + 1, updates.refreshCount)
+                viewModel.setUpdateForeground(false)
+            }
+        }
+
+    @Test
+    fun download_pollsOnlyWhileDownloadingInForegroundAndStopsAtCompletion() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            updates.transfer = UpdateTransfer(availableUpdate(), UpdateDownloadState.Downloading())
+            val viewModel = createViewModel()
+            viewModel.setUpdateForeground(true)
+            runCurrent()
+            assertEquals(1, updates.refreshCount)
+            advanceTimeBy(AppUpdateCoordinator.DOWNLOAD_PROGRESS_INTERVAL_MS)
+            runCurrent()
+            assertEquals(2, updates.refreshCount)
+            viewModel.setUpdateForeground(false)
+            advanceTimeBy(10_000)
+            runCurrent()
+            assertEquals(2, updates.refreshCount)
+
+            viewModel.setUpdateForeground(true)
+            runCurrent()
+            assertEquals(3, updates.refreshCount)
+            // 未收到完成广播时，也能通过下一次轮询发现完成。
+            updates.transfer = UpdateTransfer(availableUpdate(), UpdateDownloadState.Ready)
+            advanceTimeBy(AppUpdateCoordinator.DOWNLOAD_PROGRESS_INTERVAL_MS)
+            runCurrent()
+            assertEquals(4, updates.refreshCount)
+            assertEquals(UpdateDownloadState.Ready, (viewModel.updateState.value as UpdateState.Available).download)
+            advanceTimeBy(60_000)
+            runCurrent()
+            assertEquals(4, updates.refreshCount)
+            viewModel.setUpdateForeground(false)
+        }
+
+    @Test
+    fun updateFailure_retriesWithBackoffAndManualCheckBypassesIt() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            var now = 10_000_000L
+            settings.lastUpdateCheckTimestamp = now - 1_000
+            settings.setCredentials("2021001", "secret")
+            network.info = CurrentNetworkInfo(
+                wifiName = "bjut_wifi", ipAddress = "10.1.2.3",
+                isWifi = true, isCellular = false, isConnected = true
+            )
+            val timedViewModel = createViewModel(currentTimeMillis = { now })
+            timedViewModel.checkForUpdates(manual = true)
+            assertEquals(now - 1_000, settings.lastUpdateCheckTimestamp)
+            assertEquals(now + AppUpdateCoordinator.INITIAL_CHECK_RETRY_DELAY_MS, settings.updateCheckRetryTimestamp)
+
+            network.loginResult = LoginResult.Success
+            network.validatedInternet = true
+            timedViewModel.login()
+            advanceUntilIdle()
+            assertEquals(1, updates.fetchCount)
+            now = settings.updateCheckRetryTimestamp
+            timedViewModel.login()
+            advanceUntilIdle()
+            assertEquals(2, updates.fetchCount)
+            assertEquals(now + 2 * AppUpdateCoordinator.INITIAL_CHECK_RETRY_DELAY_MS, settings.updateCheckRetryTimestamp)
+
+            updates.fetchResult = Result.success(availableUpdate())
+            timedViewModel.checkForUpdates(manual = true)
+            assertEquals(3, updates.fetchCount)
+            assertEquals(now, settings.lastUpdateCheckTimestamp)
+            assertEquals(0L, settings.updateCheckRetryTimestamp)
+        }
+
+    @Test
+    fun updateFailure_backoffIsBoundedAndSurvivesCoordinatorRecreation() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            var now = 10_000_000L
+            settings.setCredentials("2021001", "secret")
+            network.info = CurrentNetworkInfo(
+                wifiName = "bjut_wifi", ipAddress = "10.1.2.3",
+                isWifi = true, isCellular = false, isConnected = true
+            )
+            network.loginResult = LoginResult.Success
+            network.validatedInternet = true
+            val viewModel = createViewModel(currentTimeMillis = { now })
+            var lastDelay = 0L
+            repeat(8) {
+                viewModel.checkForUpdates(manual = true)
+                lastDelay = settings.updateCheckRetryTimestamp - now
+                assertTrue(lastDelay <= AppUpdateCoordinator.MAXIMUM_CHECK_RETRY_DELAY_MS)
+                now = settings.updateCheckRetryTimestamp
+            }
+            assertEquals(AppUpdateCoordinator.MAXIMUM_CHECK_RETRY_DELAY_MS, lastDelay)
+            val before = updates.fetchCount
+            val restored = createViewModel(currentTimeMillis = { now - 1 })
+            restored.login()
+            advanceUntilIdle()
+            assertEquals(before, updates.fetchCount)
+            now++
+            val due = createViewModel(currentTimeMillis = { now })
+            due.login()
+            advanceUntilIdle()
+            assertEquals(before + 1, updates.fetchCount)
+        }
 
     @Test
     fun startupAutoLogin_disabledDoesNotSubmitCredentials() =
@@ -782,8 +965,10 @@ class AppViewModelTest {
                 "2021001" to "secret",
                 network.performedLogin
             )
+            // 登录成功后由 ViewModel 自动确认状态，替换已取消的后台刷新。
+            network.loginStatus = LoginStatus(isLoggedIn = true, uid = "2021001")
             advanceUntilIdle()
-            assertEquals(1, network.loginStatusFetchCount)
+            assertEquals(2, network.loginStatusFetchCount)
         }
 
     @Test
@@ -1034,7 +1219,7 @@ class AppViewModelTest {
     }
 
     @Test
-    fun saveCredentials_forwardsResultAndDoesNotStoreOnFailure() {
+    fun saveCredentials_forwardsResultAndDoesNotStoreOnFailure() = runTest {
         settings.saveResult = CredentialSaveResult.ENCRYPTION_UNAVAILABLE
         val viewModel = createViewModel()
 
@@ -1107,19 +1292,23 @@ class AppViewModelTest {
 }
 
 private class FakeSettingsGateway : SettingsGateway {
+    override suspend fun readActiveAccount(): top.steins.autologin.data.SavedAccount? =
+        username.value.takeIf { it.isNotBlank() }?.let {
+            top.steins.autologin.data.SavedAccount(it, password.value)
+        }
     override val autoLoginOnStartup = MutableStateFlow(false)
 
     override fun setAutoLoginOnStartup(enabled: Boolean) {
         autoLoginOnStartup.value = enabled
     }
     override val accounts = MutableStateFlow<List<top.steins.autologin.data.SavedAccount>>(emptyList())
-    override fun selectAccount(username: String): CredentialSaveResult {
+    override suspend fun selectAccount(username: String): CredentialSaveResult {
         val account = accounts.value.find { it.username == username }
             ?: return CredentialSaveResult.INVALID_INPUT
         setCredentials(account.username, account.password)
         return CredentialSaveResult.SAVED
     }
-    override fun removeAccount(username: String): CredentialSaveResult {
+    override suspend fun removeAccount(username: String): CredentialSaveResult {
         accounts.value = accounts.value.filterNot { it.username == username }
         if (this.username.value == username) {
             val next = accounts.value.firstOrNull()
@@ -1155,6 +1344,12 @@ private class FakeSettingsGateway : SettingsGateway {
     var saveResult = CredentialSaveResult.SAVED
     var saved: Pair<String, String>? = null
     var lastUpdateCheckTimestamp = 0L
+    var updateCheckRetryTimestamp = 0L
+    var initializationGate: CompletableDeferred<Unit>? = null
+
+    override suspend fun initialize() {
+        initializationGate?.await()
+    }
 
     fun setCredentials(username: String, password: String) {
         _username.value = username
@@ -1176,7 +1371,7 @@ private class FakeSettingsGateway : SettingsGateway {
         _targetWifis.value = _targetWifis.value.filterNot { it == ssid }
     }
 
-    override fun saveCredentials(username: String, password: String): CredentialSaveResult {
+    override suspend fun saveCredentials(username: String, password: String): CredentialSaveResult {
         if (saveResult == CredentialSaveResult.SAVED) {
             saved = username to password
         }
@@ -1195,6 +1390,12 @@ private class FakeSettingsGateway : SettingsGateway {
 
     override fun setLastUpdateCheckAt(timestampMillis: Long) {
         lastUpdateCheckTimestamp = timestampMillis
+    }
+
+    override fun getUpdateCheckRetryAt(): Long = updateCheckRetryTimestamp
+
+    override fun setUpdateCheckRetryAt(timestampMillis: Long) {
+        updateCheckRetryTimestamp = timestampMillis
     }
 
     override fun acknowledgeCredentialReset() {
@@ -1232,6 +1433,7 @@ private class FakeSelfServiceGateway : SelfServiceGateway {
 }
 
 private class FakeNetworkEnvironment : NetworkEnvironment {
+    var loginGate: CompletableDeferred<Unit>? = null
     var loginStatusGate: CompletableDeferred<Unit>? = null
     private val defaultNetworkChanges = MutableSharedFlow<DefaultNetworkChange>(
         extraBufferCapacity = 1
@@ -1273,6 +1475,7 @@ private class FakeNetworkEnvironment : NetworkEnvironment {
     ): LoginResult {
         loginCount += 1
         performedLogin = username to password
+        loginGate?.await()
         loginStatusAfterLogin?.let { loginStatus = it }
         return loginResult
     }
@@ -1284,6 +1487,7 @@ private class FakeUpdateGateway : UpdateGateway {
     var downloadCount = 0
     private val changes = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     var fetchCount = 0
+    var refreshCount = 0
 
     override suspend fun fetchLatestUpdate(currentVersion: String): UpdateInfo {
         fetchCount += 1
@@ -1300,7 +1504,10 @@ private class FakeUpdateGateway : UpdateGateway {
         changes.tryEmit(Unit)
     }
 
-    override suspend fun refreshDownload(): UpdateTransfer? = transfer
-    override fun observeDownloadChanges(): Flow<Unit> = changes.onStart { emit(Unit) }
+    override suspend fun refreshDownload(): UpdateTransfer? {
+        refreshCount++
+        return transfer
+    }
+    override fun observeDownloadChanges(): Flow<Unit> = changes
     override suspend fun validatedDownload(update: UpdateInfo): java.io.File? = null
 }

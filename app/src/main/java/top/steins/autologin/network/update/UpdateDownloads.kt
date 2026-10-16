@@ -14,11 +14,9 @@ import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.awaitClose
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.callbackFlow
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -110,7 +108,7 @@ internal class UpdateDownloads(
         }
     }
 
-    /** 仅在前台订阅；广播用于及时刷新，轮询补充进度及遗漏的完成通知。 */
+    /** 仅监听完成广播；进度轮询由协调器在下载进行中启动。 */
     fun changes(): Flow<Unit> = callbackFlow {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
@@ -127,14 +125,7 @@ internal class UpdateDownloads(
                 ContextCompat.RECEIVER_EXPORTED
             )
         }.isSuccess
-        val ticker = launch {
-            while (true) {
-                send(Unit)
-                delay(1_000)
-            }
-        }
         awaitClose {
-            ticker.cancel()
             if (registered) context.unregisterReceiver(receiver)
         }
     }.buffer(Channel.CONFLATED)

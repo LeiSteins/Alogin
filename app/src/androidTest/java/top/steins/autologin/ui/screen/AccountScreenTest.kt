@@ -3,7 +3,9 @@ package top.steins.autologin.ui.screen
 import android.graphics.Bitmap
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.text.AnnotatedString
 import androidx.test.platform.app.InstrumentationRegistry
+import kotlinx.coroutines.CompletableDeferred
 import java.io.File
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -16,6 +18,42 @@ import top.steins.autologin.ui.theme.AloginTheme
 
 class AccountScreenTest {
     @get:Rule val compose = createComposeRule()
+
+    @Test
+    fun asynchronousSave_disablesRepeatedSubmissionAndKeepsEditorOnStorageFailure() {
+        var gate = CompletableDeferred<CredentialSaveResult>()
+        var saveCount = 0
+        var message = ""
+        compose.setContent {
+            AloginTheme(darkTheme = false) {
+                AccountScreen("", emptyList(),
+                    onSaveCredentials = { _, _ -> saveCount++; gate.await() },
+                    onSelectAccount = { CredentialSaveResult.SAVED },
+                    onRemoveAccount = { CredentialSaveResult.SAVED },
+                    onShowToast = { message = it }, onNavigateBack = {})
+            }
+        }
+        compose.onNodeWithText("添加账号").performClick()
+        compose.onNodeWithContentDescription("用户名").performTextInput("alice")
+        compose.onNodeWithContentDescription("密码").performTextInput("secret")
+        compose.onNodeWithText("保存并使用").performScrollTo().performClick()
+        compose.onNodeWithText("保存并使用").assertIsNotEnabled()
+        compose.runOnIdle {
+            assertEquals(1, saveCount)
+            gate.complete(CredentialSaveResult.STORAGE_UNAVAILABLE)
+        }
+        compose.waitForIdle()
+        compose.onNodeWithContentDescription("用户名").assertExists()
+        compose.onNodeWithText("保存并使用").assertIsEnabled()
+        compose.runOnIdle {
+            assertEquals("无法写入账号信息，请检查存储空间后重试", message)
+            gate = CompletableDeferred(CredentialSaveResult.SAVED)
+        }
+        compose.onNodeWithText("保存并使用").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithContentDescription("用户名").assertDoesNotExist()
+        compose.runOnIdle { assertEquals(2, saveCount) }
+    }
 
     @Test
     fun addingAccount_validatesFieldsAndSavesCustomInput() {
@@ -115,7 +153,9 @@ class AccountScreenTest {
         compose.runOnIdle { assertEquals("", deleted) }
         compose.onNodeWithText("取消").performClick()
         compose.runOnIdle { assertEquals("", deleted) }
-        compose.onNodeWithContentDescription("密码").assertTextEquals("updated")
+        compose.onNodeWithContentDescription("密码").assert(
+            SemanticsMatcher.expectValue(SemanticsProperties.InputText, AnnotatedString("updated"))
+        )
         compose.onNodeWithContentDescription("删除账号 bob").performScrollTo().performClick()
         compose.onNodeWithText("删除", useUnmergedTree = true).performClick()
         compose.runOnIdle { assertEquals("bob", deleted) }

@@ -41,7 +41,6 @@ import kotlinx.coroutines.launch
 import top.steins.autologin.R
 import top.steins.autologin.network.AccountOverview
 import top.steins.autologin.network.DeviceLogoutResult
-import top.steins.autologin.network.LoginResult
 import top.steins.autologin.ui.component.ScaleFadeBox
 import top.steins.autologin.ui.theme.ScreenHorizontalPadding
 import top.steins.autologin.ui.theme.TopBarHeight
@@ -68,6 +67,7 @@ fun HomeScreen(
     wifiName: String,
     ipAddress: String,
     isOnline: Boolean,
+    isLoggingIn: Boolean,
     accountOverview: AccountOverview?,
     isAccountInfoLoading: Boolean,
     accountInfoError: String,
@@ -78,8 +78,7 @@ fun HomeScreen(
     onRefreshAccountInfo: () -> Unit,
     onCheckNetworkStatus: () -> Unit,
     onRetryAccountInfo: () -> Unit,
-    onLogin: suspend () -> LoginResult,
-    onConfirmLogin: () -> Unit,
+    onLogin: () -> Unit,
     onLogoutDevice: suspend (String, String, String) -> DeviceLogoutResult,
     onRefreshAfterDeviceLogout: (Int) -> Unit,
     onRefreshAfterIndeterminateDeviceLogout: () -> Unit,
@@ -91,7 +90,6 @@ fun HomeScreen(
     val hapticFeedback = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
 
-    var isLoggingIn by remember { mutableStateOf(false) }
     var isDeletingDevice by remember { mutableStateOf(false) }
     var lastAccountOverview by remember { mutableStateOf<AccountOverview?>(null) }
     var lastOnlineNetworkInfo by remember { mutableStateOf(wifiName to ipAddress) }
@@ -172,22 +170,7 @@ fun HomeScreen(
             }
 
             isTargetWifi -> {
-                isLoggingIn = true
-                scope.launch {
-                    val result = onLogin()
-                    isLoggingIn = false
-                    when (result) {
-                        is LoginResult.Success -> {
-                            onShowToast(
-                                resources.getString(R.string.home_login_success_fetching)
-                            )
-                            onConfirmLogin()
-                        }
-
-                        is LoginResult.Failure -> onShowToast(result.message)
-                        is LoginResult.NetworkError -> onShowToast(result.message)
-                    }
-                }
+                onLogin()
             }
 
             else -> {

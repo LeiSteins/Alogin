@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -44,6 +45,8 @@ internal class AppUpdateCoordinator(
     private var checkJob: Job? = null
     private var downloadJob: Job? = null
     private var observationJob: Job? = null
+    private var progressJob: Job? = null
+    private var failedCheckCount = 0
     private val downloadMutex = Mutex()
     private var foreground = false
     private var installWhenReady = false
@@ -51,16 +54,42 @@ internal class AppUpdateCoordinator(
     val installation: StateFlow<UpdateInfo?> = _installation.asStateFlow()
 
     fun setForeground(value: Boolean) {
+        if (foreground == value) return
         foreground = value
         observationJob?.cancel()
         if (!value) {
+            progressJob?.cancel()
+            progressJob = null
             cancelAutomaticInstall()
             return
         }
         observationJob = scope.launch {
-            updates.observeDownloadChanges().collect {
+            updates.observeDownloadChanges().onStart { emit(Unit) }.collect {
                 downloadMutex.withLock {
                     updates.refreshDownload()?.let(::publishTransfer)
+                }
+            }
+        }
+        updateProgressPolling()
+    }
+
+    private fun updateProgressPolling() {
+        val downloading = (_state.value as? UpdateState.Available)?.download is UpdateDownloadState.Downloading
+        if (!foreground || !downloading) {
+            progressJob?.cancel()
+            progressJob = null
+            return
+        }
+        if (progressJob?.isActive == true) return
+        progressJob = scope.launch {
+            while (true) {
+                delay(DOWNLOAD_PROGRESS_INTERVAL_MS)
+                downloadMutex.withLock {
+                    val available = _state.value as? UpdateState.Available ?: return@launch
+                    val transfer = updates.refreshDownload() ?: UpdateTransfer(
+                        available.update, UpdateDownloadState.Failed(UpdateDownloadFailure.MISSING_FILE)
+                    )
+                    publishTransfer(transfer)
                 }
             }
         }
@@ -117,9 +146,13 @@ internal class AppUpdateCoordinator(
 
             val now = currentTimeMillis()
             val lastCheckAt = settings.getLastUpdateCheckAt()
-            val isDue = lastCheckAt <= 0L ||
-                    now < lastCheckAt ||
-                    now - lastCheckAt >= automaticCheckIntervalMs
+            val retryAt = settings.getUpdateCheckRetryAt()
+            val isDue = if (retryAt > 0L) {
+                // 时钟回拨超过最大退避窗口时允许重新检查。
+                now >= retryAt || retryAt - now > MAXIMUM_CHECK_RETRY_DELAY_MS
+            } else {
+                lastCheckAt <= 0L || now < lastCheckAt || now - lastCheckAt >= automaticCheckIntervalMs
+            }
             if (isDue) performCheck(manual = false)
         }
     }
@@ -156,6 +189,7 @@ internal class AppUpdateCoordinator(
     private fun publishTransfer(transfer: UpdateTransfer) {
         checkJob?.cancel()
         _state.value = UpdateState.Available(transfer.update, transfer.state)
+        updateProgressPolling()
         if (transfer.state == UpdateDownloadState.Ready && installWhenReady && foreground) {
             installWhenReady = false
             _installation.value = transfer.update
@@ -169,6 +203,8 @@ internal class AppUpdateCoordinator(
         try {
             val update = updates.fetchLatestUpdate(currentVersion)
             settings.setLastUpdateCheckAt(checkedAt)
+            settings.setUpdateCheckRetryAt(0L)
+            failedCheckCount = 0
             val result = if (SemanticVersion.isNewer(update.version, currentVersion) &&
                 update.versionCode > currentVersionCode
             ) {
@@ -191,7 +227,10 @@ internal class AppUpdateCoordinator(
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            settings.setLastUpdateCheckAt(checkedAt)
+            val retryDelay = (INITIAL_CHECK_RETRY_DELAY_MS * (1L shl failedCheckCount.coerceAtMost(4)))
+                .coerceAtMost(MAXIMUM_CHECK_RETRY_DELAY_MS)
+            failedCheckCount = (failedCheckCount + 1).coerceAtMost(4)
+            settings.setUpdateCheckRetryAt(currentTimeMillis() + retryDelay)
             _state.value = UpdateState.Error(
                 error.message ?: strings.get(R.string.update_check_failed)
             )
@@ -199,5 +238,11 @@ internal class AppUpdateCoordinator(
                 _messages.emit(strings.get(R.string.update_failed_toast))
             }
         }
+    }
+
+    companion object {
+        const val DOWNLOAD_PROGRESS_INTERVAL_MS = 1_000L
+        const val INITIAL_CHECK_RETRY_DELAY_MS = 5L * 60L * 1_000L
+        const val MAXIMUM_CHECK_RETRY_DELAY_MS = 60L * 60L * 1_000L
     }
 }

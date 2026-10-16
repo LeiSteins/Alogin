@@ -70,7 +70,7 @@ internal fun AccountEditorSheet(
     existingUsernames: List<String>,
     onDismiss: () -> Unit,
     onDelete: () -> Unit,
-    onSave: (String, String) -> Boolean
+    onSave: suspend (String, String) -> Boolean
 ) {
     // 密码仅保留在当前组合内，不写入 SavedInstanceState。
     var username by remember { mutableStateOf(account?.username.orEmpty()) }
@@ -78,38 +78,44 @@ internal fun AccountEditorSheet(
     var passwordVisible by remember { mutableStateOf(false) }
     var attempted by remember { mutableStateOf(false) }
     var isClosing by remember { mutableStateOf(false) }
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var isSaving by remember { mutableStateOf(false) }
+    val sheetState = rememberModalBottomSheetState(
+        skipPartiallyExpanded = true,
+        confirmValueChange = { !isSaving || isClosing }
+    )
     val scope = rememberCoroutineScope()
     val passwordReveal = remember(scope) { PasswordRevealState(scope) }
     val passwordFocus = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
-    val duplicate = !isClosing && account == null && username.trim() in existingUsernames
+    val duplicate = !isClosing && !isSaving && account == null && username.trim() in existingUsernames
     val usernameError = (attempted && username.isBlank()) || duplicate
     val passwordError = attempted && password.isBlank()
 
     fun save() {
-        if (isClosing) return
+        if (isClosing || isSaving) return
         attempted = true
         if (username.isNotBlank() && password.isNotBlank() && !duplicate) {
             passwordVisible = false
             passwordReveal.hide()
             focusManager.clearFocus()
-            if (onSave(username.trim(), password)) {
-                isClosing = true
-                scope.launch {
-                    try {
+            isSaving = true
+            scope.launch {
+                try {
+                    if (onSave(username.trim(), password)) {
+                        isClosing = true
                         sheetState.hide()
                         if (!sheetState.isVisible) onDismiss()
-                    } finally {
-                        isClosing = false
                     }
+                } finally {
+                    isSaving = false
+                    isClosing = false
                 }
             }
         }
     }
 
     ModalBottomSheet(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!isSaving) onDismiss() },
         sheetState = sheetState
     ) {
         Column(
@@ -135,7 +141,7 @@ internal fun AccountEditorSheet(
                 label = stringResource(R.string.account_username),
                 placeholder = stringResource(R.string.account_username_hint),
                 icon = R.drawable.manage_accounts,
-                readOnly = account != null,
+                readOnly = account != null || isSaving,
                 isError = usernameError,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, imeAction = ImeAction.Next),
                 onAction = { passwordFocus.requestFocus() }
@@ -146,6 +152,7 @@ internal fun AccountEditorSheet(
             }
             AccountInput(
                 value = password,
+                readOnly = isSaving,
                 onValueChange = {
                     passwordReveal.onPasswordChanged(
                         previous = password,
@@ -199,7 +206,7 @@ internal fun AccountEditorSheet(
             }
             Button(
                 onClick = ::save,
-                enabled = !isClosing,
+                enabled = !isClosing && !isSaving,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
                 shape = RoundedCornerShape(16.dp)
             ) {
@@ -212,7 +219,7 @@ internal fun AccountEditorSheet(
                         focusManager.clearFocus()
                         onDelete()
                     },
-                    enabled = !isClosing,
+                    enabled = !isClosing && !isSaving,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                         .semantics { contentDescription = deleteDescription },
                     colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
