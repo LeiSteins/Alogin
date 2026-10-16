@@ -47,6 +47,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.password
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -57,6 +58,8 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import top.steins.autologin.R
 import top.steins.autologin.data.SavedAccount
+import top.steins.autologin.ui.component.PasswordRevealState
+import top.steins.autologin.ui.component.PasswordRevealTransformation
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -74,6 +77,7 @@ internal fun AccountEditorSheet(
     var isClosing by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
+    val passwordReveal = remember(scope) { PasswordRevealState(scope) }
     val passwordFocus = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
     val duplicate = !isClosing && account == null && username.trim() in existingUsernames
@@ -84,6 +88,8 @@ internal fun AccountEditorSheet(
         if (isClosing) return
         attempted = true
         if (username.isNotBlank() && password.isNotBlank() && !duplicate) {
+            passwordVisible = false
+            passwordReveal.hide()
             focusManager.clearFocus()
             if (onSave(username.trim(), password)) {
                 isClosing = true
@@ -137,27 +143,52 @@ internal fun AccountEditorSheet(
             }
             AccountInput(
                 value = password,
-                onValueChange = { password = it },
+                onValueChange = {
+                    passwordReveal.onPasswordChanged(
+                        previous = password,
+                        current = it,
+                        enabled = account == null && !passwordVisible
+                    )
+                    password = it
+                },
                 label = stringResource(R.string.account_password),
                 placeholder = stringResource(R.string.account_password_hint),
                 icon = R.drawable.account_lock,
                 isError = passwordError,
-                modifier = Modifier.focusRequester(passwordFocus),
-                transformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                modifier = Modifier.focusRequester(passwordFocus).onFocusChanged {
+                    if (!it.isFocused) passwordReveal.hide()
+                },
+                isPassword = true,
+                transformation = when {
+                    account != null -> PasswordVisualTransformation()
+                    passwordVisible -> VisualTransformation.None
+                    else -> PasswordRevealTransformation(passwordReveal.revealedRange)
+                },
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Password, imeAction = ImeAction.Done,
                     autoCorrectEnabled = false
                 ),
                 onAction = ::save,
-                trailing = {
-                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                        Icon(
-                            painterResource(if (passwordVisible) R.drawable.account_visibility_off else R.drawable.account_visibility),
-                            stringResource(if (passwordVisible) R.string.account_hide_password else R.string.account_show_password),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                trailing = if (account == null) {
+                    {
+                        IconButton(onClick = {
+                            passwordReveal.hide()
+                            passwordVisible = !passwordVisible
+                        }) {
+                            Icon(
+                                painterResource(
+                                    if (passwordVisible) R.drawable.account_visibility_off
+                                    else R.drawable.account_visibility
+                                ),
+                                stringResource(
+                                    if (passwordVisible) R.string.account_hide_password
+                                    else R.string.account_show_password
+                                ),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
-                }
+                } else null
             )
             if (attempted && (username.isBlank() || password.isBlank())) {
                 Text(stringResource(R.string.account_fields_required), color = MaterialTheme.colorScheme.error,
@@ -187,6 +218,7 @@ private fun AccountInput(
     modifier: Modifier = Modifier,
     readOnly: Boolean = false,
     isError: Boolean = false,
+    isPassword: Boolean = false,
     transformation: VisualTransformation = VisualTransformation.None,
     trailing: (@Composable () -> Unit)? = null
 ) {
@@ -212,7 +244,10 @@ private fun AccountInput(
             keyboardOptions = keyboardOptions,
             keyboardActions = KeyboardActions(onNext = { onAction() }, onDone = { onAction() }),
             modifier = modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused }
-                .semantics { contentDescription = label }
+                .semantics {
+                    contentDescription = label
+                    if (isPassword) password()
+                }
                 .onPreviewKeyEvent {
                     if (it.key == Key.Enter) {
                         if (it.type == KeyEventType.KeyUp) onAction()

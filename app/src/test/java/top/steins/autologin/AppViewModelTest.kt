@@ -1,5 +1,6 @@
 package top.steins.autologin
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -31,6 +32,7 @@ import top.steins.autologin.data.AppearanceMode
 import top.steins.autologin.data.CredentialSaveResult
 import top.steins.autologin.data.SettingsGateway
 import top.steins.autologin.data.TargetWifiConfigChange
+import top.steins.autologin.network.AccountDevice
 import top.steins.autologin.network.AccountOverview
 import top.steins.autologin.network.AccountOverviewResult
 import top.steins.autologin.network.CurrentNetworkInfo
@@ -97,6 +99,24 @@ class AppViewModelTest {
         downloadUrl = "https://aloginupdate.steins.top/alogin-v99.0.0.apk",
         releaseNotes = "更新测试"
     )
+
+    private fun createOnlineViewModel(): AppViewModel {
+        network.info = CurrentNetworkInfo(
+            wifiName = "bjut_wifi",
+            ipAddress = "10.1.2.3",
+            isWifi = true,
+            isCellular = false,
+            isConnected = true
+        )
+        network.loginStatus = LoginStatus(isLoggedIn = true, uid = "2021001")
+        selfService.overviewResult = AccountOverviewResult.Success(
+            AccountOverview(
+                "2021001", "100", "900", "20",
+                listOf(AccountDevice("session-1", "00:11:22:33:44:55", "10.1.2.3"))
+            )
+        )
+        return createViewModel().also { it.refreshStatus() }
+    }
 
     @Test
     fun download_repeatedClicksAndChecksDoNotReplaceActiveTask() {
@@ -232,6 +252,131 @@ class AppViewModelTest {
         assertTrue(state.isOnline)
         assertEquals(overview, state.accountOverview)
     }
+
+    @Test
+    fun refreshAccountInfo_keepsHomeContentUntilStatusAndOverviewArrive() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val viewModel = createOnlineViewModel()
+            val original = viewModel.uiState.value
+            val refreshedOverview = original.accountOverview!!.copy(usedFlowMb = "200")
+            network.info = network.info.copy(wifiName = "bjut-sushe-1", ipAddress = "10.1.2.4")
+            network.loginStatusGate = CompletableDeferred()
+            selfService.overviewGate = CompletableDeferred()
+            selfService.overviewResult = AccountOverviewResult.Success(refreshedOverview)
+
+            viewModel.refreshAccountInfo()
+
+            assertEquals(
+                original.copy(isAccountInfoLoading = true, canLogoutDevices = false),
+                viewModel.uiState.value
+            )
+
+            network.loginStatusGate!!.complete(Unit)
+            runCurrent()
+
+            assertEquals(
+                original.copy(
+                    wifiName = "bjut-sushe-1",
+                    ipAddress = "10.1.2.4",
+                    isAccountInfoLoading = true,
+                    canLogoutDevices = false
+                ),
+                viewModel.uiState.value
+            )
+
+            selfService.overviewGate!!.complete(Unit)
+            runCurrent()
+
+            assertEquals(refreshedOverview, viewModel.uiState.value.accountOverview)
+            assertFalse(viewModel.uiState.value.isAccountInfoLoading)
+            assertTrue(viewModel.uiState.value.isDeviceListAvailable)
+            assertTrue(viewModel.uiState.value.canLogoutDevices)
+        }
+
+    @Test
+    fun refreshAccountInfo_clearsCardsOnlyAfterLogoutIsConfirmed() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val viewModel = createOnlineViewModel()
+            val original = viewModel.uiState.value
+            network.loginStatus = LoginStatus(isLoggedIn = false)
+            network.loginStatusGate = CompletableDeferred()
+
+            viewModel.refreshAccountInfo()
+
+            assertEquals(
+                original.copy(isAccountInfoLoading = true, canLogoutDevices = false),
+                viewModel.uiState.value
+            )
+
+            network.loginStatusGate!!.complete(Unit)
+            runCurrent()
+
+            val state = viewModel.uiState.value
+            assertFalse(state.isOnline)
+            assertNull(state.accountOverview)
+            assertFalse(state.isAccountInfoLoading)
+            assertFalse(state.isDeviceListAvailable)
+            assertFalse(state.canLogoutDevices)
+            assertTrue(selfService.cleared)
+        }
+
+    @Test
+    fun refreshAccountInfo_keepsHomeContentWhenStatusRequestFails() {
+        val viewModel = createOnlineViewModel()
+        val original = viewModel.uiState.value
+        network.loginStatus = LoginStatus(isLoggedIn = false, error = "timeout")
+
+        viewModel.refreshAccountInfo()
+
+        assertEquals(
+            original.copy(accountInfoError = "timeout", canLogoutDevices = false),
+            viewModel.uiState.value
+        )
+        assertEquals(1, selfService.overviewLoadCount)
+        assertFalse(selfService.cleared)
+    }
+
+    @Test
+    fun refreshAccountInfo_keepsExistingCardsWhenOverviewRequestFails() {
+        val viewModel = createOnlineViewModel()
+        val original = viewModel.uiState.value
+        selfService.overviewResult = AccountOverviewResult.Failure("timeout")
+
+        viewModel.refreshAccountInfo()
+
+        assertEquals(
+            original.copy(accountInfoError = "timeout", canLogoutDevices = false),
+            viewModel.uiState.value
+        )
+    }
+
+    @Test
+    fun refreshAccountInfo_doesNotKeepPreviousAccountCardsAfterAccountChanges() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val viewModel = createOnlineViewModel()
+            network.loginStatus = LoginStatus(isLoggedIn = true, uid = "2021002")
+            selfService.overviewGate = CompletableDeferred()
+            val refreshedOverview = viewModel.uiState.value.accountOverview!!.copy(
+                username = "2021002",
+                devices = emptyList()
+            )
+            selfService.overviewResult = AccountOverviewResult.Success(refreshedOverview)
+
+            viewModel.refreshAccountInfo()
+
+            val loadingState = viewModel.uiState.value
+            assertTrue(loadingState.isOnline)
+            assertTrue(loadingState.isAccountInfoLoading)
+            assertNull(loadingState.accountOverview)
+            assertFalse(loadingState.isDeviceListAvailable)
+            assertFalse(loadingState.canLogoutDevices)
+
+            selfService.overviewGate!!.complete(Unit)
+            runCurrent()
+
+            assertEquals(refreshedOverview, viewModel.uiState.value.accountOverview)
+            assertFalse(viewModel.uiState.value.isAccountInfoLoading)
+        }
 
     @Test
     fun defaultNetworkChange_retriesRetryableAccountFailure() =
@@ -846,6 +991,7 @@ private class FakeSettingsGateway : SettingsGateway {
 }
 
 private class FakeSelfServiceGateway : SelfServiceGateway {
+    var overviewGate: CompletableDeferred<Unit>? = null
     var overviewResult: AccountOverviewResult = AccountOverviewResult.Failure("fail")
     val overviewResults = ArrayDeque<AccountOverviewResult>()
     var overviewLoadCount = 0
@@ -855,6 +1001,7 @@ private class FakeSelfServiceGateway : SelfServiceGateway {
 
     override suspend fun loadAccountOverview(lgnUsername: String): AccountOverviewResult {
         overviewLoadCount += 1
+        overviewGate?.await()
         return overviewResults.removeFirstOrNull() ?: overviewResult
     }
 
@@ -873,6 +1020,7 @@ private class FakeSelfServiceGateway : SelfServiceGateway {
 }
 
 private class FakeNetworkEnvironment : NetworkEnvironment {
+    var loginStatusGate: CompletableDeferred<Unit>? = null
     private val defaultNetworkChanges = MutableSharedFlow<DefaultNetworkChange>(
         extraBufferCapacity = 1
     )
@@ -901,6 +1049,7 @@ private class FakeNetworkEnvironment : NetworkEnvironment {
 
     override suspend fun fetchLoginStatus(): LoginStatus {
         loginStatusFetchCount += 1
+        loginStatusGate?.await()
         return loginStatus
     }
 

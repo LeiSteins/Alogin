@@ -24,7 +24,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import top.steins.autologin.R
 import top.steins.autologin.ui.component.AppearEasing
 import top.steins.autologin.ui.component.ScaleFadeBox
@@ -95,6 +97,31 @@ internal fun FloatingActionBox(
                 fontWeight = FontWeight.Bold
             )
         }
+    }
+}
+
+@Composable
+internal fun NetworkInfoSummary(
+    wifiName: String,
+    ipAddress: String,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier) {
+        Text(
+            text = wifiName,
+            style = MaterialTheme.typography.labelLarge.copy(lineHeight = 16.sp),
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            text = ipAddress,
+            style = MaterialTheme.typography.labelSmall.copy(lineHeight = 10.sp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 

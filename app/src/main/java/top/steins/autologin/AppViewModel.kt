@@ -364,40 +364,50 @@ class AppViewModel(
             return RefreshAttemptOutcome.Complete
         }
 
+        // 查询期间保留上次确认的网络和卡片内容，避免把“等待结果”呈现为离线。
         updateState(generation) {
-            copy(
-                wifiName = networkInfo.wifiName,
-                ipAddress = networkInfo.ipAddress,
-                isOnline = false,
-                accountOverview = null,
-                isAccountInfoLoading = false,
-                accountInfoError = "",
-                isDeviceListAvailable = false,
-                canLogoutDevices = false,
-                networkStatusError = ""
-            )
+            copy(isAccountInfoLoading = true, canLogoutDevices = false)
         }
 
         val status = network.fetchLoginStatus()
         if (!status.isLoggedIn) {
+            if (status.error.isNotBlank()) {
+                updateState(generation) {
+                    copy(
+                        wifiName = if (isOnline) wifiName else networkInfo.wifiName,
+                        ipAddress = if (isOnline) ipAddress else networkInfo.ipAddress,
+                        isAccountInfoLoading = !showFinalError,
+                        accountInfoError = if (isOnline && showFinalError) {
+                            status.error
+                        } else {
+                            accountInfoError
+                        },
+                        networkStatusError = if (!isOnline && showFinalError) {
+                            status.error
+                        } else {
+                            networkStatusError
+                        },
+                        canLogoutDevices = false
+                    )
+                }
+                return RefreshAttemptOutcome.RetryableFailure
+            }
             selfService.clearSession()
             updateState(generation) {
                 copy(
+                    wifiName = networkInfo.wifiName,
+                    ipAddress = networkInfo.ipAddress,
                     isOnline = false,
                     accountOverview = null,
                     isAccountInfoLoading = false,
                     accountInfoError = "",
                     isDeviceListAvailable = false,
                     canLogoutDevices = false,
-                    networkStatusError = if (showFinalError) status.error else ""
+                    networkStatusError = ""
                 )
             }
-            return if (status.error.isBlank()) {
-                // 已成功访问校园网状态页，只是尚未认证；继续检查只会阻塞用户登录。
-                RefreshAttemptOutcome.Complete
-            } else {
-                RefreshAttemptOutcome.RetryableFailure
-            }
+            // 已成功访问校园网状态页，只是尚未认证；继续检查只会阻塞用户登录。
+            return RefreshAttemptOutcome.Complete
         }
 
         // 自助服务账号必须与当前校园网认证账号一致，直接采用 lgn 注销页返回的 uid。
@@ -406,6 +416,8 @@ class AppViewModel(
             selfService.clearSession()
             updateState(generation) {
                 copy(
+                    wifiName = networkInfo.wifiName,
+                    ipAddress = networkInfo.ipAddress,
                     isOnline = true,
                     accountOverview = null,
                     isAccountInfoLoading = false,
@@ -419,11 +431,16 @@ class AppViewModel(
         }
 
         updateState(generation) {
+            // 同一认证账号刷新时保留旧数据；切换账号后不得沿用上一账号的内容。
+            val keepOverview = isOnline && accountOverview?.username == username
             copy(
+                wifiName = networkInfo.wifiName,
+                ipAddress = networkInfo.ipAddress,
                 isOnline = true,
+                accountOverview = if (keepOverview) accountOverview else null,
                 isAccountInfoLoading = true,
-                accountInfoError = "",
-                isDeviceListAvailable = false,
+                accountInfoError = if (keepOverview) accountInfoError else "",
+                isDeviceListAvailable = keepOverview && isDeviceListAvailable,
                 canLogoutDevices = false,
                 networkStatusError = ""
             )
@@ -448,14 +465,12 @@ class AppViewModel(
                 updateState(generation) {
                     copy(
                         isOnline = true,
-                        accountOverview = null,
                         isAccountInfoLoading = result.isRetryable && !showFinalError,
                         accountInfoError = if (!result.isRetryable || showFinalError) {
                             result.message
                         } else {
-                            ""
+                            accountInfoError
                         },
-                        isDeviceListAvailable = false,
                         canLogoutDevices = false
                     )
                 }

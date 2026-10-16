@@ -2,6 +2,7 @@ package top.steins.autologin.ui.screen
 
 import android.graphics.Bitmap
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
 import androidx.compose.ui.test.*
@@ -36,8 +37,12 @@ class AccountScreenTest {
         compose.runOnIdle { assertNull(saved) }
         compose.onNodeWithContentDescription("用户名").performTextInput("alice")
         compose.onNodeWithContentDescription("密码").performTextInput("secret")
+        compose.onNodeWithContentDescription("密码")
+            .assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.Password))
         compose.onNodeWithContentDescription("显示密码").performClick()
         compose.onNodeWithContentDescription("隐藏密码").assertExists()
+        compose.onNodeWithContentDescription("隐藏密码").performClick()
+        compose.onNodeWithContentDescription("显示密码").assertExists()
         compose.onNodeWithText("保存并使用").performScrollTo().performClick()
         compose.runOnIdle { assertEquals("alice" to "secret", saved) }
     }
@@ -124,7 +129,13 @@ class AccountScreenTest {
         capture("account-list-dark")
         compose.onNodeWithContentDescription("编辑账号 alice").performClick()
         capture("account-edit-dark")
+        compose.onNodeWithContentDescription("密码")
+            .assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.Password))
         compose.onNodeWithContentDescription("密码").performTextReplacement("new")
+        compose.onNodeWithContentDescription("密码")
+            .assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.Password))
+        compose.onNodeWithContentDescription("显示密码").assertDoesNotExist()
+        compose.onNodeWithContentDescription("隐藏密码").assertDoesNotExist()
         compose.onNodeWithText("保存并使用").performScrollTo().performClick()
         compose.runOnIdle { assertEquals("alice" to "new", saved) }
     }

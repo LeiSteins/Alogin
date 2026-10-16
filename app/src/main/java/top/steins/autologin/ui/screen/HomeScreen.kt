@@ -42,6 +42,7 @@ import top.steins.autologin.R
 import top.steins.autologin.network.AccountOverview
 import top.steins.autologin.network.DeviceLogoutResult
 import top.steins.autologin.network.LoginResult
+import top.steins.autologin.ui.component.ScaleFadeBox
 import top.steins.autologin.ui.theme.ScreenHorizontalPadding
 import top.steins.autologin.ui.theme.TopBarHeight
 
@@ -93,10 +94,13 @@ fun HomeScreen(
     var isLoggingIn by remember { mutableStateOf(false) }
     var isDeletingDevice by remember { mutableStateOf(false) }
     var lastAccountOverview by remember { mutableStateOf<AccountOverview?>(null) }
+    var lastOnlineNetworkInfo by remember { mutableStateOf(wifiName to ipAddress) }
     var renderOnlineCards by remember { mutableStateOf(isOnline) }
+    var renderNetworkCard by remember { mutableStateOf(!isOnline) }
     // 此状态随 Home 的导航返回栈条目保存，返回主页时无需重播装饰性入场动画。
     var hasPresentedHome by rememberSaveable { mutableStateOf(false) }
     var showOnlineCardsImmediately by remember { mutableStateOf(hasPresentedHome) }
+    var showNetworkCardImmediately by remember { mutableStateOf(hasPresentedHome) }
     var previousOnlineState by remember { mutableStateOf(isOnline) }
 
     LaunchedEffect(Unit) {
@@ -109,6 +113,14 @@ fun HomeScreen(
         }
     }
 
+    LaunchedEffect(isOnline, wifiName, ipAddress) {
+        if (isOnline) {
+            lastOnlineNetworkInfo = wifiName to ipAddress
+        }
+    }
+
+    // 顶部信息退场时保留最后一次在线内容，避免文字在淡出期间变成离线状态。
+    val networkInfoForSummary = if (isOnline) wifiName to ipAddress else lastOnlineNetworkInfo
     val isTargetWifi = targetWifis.contains(wifiName)
     // 网络离线后 ViewModel 会清空账号信息；保留上一份数据直到退出动画播放完成。
     val overviewForCards = accountOverview ?: if (!isOnline) lastAccountOverview else null
@@ -131,12 +143,22 @@ fun HomeScreen(
                 showOnlineCardsImmediately = false
             }
             renderOnlineCards = true
-        } else if (renderOnlineCards) {
-            delay(
-                CardAnimationDurationMillis +
-                        (onlineCardCount - 1) * CardStaggerDelayMillis.toLong()
-            )
-            renderOnlineCards = false
+            if (renderNetworkCard) {
+                delay(CardAnimationDurationMillis.toLong())
+                renderNetworkCard = false
+            }
+        } else {
+            if (wasOnline) {
+                showNetworkCardImmediately = false
+            }
+            renderNetworkCard = true
+            if (renderOnlineCards) {
+                delay(
+                    CardAnimationDurationMillis +
+                            (onlineCardCount - 1) * CardStaggerDelayMillis.toLong()
+                )
+                renderOnlineCards = false
+            }
         }
     }
 
@@ -194,10 +216,28 @@ fun HomeScreen(
                         )
                         .statusBarsPadding()
                         .height(TopBarHeight)
-                        .padding(horizontal = 12.dp),
+                        .padding(start = ScreenHorizontalPadding, end = 12.dp),
                     horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(start = 12.dp, end = 8.dp)
+                    ) {
+                        ScaleFadeBox(
+                            visible = isOnline,
+                            initiallyVisible = showOnlineCardsImmediately,
+                            durationMillis = CardAnimationDurationMillis,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                        ) {
+                            NetworkInfoSummary(
+                                wifiName = networkInfoForSummary.first,
+                                ipAddress = networkInfoForSummary.second
+                            )
+                        }
+                    }
                     IconButton(
                         onClick = onNavigateToSettings,
                         modifier = Modifier.size(48.dp)
@@ -251,12 +291,21 @@ fun HomeScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                item {
-                    NetworkInfoCard(
-                        wifiName = wifiName,
-                        ipAddress = ipAddress,
-                        errorMessage = networkStatusError
-                    )
+                if (renderNetworkCard) {
+                    item(key = "network-info") {
+                        StaggeredCard(
+                            visible = !isOnline,
+                            initiallyVisible = showNetworkCardImmediately,
+                            index = 0,
+                            count = 1
+                        ) {
+                            NetworkInfoCard(
+                                wifiName = wifiName,
+                                ipAddress = ipAddress,
+                                errorMessage = networkStatusError
+                            )
+                        }
+                    }
                 }
 
                 if (renderOnlineCards) {
