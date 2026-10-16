@@ -223,7 +223,7 @@ fun HomeScreen(
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .padding(start = 12.dp, end = 8.dp)
+                            .padding(start = 4.dp, end = 4.dp)
                     ) {
                         ScaleFadeBox(
                             visible = isOnline,
@@ -240,23 +240,23 @@ fun HomeScreen(
                     }
                     IconButton(
                         onClick = onNavigateToSettings,
-                        modifier = Modifier.size(48.dp)
+                        modifier = Modifier.size(60.dp)
                     ) {
                         Icon(
                             painter = painterResource(R.drawable.settings),
                             contentDescription = stringResource(R.string.nav_settings),
-                            modifier = Modifier.size(24.dp),
+                            modifier = Modifier.size(28.dp),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                     IconButton(
                         onClick = onNavigateToAccount,
-                        modifier = Modifier.size(48.dp)
+                        modifier = Modifier.size(40.dp)
                     ) {
                         Icon(
                             painter = painterResource(R.drawable.manage_accounts),
                             contentDescription = stringResource(R.string.account_title),
-                            modifier = Modifier.size(26.dp),
+                            modifier = Modifier.size(30.dp),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }

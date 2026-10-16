@@ -83,9 +83,8 @@ fun AccountScreen(
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(
-                horizontal = ScreenHorizontalPadding, vertical = 16.dp
+                horizontal = ScreenHorizontalPadding
             ),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item {
                 Card(shape = AppCardShape) {
@@ -119,7 +118,7 @@ fun AccountScreen(
             }
             item {
                 Row(
-                    Modifier.fillMaxWidth().padding(top = 12.dp),
+                    Modifier.fillMaxWidth().padding(vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {

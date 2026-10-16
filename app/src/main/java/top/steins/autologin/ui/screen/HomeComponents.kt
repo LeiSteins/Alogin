@@ -109,15 +109,17 @@ internal fun NetworkInfoSummary(
     Column(modifier = modifier) {
         Text(
             text = wifiName,
+            fontSize = 16.sp,
             style = MaterialTheme.typography.labelLarge.copy(lineHeight = 16.sp),
-            fontWeight = FontWeight.Bold,
+            fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
         Text(
             text = ipAddress,
-            style = MaterialTheme.typography.labelSmall.copy(lineHeight = 14.sp),
+            fontSize = 10.sp,
+            style = MaterialTheme.typography.labelSmall.copy(lineHeight = 2.sp),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
