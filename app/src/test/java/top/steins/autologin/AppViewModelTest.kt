@@ -74,6 +74,7 @@ class AppViewModelTest {
     private val selfService = FakeSelfServiceGateway()
     private val updates = FakeUpdateGateway()
     private val network = FakeNetworkEnvironment()
+    private val newerVersion = "${BuildConfig.VERSION_NAME.substringBefore('.').toInt() + 1}.0.0"
 
     @After
     fun resetHttpLogStorage() {
@@ -877,9 +878,9 @@ class AppViewModelTest {
             network.validatedInternet = true
             updates.fetchResult = Result.success(
                 UpdateInfo(
-                    version = "0.2.0",
-                    fileName = "alogin-v0.2.0.apk",
-                    downloadUrl = "https://aloginupdate.steins.top/alogin-v0.2.0.apk",
+                    version = newerVersion,
+                    fileName = "alogin-v$newerVersion.apk",
+                    downloadUrl = "https://aloginupdate.steins.top/alogin-v$newerVersion.apk",
                     versionCode = BuildConfig.VERSION_CODE + 1
                 )
             )
@@ -956,9 +957,9 @@ class AppViewModelTest {
             network.validatedInternet = true
             updates.fetchResult = Result.success(
                 UpdateInfo(
-                    version = "0.2.0",
-                    fileName = "alogin-v0.2.0.apk",
-                    downloadUrl = "https://aloginupdate.steins.top/alogin-v0.2.0.apk",
+                    version = newerVersion,
+                    fileName = "alogin-v$newerVersion.apk",
+                    downloadUrl = "https://aloginupdate.steins.top/alogin-v$newerVersion.apk",
                     versionCode = BuildConfig.VERSION_CODE + 1
                 )
             )
@@ -979,9 +980,9 @@ class AppViewModelTest {
     @Test
     fun checkForUpdates_publishesAvailableStateForNewerVersion() {
         val update = UpdateInfo(
-            version = "0.2.0",
-            fileName = "alogin-v0.2.0.apk",
-            downloadUrl = "https://aloginupdate.steins.top/alogin-v0.2.0.apk",
+            version = newerVersion,
+            fileName = "alogin-v$newerVersion.apk",
+            downloadUrl = "https://aloginupdate.steins.top/alogin-v$newerVersion.apk",
             versionCode = BuildConfig.VERSION_CODE + 1,
             releaseNotes = "- 新增更新说明"
         )
