@@ -7,6 +7,7 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,9 +20,8 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -30,7 +30,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -46,20 +45,17 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import top.steins.autologin.R
 import top.steins.autologin.ui.component.NavigationTopBar
+import top.steins.autologin.ui.component.WifiSsidInput
 import top.steins.autologin.ui.theme.AppCardShape
 import top.steins.autologin.ui.theme.ScreenHorizontalPadding
 import top.steins.autologin.ui.theme.appCardElevation
@@ -90,7 +86,13 @@ fun WifiConfigScreen(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(focusManager) {
+                detectTapGestures(onTap = { focusManager.clearFocus() })
+            }
+    ) {
         Scaffold(
             topBar = {
                 NavigationTopBar(
@@ -113,63 +115,53 @@ fun WifiConfigScreen(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 // 添加行
-                Row(
+                WifiSsidInput(
+                    value = newSsid,
+                    onValueChange = { newSsid = it },
+                    onAdd = ::addNewSsid,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = ScreenHorizontalPadding),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    OutlinedTextField(
-                        value = newSsid,
-                        onValueChange = { newSsid = it },
-                        label = { Text(stringResource(R.string.wifi_add_ssid_label)) },
-                        singleLine = true,
-                        shape = RoundedCornerShape(12.dp),
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                        keyboardActions = KeyboardActions(onDone = { addNewSsid() }),
-                        modifier = Modifier
-                            .weight(1f)
-                            .onPreviewKeyEvent { event ->
-                                if (event.key == Key.Enter && event.type == KeyEventType.KeyUp) {
-                                    addNewSsid()
-                                    true
-                                } else {
-                                    false
-                                }
-                            }
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    IconButton(onClick = { addNewSsid() }) {
-                        Icon(
-                            painter = painterResource(R.drawable.add_circle),
-                            contentDescription = stringResource(R.string.action_add),
-                            modifier = Modifier.size(32.dp),
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                }
+                        .padding(horizontal = ScreenHorizontalPadding)
+                )
 
                 Spacer(modifier = Modifier.height(16.dp))
 
                 // 扫描附近的 WiFi 按钮
                 Button(
-                    onClick = { showScanSheet = true },
+                    onClick = {
+                        focusManager.clearFocus()
+                        showScanSheet = true
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = ScreenHorizontalPadding)
                         .height(54.dp),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = AppCardShape
                 ) {
                     Icon(
                         painter = painterResource(R.drawable.add_circle),
                         contentDescription = null,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(20.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(stringResource(R.string.wifi_scan_button))
+                    Text(
+                        text = stringResource(R.string.wifi_scan_button),
+                        style = MaterialTheme.typography.titleMedium
+                    )
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = stringResource(R.string.wifi_config_description),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            horizontal = ScreenHorizontalPadding + 4.dp,
+                            vertical = 12.dp
+                        ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Start
+                )
 
                 // WiFi 列表
                 Box(
@@ -187,17 +179,17 @@ fun WifiConfigScreen(
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(
-                                    horizontal = ScreenHorizontalPadding,
-                                    vertical = 12.dp
-                                ),
+                                .padding(horizontal = ScreenHorizontalPadding),
                             shape = AppCardShape,
                             colors = CardDefaults.cardColors(
                                 containerColor = wifiItemContainerColor
                             ),
                             elevation = appCardElevation(),
                         ) {
-                            Column(modifier = Modifier.fillMaxWidth()) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth()
+                                    .verticalScroll(rememberScrollState())
+                            ) {
                                 targetWifis.forEach { ssid ->
                                     key(ssid) {
                                         TargetWifiRow(
@@ -255,6 +247,7 @@ private fun TargetWifiRow(
     onRemove: () -> Unit
 ) {
     var deleting by remember { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
     val visibility = remember { MutableTransitionState(initiallyVisible) }
     val currentOnRemove by rememberUpdatedState(onRemove)
 
@@ -288,7 +281,10 @@ private fun TargetWifiRow(
                 style = MaterialTheme.typography.titleMedium
             )
             IconButton(
-                onClick = { deleting = true },
+                onClick = {
+                    focusManager.clearFocus()
+                    deleting = true
+                },
                 enabled = !deleting,
                 modifier = Modifier.size(48.dp)
             ) {
