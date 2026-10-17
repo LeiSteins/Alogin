@@ -42,12 +42,11 @@
     <string name="home_flow_used_percent">已用 %1$d%%</string>
     <string name="home_flow_used">已用 %1$s</string>
     <string name="home_flow_remaining">剩余 %1$s</string>
+    <string name="home_online_devices">在线设备</string>
     <string name="home_no_devices">当前没有在线设备</string>
-    <string name="home_device_status">状态：%1$s</string>
     <string name="home_device_ip">IP：%1$s</string>
     <string name="home_remaining_money">剩余金额</string>
     <string name="home_money_yuan">%1$s 元</string>
-    <string name="device_status_online">在线</string>
 
     <!-- 设备下线 -->
     <string name="current_device">本机</string>

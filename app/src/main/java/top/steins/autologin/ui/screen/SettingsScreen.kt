@@ -7,13 +7,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import top.steins.autologin.R
 import androidx.compose.foundation.clickable
@@ -29,6 +27,7 @@ import top.steins.autologin.network.update.UpdateState
 import top.steins.autologin.network.update.UpdateDownloadState
 import top.steins.autologin.ui.component.updateDownloadSummary
 import top.steins.autologin.ui.component.SettingsOptionCard
+import top.steins.autologin.ui.component.ListItemChevron
 import top.steins.autologin.ui.component.NavigationTopBar
 import top.steins.autologin.ui.theme.ScreenHorizontalPadding
 
@@ -87,12 +86,7 @@ fun SettingsScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        Icon(
-                            painter = painterResource(R.drawable.chevron_right),
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        ListItemChevron()
                     }
                 }
 
@@ -119,12 +113,7 @@ fun SettingsScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        Icon(
-                            painter = painterResource(R.drawable.chevron_right),
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        ListItemChevron()
                     }
                 }
 
@@ -156,12 +145,7 @@ fun SettingsScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
-                            Icon(
-                                painter = painterResource(R.drawable.chevron_right),
-                                contentDescription = null,
-                                modifier = Modifier.size(20.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            ListItemChevron()
                         }
                     }
                 }
@@ -189,12 +173,7 @@ fun SettingsScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        Icon(
-                            painter = painterResource(R.drawable.chevron_right),
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        ListItemChevron()
                     }
                 }
 
@@ -247,12 +226,7 @@ fun SettingsScreen(
                         if (updateState is UpdateState.Checking) {
                             CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                         } else {
-                            Icon(
-                                painter = painterResource(R.drawable.chevron_right),
-                                contentDescription = null,
-                                modifier = Modifier.size(20.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            ListItemChevron()
                         }
                     }
                 }

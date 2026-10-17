@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
@@ -78,7 +79,18 @@ internal fun DeviceListCard(
         ),
         elevation = appCardElevation(),
     ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 8.dp)
+        ) {
+            Text(
+                text = stringResource(R.string.home_online_devices),
+                modifier = Modifier.padding(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 8.dp),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Bold
+            )
             renderedDevices.forEach { device ->
                 key(device.sessionId) {
                     val visible = devices.any { it.sessionId == device.sessionId }
@@ -147,7 +159,8 @@ private fun AnimatedDeviceRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 16.dp, top = 8.dp, end = 12.dp, bottom = 8.dp),
+                // 按钮触控区和图标画布已有留白，行尾不再叠加内边距。
+                .padding(start = 16.dp, top = 8.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
@@ -162,14 +175,6 @@ private fun AnimatedDeviceRow(
                         fontWeight = FontWeight.Bold
                     )
                 }
-                Text(
-                    text = stringResource(
-                        R.string.home_device_status,
-                        stringResource(R.string.device_status_online)
-                    ),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.primary
-                )
                 val deviceIp = device.ipAddress.ifBlank { stringResource(R.string.value_placeholder) }
                 Text(
                     text = stringResource(R.string.home_device_ip, deviceIp),
@@ -191,10 +196,15 @@ private fun AnimatedDeviceRow(
                 )
             }
             Spacer(modifier = Modifier.width(8.dp))
-            IconButton(onClick = onDelete, enabled = enabled) {
+            IconButton(
+                onClick = onDelete,
+                enabled = enabled,
+                modifier = Modifier.size(48.dp)
+            ) {
                 Icon(
                     painter = painterResource(R.drawable.delete),
                     contentDescription = stringResource(R.string.delete_device),
+                    modifier = Modifier.size(24.dp),
                     tint = MaterialTheme.colorScheme.error
                 )
             }

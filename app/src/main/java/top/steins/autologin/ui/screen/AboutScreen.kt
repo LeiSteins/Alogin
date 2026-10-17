@@ -17,9 +17,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -28,7 +25,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalUriHandler
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -36,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import top.steins.autologin.BuildConfig
 import top.steins.autologin.R
+import top.steins.autologin.ui.component.ListItemChevron
 import top.steins.autologin.ui.component.NavigationTopBar
 import top.steins.autologin.ui.theme.AppCardShape
 import top.steins.autologin.ui.theme.ScreenHorizontalPadding
@@ -120,7 +117,6 @@ fun AboutScreen(
                             label = stringResource(R.string.about_app_name_label),
                             value = stringResource(R.string.app_name)
                         )
-                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
                         AboutInfoRow(
                             label = stringResource(R.string.about_version_label),
                             value = stringResource(
@@ -128,22 +124,16 @@ fun AboutScreen(
                                 BuildConfig.VERSION_NAME,
                                 BuildConfig.VERSION_CODE
                             ),
-                            onClick = if (httpLogEnabled) {
-                                null
-                            } else {
-                                {
-                                    if (onVersionClick()) {
-                                        onShowToast(httpLogEnabledMessage)
-                                    }
+                            onClick = {
+                                if (!httpLogEnabled && onVersionClick()) {
+                                    onShowToast(httpLogEnabledMessage)
                                 }
                             }
                         )
-                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
                         AboutInfoRow(
                             label = stringResource(R.string.about_package_label),
                             value = BuildConfig.APPLICATION_ID
                         )
-                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
                         AboutInfoRow(
                             label = stringResource(R.string.about_license_label),
                             value = stringResource(R.string.about_license_value)
@@ -163,13 +153,11 @@ fun AboutScreen(
                             summary = stringResource(R.string.about_project_homepage_summary),
                             onClick = { uriHandler.openUri(PROJECT_URL) }
                         )
-                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
                         AboutLinkRow(
                             title = stringResource(R.string.about_source_code),
                             summary = stringResource(R.string.about_source_code_summary),
                             onClick = { uriHandler.openUri(SOURCE_CODE_URL) }
                         )
-                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
                         AboutLinkRow(
                             title = stringResource(R.string.about_license_details),
                             summary = stringResource(R.string.about_license_details_summary),
@@ -186,18 +174,12 @@ fun AboutScreen(
 private fun AboutInfoRow(
     label: String,
     value: String,
-    onClick: (() -> Unit)? = null
+    onClick: () -> Unit = {}
 ) {
-    val rowModifier = if (onClick == null) {
-        Modifier.fillMaxWidth()
-    } else {
-        Modifier
+    Row(
+        modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-    }
-
-    Row(
-        modifier = rowModifier
             .padding(horizontal = 16.dp, vertical = 14.dp),
         horizontalArrangement = Arrangement.spacedBy(16.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -234,11 +216,6 @@ private fun AboutLinkRow(title: String, summary: String, onClick: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
-        Icon(
-            painter = painterResource(R.drawable.chevron_right),
-            contentDescription = null,
-            modifier = Modifier.size(20.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        ListItemChevron()
     }
 }

@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -277,7 +278,7 @@ private fun TargetWifiRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp)
-                .padding(horizontal = 16.dp),
+                .padding(start = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
@@ -288,12 +289,14 @@ private fun TargetWifiRow(
             )
             IconButton(
                 onClick = { deleting = true },
-                enabled = !deleting
+                enabled = !deleting,
+                modifier = Modifier.size(48.dp)
             ) {
                 Icon(
                     painter = painterResource(R.drawable.close),
                     contentDescription = stringResource(R.string.action_delete),
-                    modifier = Modifier.size(20.dp),
+                    // 保留图标尺寸，补偿触控区及矢量画布的留白。
+                    modifier = Modifier.size(20.dp).offset(x = 2.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
