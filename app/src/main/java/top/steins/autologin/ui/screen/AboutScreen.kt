@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -32,8 +33,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import top.steins.autologin.BuildConfig
 import top.steins.autologin.R
+import top.steins.autologin.network.update.UpdateDownloadState
+import top.steins.autologin.network.update.UpdateState
 import top.steins.autologin.ui.component.ListItemChevron
 import top.steins.autologin.ui.component.NavigationTopBar
+import top.steins.autologin.ui.component.updateDownloadSummary
 import top.steins.autologin.ui.theme.AppCardShape
 import top.steins.autologin.ui.theme.ScreenHorizontalPadding
 import top.steins.autologin.ui.theme.appCardElevation
@@ -45,9 +49,12 @@ private const val LICENSE_URL = "$SOURCE_CODE_URL/blob/main/LICENSE"
 @Composable
 fun AboutScreen(
     httpLogEnabled: Boolean,
+    updateState: UpdateState,
     onVersionClick: () -> Boolean,
     onShowToast: (String) -> Unit,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    onCheckForUpdates: () -> Unit,
+    onDownloadUpdate: () -> Unit
 ) {
     val uriHandler = LocalUriHandler.current
     val httpLogEnabledMessage = stringResource(R.string.about_http_log_enabled)
@@ -163,6 +170,34 @@ fun AboutScreen(
                             summary = stringResource(R.string.about_license_details_summary),
                             onClick = { uriHandler.openUri(LICENSE_URL) }
                         )
+                        AboutLinkRow(
+                            title = stringResource(R.string.check_for_updates),
+                            summary = when (updateState) {
+                                UpdateState.Idle -> stringResource(
+                                    R.string.update_idle,
+                                    BuildConfig.VERSION_NAME
+                                )
+                                UpdateState.Checking -> stringResource(R.string.update_checking)
+                                is UpdateState.UpToDate -> stringResource(
+                                    R.string.update_up_to_date,
+                                    BuildConfig.VERSION_NAME
+                                )
+                                is UpdateState.Available -> if (updateState.download != UpdateDownloadState.None) {
+                                    updateDownloadSummary(updateState.download)
+                                } else {
+                                    stringResource(R.string.update_available, updateState.update.version)
+                                }
+                                is UpdateState.Error -> stringResource(R.string.update_check_failed)
+                            },
+                            isLoading = updateState is UpdateState.Checking,
+                            onClick = {
+                                if (updateState is UpdateState.Available) {
+                                    onDownloadUpdate()
+                                } else {
+                                    onCheckForUpdates()
+                                }
+                            }
+                        )
                     }
                 }
             }
@@ -199,11 +234,16 @@ private fun AboutInfoRow(
 }
 
 @Composable
-private fun AboutLinkRow(title: String, summary: String, onClick: () -> Unit) {
+private fun AboutLinkRow(
+    title: String,
+    summary: String,
+    onClick: () -> Unit,
+    isLoading: Boolean = false
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .clickable(enabled = !isLoading, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 14.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
@@ -216,6 +256,10 @@ private fun AboutLinkRow(title: String, summary: String, onClick: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
-        ListItemChevron()
+        if (isLoading) {
+            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+        } else {
+            ListItemChevron()
+        }
     }
 }

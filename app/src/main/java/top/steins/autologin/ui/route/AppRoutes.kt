@@ -89,33 +89,16 @@ fun SettingsRoute(
     val targetWifis by viewModel.targetWifis.collectAsStateWithLifecycle()
     val httpLogEnabled by viewModel.httpLogEnabled.collectAsStateWithLifecycle()
     val httpLogs by viewModel.httpLogs.collectAsStateWithLifecycle()
-    val updateState by viewModel.updateState.collectAsStateWithLifecycle()
-    var showUpdateDetails by rememberSaveable { mutableStateOf(false) }
-    val availableUpdate = (updateState as? UpdateState.Available)?.update
-    if (showUpdateDetails && availableUpdate != null) {
-        UpdateDialog(
-            update = availableUpdate,
-            download = (updateState as UpdateState.Available).download,
-            onDownload = viewModel::downloadAvailableUpdate,
-            onDismiss = {
-                showUpdateDetails = false
-                viewModel.cancelAutomaticUpdateInstall()
-            }
-        )
-    }
 
     SettingsScreen(
         targetWifiCount = targetWifis.size,
         httpLogEnabled = httpLogEnabled,
         logEntryCount = httpLogs.size,
-        updateState = updateState,
         onNavigateBack = onNavigateBack,
         onNavigateToLog = onNavigateToLog,
         onNavigateToWifiConfig = onNavigateToWifiConfig,
         onNavigateToSoftwareSettings = onNavigateToSoftwareSettings,
-        onNavigateToAbout = onNavigateToAbout,
-        onCheckForUpdates = { viewModel.checkForUpdates(manual = true) },
-        onDownloadUpdate = { showUpdateDetails = true }
+        onNavigateToAbout = onNavigateToAbout
     )
 }
 
@@ -143,12 +126,29 @@ fun AboutRoute(
     onNavigateBack: () -> Unit
 ) {
     val httpLogEnabled by viewModel.httpLogEnabled.collectAsStateWithLifecycle()
+    val updateState by viewModel.updateState.collectAsStateWithLifecycle()
+    var showUpdateDetails by rememberSaveable { mutableStateOf(false) }
+    val availableUpdate = (updateState as? UpdateState.Available)?.update
+    if (showUpdateDetails && availableUpdate != null) {
+        UpdateDialog(
+            update = availableUpdate,
+            download = (updateState as UpdateState.Available).download,
+            onDownload = viewModel::downloadAvailableUpdate,
+            onDismiss = {
+                showUpdateDetails = false
+                viewModel.cancelAutomaticUpdateInstall()
+            }
+        )
+    }
 
     AboutScreen(
         httpLogEnabled = httpLogEnabled,
+        updateState = updateState,
         onVersionClick = viewModel::onAboutVersionClicked,
         onShowToast = toastState::show,
-        onNavigateBack = onNavigateBack
+        onNavigateBack = onNavigateBack,
+        onCheckForUpdates = { viewModel.checkForUpdates(manual = true) },
+        onDownloadUpdate = { showUpdateDetails = true }
     )
 }
 

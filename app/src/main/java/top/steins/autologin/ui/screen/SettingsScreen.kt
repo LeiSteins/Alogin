@@ -17,15 +17,9 @@ import top.steins.autologin.R
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.size
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
-import top.steins.autologin.BuildConfig
-import top.steins.autologin.network.update.UpdateState
-import top.steins.autologin.network.update.UpdateDownloadState
-import top.steins.autologin.ui.component.updateDownloadSummary
 import top.steins.autologin.ui.component.SettingsOptionCard
 import top.steins.autologin.ui.component.ListItemChevron
 import top.steins.autologin.ui.component.NavigationTopBar
@@ -36,14 +30,11 @@ fun SettingsScreen(
     targetWifiCount: Int,
     httpLogEnabled: Boolean,
     logEntryCount: Int,
-    updateState: UpdateState,
     onNavigateBack: () -> Unit,
     onNavigateToLog: () -> Unit,
     onNavigateToWifiConfig: () -> Unit,
     onNavigateToSoftwareSettings: () -> Unit,
-    onNavigateToAbout: () -> Unit,
-    onCheckForUpdates: () -> Unit,
-    onDownloadUpdate: () -> Unit
+    onNavigateToAbout: () -> Unit
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
@@ -177,59 +168,6 @@ fun SettingsScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // 检查更新
-                SettingsOptionCard {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable(enabled = updateState !is UpdateState.Checking) {
-                                if (updateState is UpdateState.Available) {
-                                    onDownloadUpdate()
-                                } else {
-                                    onCheckForUpdates()
-                                }
-                            }
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                stringResource(R.string.check_for_updates),
-                                style = MaterialTheme.typography.titleMedium
-                            )
-                            Text(
-                                text = when (updateState) {
-                                    UpdateState.Idle -> stringResource(
-                                        R.string.update_idle,
-                                        BuildConfig.VERSION_NAME
-                                    )
-                                    UpdateState.Checking -> stringResource(R.string.update_checking)
-                                    is UpdateState.UpToDate -> stringResource(
-                                        R.string.update_up_to_date,
-                                        BuildConfig.VERSION_NAME
-                                    )
-                                    is UpdateState.Available -> if (updateState.download != UpdateDownloadState.None) {
-                                        updateDownloadSummary(updateState.download)
-                                    } else stringResource(
-                                        R.string.update_available,
-                                        updateState.update.version
-                                    )
-                                    is UpdateState.Error -> stringResource(R.string.update_check_failed)
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        if (updateState is UpdateState.Checking) {
-                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                        } else {
-                            ListItemChevron()
-                        }
-                    }
-                }
             }
         }
     }
