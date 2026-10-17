@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -126,12 +125,7 @@ fun HomeScreen(
         ?.devices
         .orEmpty()
         .sortedByDescending { device -> device.isCurrentDevice(ipAddress) }
-    val onlineCardCount = 1 + when {
-        overviewForCards == null -> 0
-        !isDeviceListAvailable -> 0
-        devicesForCards.isEmpty() -> 1
-        else -> devicesForCards.size
-    }
+    val onlineCardCount = if (overviewForCards != null && isDeviceListAvailable) 2 else 1
 
     LaunchedEffect(isOnline) {
         val wasOnline = previousOnlineState
@@ -309,70 +303,54 @@ fun HomeScreen(
                     }
 
                     if (overviewForCards != null && isDeviceListAvailable) {
-                        if (devicesForCards.isEmpty()) {
-                            item(key = "empty-device") {
-                                StaggeredCard(
-                                    visible = isOnline,
-                                    initiallyVisible = showOnlineCardsImmediately,
-                                    index = 1,
-                                    count = onlineCardCount
-                                ) {
-                                    EmptyDeviceCard()
-                                }
-                            }
-                        } else {
-                            itemsIndexed(
-                                items = devicesForCards,
-                                key = { _, device -> device.sessionId }
-                            ) { deviceIndex, device ->
-                                StaggeredCard(
-                                    visible = isOnline,
-                                    initiallyVisible = showOnlineCardsImmediately,
-                                    index = deviceIndex + 1,
-                                    count = onlineCardCount
-                                ) {
-                                    DeviceCard(
-                                        device = device,
-                                        isCurrentDevice = device.isCurrentDevice(ipAddress),
-                                        enabled = !isDeletingDevice && canLogoutDevices,
-                                        onDelete = {
-                                            hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
-                                            isDeletingDevice = true
-                                            scope.launch {
-                                                try {
-                                                    when (
-                                                        val result = onLogoutDevice(
-                                                            device.sessionId,
-                                                            device.ipAddress,
-                                                            device.macAddress
-                                                        )
-                                                    ) {
-                                                        DeviceLogoutResult.Success -> {
-                                                            onShowToast(
-                                                                resources.getString(
-                                                                    R.string.delete_device_success,
-                                                                    device.macAddress
-                                                                )
+                        item(key = "device-list") {
+                            StaggeredCard(
+                                visible = isOnline,
+                                initiallyVisible = showOnlineCardsImmediately,
+                                index = 1,
+                                count = onlineCardCount
+                            ) {
+                                DeviceListCard(
+                                    devices = devicesForCards,
+                                    localIpAddress = ipAddress,
+                                    enabled = !isDeletingDevice && canLogoutDevices,
+                                    onDelete = { device ->
+                                        hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
+                                        isDeletingDevice = true
+                                        scope.launch {
+                                            try {
+                                                when (
+                                                    val result = onLogoutDevice(
+                                                        device.sessionId,
+                                                        device.ipAddress,
+                                                        device.macAddress
+                                                    )
+                                                ) {
+                                                    DeviceLogoutResult.Success -> {
+                                                        onShowToast(
+                                                            resources.getString(
+                                                                R.string.delete_device_success,
+                                                                device.macAddress
                                                             )
-                                                            onRefreshAfterDeviceLogout(1)
-                                                        }
-
-                                                        is DeviceLogoutResult.Failure -> {
-                                                            onShowToast(result.message)
-                                                        }
-
-                                                        is DeviceLogoutResult.Indeterminate -> {
-                                                            onShowToast(result.message)
-                                                            onRefreshAfterIndeterminateDeviceLogout()
-                                                        }
+                                                        )
+                                                        onRefreshAfterDeviceLogout(1)
                                                     }
-                                                } finally {
-                                                    isDeletingDevice = false
+
+                                                    is DeviceLogoutResult.Failure -> {
+                                                        onShowToast(result.message)
+                                                    }
+
+                                                    is DeviceLogoutResult.Indeterminate -> {
+                                                        onShowToast(result.message)
+                                                        onRefreshAfterIndeterminateDeviceLogout()
+                                                    }
                                                 }
+                                            } finally {
+                                                isDeletingDevice = false
                                             }
                                         }
-                                    )
-                                }
+                                    }
+                                )
                             }
                         }
                     }

@@ -1,5 +1,12 @@
 package top.steins.autologin.ui.screen
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -16,6 +23,14 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -31,7 +46,30 @@ import top.steins.autologin.ui.theme.AppCardShape
 import top.steins.autologin.ui.theme.appCardElevation
 
 @Composable
-internal fun EmptyDeviceCard() {
+internal fun DeviceListCard(
+    devices: List<AccountDevice>,
+    localIpAddress: String,
+    enabled: Boolean,
+    onDelete: (AccountDevice) -> Unit
+) {
+    var renderedDevices by remember { mutableStateOf(devices) }
+    var isInitialComposition by remember { mutableStateOf(true) }
+    val currentDevices by rememberUpdatedState(devices)
+    SideEffect {
+        isInitialComposition = false
+    }
+
+    LaunchedEffect(devices) {
+        // 刷新后保留已移除的行，等收缩、淡出完成后再清理。
+        val updatedDevices = devices.toMutableList()
+        renderedDevices.forEachIndexed { index, device ->
+            if (devices.none { it.sessionId == device.sessionId }) {
+                updatedDevices.add(index.coerceAtMost(updatedDevices.size), device)
+            }
+        }
+        renderedDevices = updatedDevices
+    }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = AppCardShape,
@@ -40,28 +78,71 @@ internal fun EmptyDeviceCard() {
         ),
         elevation = appCardElevation(),
     ) {
-        Text(
-            text = stringResource(R.string.home_no_devices),
-            modifier = Modifier.padding(16.dp),
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        Column(modifier = Modifier.fillMaxWidth()) {
+            renderedDevices.forEach { device ->
+                key(device.sessionId) {
+                    val visible = devices.any { it.sessionId == device.sessionId }
+                    AnimatedDeviceRow(
+                        device = device,
+                        visible = visible,
+                        initiallyVisible = isInitialComposition,
+                        isCurrentDevice = device.isCurrentDevice(localIpAddress),
+                        enabled = enabled && visible,
+                        onDelete = { onDelete(device) },
+                        onHidden = {
+                            if (currentDevices.none { it.sessionId == device.sessionId }) {
+                                renderedDevices = renderedDevices.filterNot {
+                                    it.sessionId == device.sessionId
+                                }
+                            }
+                        }
+                    )
+                }
+            }
+            AnimatedVisibility(
+                visible = renderedDevices.isEmpty(),
+                enter = expandVertically(tween(CardAnimationDurationMillis)) +
+                        fadeIn(tween(CardAnimationDurationMillis)),
+                exit = shrinkVertically(tween(CardAnimationDurationMillis)) +
+                        fadeOut(tween(CardAnimationDurationMillis))
+            ) {
+                Text(
+                    text = stringResource(R.string.home_no_devices),
+                    modifier = Modifier.padding(16.dp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
     }
 }
 
 @Composable
-internal fun DeviceCard(
+private fun AnimatedDeviceRow(
     device: AccountDevice,
+    visible: Boolean,
+    initiallyVisible: Boolean,
     isCurrentDevice: Boolean,
     enabled: Boolean,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onHidden: () -> Unit
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = AppCardShape,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainer
-        ),
-        elevation = appCardElevation(),
+    val visibility = remember { MutableTransitionState(initiallyVisible) }
+    val currentOnHidden by rememberUpdatedState(onHidden)
+    LaunchedEffect(visible) {
+        visibility.targetState = visible
+    }
+    LaunchedEffect(visible, visibility.isIdle, visibility.currentState) {
+        if (!visible && visibility.isIdle && !visibility.currentState) {
+            currentOnHidden()
+        }
+    }
+
+    AnimatedVisibility(
+        visibleState = visibility,
+        enter = expandVertically(tween(CardAnimationDurationMillis)) +
+                fadeIn(tween(CardAnimationDurationMillis)),
+        exit = shrinkVertically(tween(CardAnimationDurationMillis)) +
+                fadeOut(tween(CardAnimationDurationMillis))
     ) {
         Row(
             modifier = Modifier
