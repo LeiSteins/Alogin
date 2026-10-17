@@ -1,12 +1,12 @@
 package top.steins.autologin.ui.screen
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,10 +35,13 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,11 +56,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import top.steins.autologin.R
-import top.steins.autologin.ui.component.AppearEasing
-import top.steins.autologin.ui.component.DismissEasing
 import top.steins.autologin.ui.component.NavigationTopBar
 import top.steins.autologin.ui.theme.AppCardShape
 import top.steins.autologin.ui.theme.ScreenHorizontalPadding
@@ -78,25 +78,7 @@ fun WifiConfigScreen(
     val focusManager = LocalFocusManager.current
     var showScanSheet by remember { mutableStateOf(false) }
     val scanSheetState = rememberModalBottomSheetState()
-    var deletingSsids by remember { mutableStateOf(setOf<String>()) }
-    var visibleSsidContents by remember { mutableStateOf(setOf<String>()) }
-    var hasInitializedSsidContent by remember { mutableStateOf(false) }
     val wifiItemContainerColor = MaterialTheme.colorScheme.surfaceContainer
-
-    LaunchedEffect(targetWifis) {
-        val currentSsids = targetWifis.toSet()
-        if (!hasInitializedSsidContent) {
-            visibleSsidContents = currentSsids
-            hasInitializedSsidContent = true
-        } else {
-            visibleSsidContents = visibleSsidContents.intersect(currentSsids) - deletingSsids
-            val pendingSsids = currentSsids - visibleSsidContents - deletingSsids
-            if (pendingSsids.isNotEmpty()) {
-                delay(180)
-                visibleSsidContents = visibleSsidContents + pendingSsids
-            }
-        }
-    }
 
     fun addNewSsid() {
         val trimmed = newSsid.trim()
@@ -116,6 +98,12 @@ fun WifiConfigScreen(
                 )
             }
         ) { innerPadding ->
+            // 跟随 Scaffold 内容的首次组合，避免子组合前就切换为新增行状态。
+            var isInitialComposition by remember { mutableStateOf(true) }
+            SideEffect {
+                isInitialComposition = false
+            }
+
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -198,9 +186,6 @@ fun WifiConfigScreen(
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .animateContentSize(
-                                    animationSpec = tween(220, easing = AppearEasing)
-                                )
                                 .padding(
                                     horizontal = ScreenHorizontalPadding,
                                     vertical = 12.dp
@@ -213,54 +198,12 @@ fun WifiConfigScreen(
                         ) {
                             Column(modifier = Modifier.fillMaxWidth()) {
                                 targetWifis.forEach { ssid ->
-                                    androidx.compose.runtime.key(ssid) {
-                                        val contentVisible = ssid in visibleSsidContents && ssid !in deletingSsids
-
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .height(56.dp)
-                                                .padding(horizontal = 16.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.SpaceBetween
-                                        ) {
-                                            AnimatedVisibility(
-                                                visible = contentVisible,
-                                                enter = fadeIn(tween(180, easing = AppearEasing)) +
-                                                        slideInHorizontally(tween(180, easing = AppearEasing)) { it / 3 },
-                                                exit = fadeOut(tween(160, easing = DismissEasing)) +
-                                                        slideOutHorizontally(tween(160, easing = DismissEasing)) { -it / 3 },
-                                                modifier = Modifier.weight(1f)
-                                            ) {
-                                                Text(
-                                                    ssid,
-                                                    style = MaterialTheme.typography.titleMedium
-                                                )
-                                            }
-
-                                            AnimatedVisibility(
-                                                visible = contentVisible,
-                                                enter = fadeIn(tween(180, easing = AppearEasing)),
-                                                exit = fadeOut(tween(160, easing = DismissEasing))
-                                            ) {
-                                                IconButton(onClick = {
-                                                    deletingSsids = deletingSsids + ssid
-                                                    visibleSsidContents = visibleSsidContents - ssid
-                                                    scope.launch {
-                                                    delay(180)
-                                                        onRemoveTargetWifi(ssid)
-                                                        deletingSsids = deletingSsids - ssid
-                                                    }
-                                                }) {
-                                                    Icon(
-                                                        painter = painterResource(R.drawable.close),
-                                                        contentDescription = stringResource(R.string.action_delete),
-                                                        modifier = Modifier.size(20.dp),
-                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                                    )
-                                                }
-                                            }
-                                        }
+                                    key(ssid) {
+                                        TargetWifiRow(
+                                            ssid = ssid,
+                                            initiallyVisible = isInitialComposition,
+                                            onRemove = { onRemoveTargetWifi(ssid) }
+                                        )
                                     }
                                 }
                             }
@@ -268,7 +211,7 @@ fun WifiConfigScreen(
                     }
 
                     androidx.compose.animation.AnimatedVisibility(
-                        visible = targetWifis.isEmpty() && deletingSsids.isEmpty(),
+                        visible = targetWifis.isEmpty(),
                         modifier = Modifier.align(Alignment.Center),
                         enter = fadeIn(tween(180)),
                         exit = fadeOut(tween(120))
@@ -298,6 +241,60 @@ fun WifiConfigScreen(
                             onShowToast(resources.getString(R.string.wifi_added, ssid))
                         }
                     }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TargetWifiRow(
+    ssid: String,
+    initiallyVisible: Boolean,
+    onRemove: () -> Unit
+) {
+    var deleting by remember { mutableStateOf(false) }
+    val visibility = remember { MutableTransitionState(initiallyVisible) }
+    val currentOnRemove by rememberUpdatedState(onRemove)
+
+    LaunchedEffect(deleting) {
+        visibility.targetState = !deleting
+    }
+
+    // 等整行收缩、淡出完成后，再更新持久化列表。
+    LaunchedEffect(deleting, visibility.isIdle, visibility.currentState) {
+        if (deleting && visibility.isIdle && !visibility.currentState) {
+            currentOnRemove()
+        }
+    }
+
+    AnimatedVisibility(
+        visibleState = visibility,
+        enter = expandVertically(tween(250)) + fadeIn(tween(250)),
+        exit = shrinkVertically(tween(250)) + fadeOut(tween(250))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp)
+                .padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = ssid,
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.titleMedium
+            )
+            IconButton(
+                onClick = { deleting = true },
+                enabled = !deleting
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.close),
+                    contentDescription = stringResource(R.string.action_delete),
+                    modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
