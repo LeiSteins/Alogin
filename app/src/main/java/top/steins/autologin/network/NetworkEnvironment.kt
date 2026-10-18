@@ -64,10 +64,10 @@ class DefaultNetworkEnvironment internal constructor(
     }
 
     override suspend fun fetchLoginStatus(): LoginStatus {
-        val route = campusNetwork.awaitRoute(requireDns = true)
+        val route = campusNetwork.awaitRoute(requireDns = false)
             ?: return LoginStatus(
                 isLoggedIn = false,
-                error = appContext.getString(R.string.status_dns_not_ready)
+                error = appContext.getString(R.string.campus_direct_network_unavailable)
             )
         return checkLoginStatus(appContext, loginClients.get(route.network))
     }

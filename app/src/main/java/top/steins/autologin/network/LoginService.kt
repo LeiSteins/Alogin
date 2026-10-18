@@ -6,6 +6,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import top.steins.autologin.R
@@ -243,9 +244,10 @@ internal suspend fun checkLoginStatus(
     client: OkHttpClient
 ): LoginStatus = withContext(Dispatchers.IO) {
     try {
-        retryAfterDnsFailure {
-            fetchLoginStatus(context, client)
-        }
+        fetchLoginStatus(client) ?: LoginStatus(
+            isLoggedIn = false,
+            error = context.getString(R.string.status_verification_failed)
+        )
     } catch (error: CancellationException) {
         throw error
     } catch (error: Exception) {
@@ -259,24 +261,29 @@ internal suspend fun checkLoginStatus(
     }
 }
 
-private suspend fun fetchLoginStatus(context: Context, client: OkHttpClient): LoginStatus {
-    try {
-        return fetchAuthenticatedLoginStatus(context, client)
+// 无法通过登录页判断时返回 null，交由调用方显示核验错误。
+internal suspend fun fetchLoginStatus(client: OkHttpClient): LoginStatus? {
+    when (recheckLoginStatus(client)) {
+        LoginRecheckResult.LoggedOut -> return LoginStatus(isLoggedIn = false)
+        LoginRecheckResult.Unknown -> return null
+        LoginRecheckResult.LoggedIn -> Unit
+    }
+
+    // 登录页已确认在线；lgn 仅用于补充当前认证账号，失败不得改变登录状态。
+    return try {
+        retryAfterDnsFailure {
+            fetchAuthenticatedLoginStatus(client)
+        } ?: LoginStatus(isLoggedIn = true)
     } catch (error: CancellationException) {
         throw error
-    } catch (lgnError: Exception) {
-        // lgn 异常后直接访问校园网登录页再次核验：返回登录页表示已经退出，
-        // 重定向到 lgn 或返回注销页表示仍处于登录状态。
-        when (recheckLoginStatus(client)) {
-            LoginRecheckResult.LoggedIn -> return LoginStatus(isLoggedIn = true)
-            LoginRecheckResult.LoggedOut -> return LoginStatus(isLoggedIn = false)
-            LoginRecheckResult.Unknown -> throw lgnError
-        }
+    } catch (_: Exception) {
+        LoginStatus(isLoggedIn = true)
     }
 }
 
 internal suspend fun recheckLoginStatus(client: OkHttpClient): LoginRecheckResult {
     val verificationClient = client.newBuilder()
+        .followRedirects(false)
         .connectTimeout(LOGIN_RECHECK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .readTimeout(LOGIN_RECHECK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .callTimeout(LOGIN_RECHECK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
@@ -328,9 +335,8 @@ private suspend fun checkLoginPortalState(
 }
 
 private suspend fun fetchAuthenticatedLoginStatus(
-    context: Context,
     client: OkHttpClient
-): LoginStatus {
+): LoginStatus? {
     val request = Request.Builder()
         .url("https://lgn.bjut.edu.cn/")
         .get()
@@ -338,18 +344,12 @@ private suspend fun fetchAuthenticatedLoginStatus(
         .build()
 
     client.executeCancellable(request).use { response ->
-        if (response.code !in 200..399) {
-            throw IOException(
-                context.getString(R.string.status_http_code, response.code)
-            )
-        }
+        if (!response.isSuccessful) return null
 
         // 服务器返回 GB2312；日志拦截器只查看副本，不会改变这里的原始字节。
-        val body = response.body?.bytes()
-            ?.toString(Charset.forName("GB2312"))
-            .orEmpty()
-        val isLoggedIn = body.contains("Dr.COMWebLoginID_1.htm") ||
-                body.contains("<title>注销页</title>")
+        val bodyBytes = response.body?.bytes() ?: byteArrayOf()
+        val body = bodyBytes.toString(Charset.forName("GB2312"))
+        val isLoggedIn = bodyBytes.isCampusLogoutPage()
 
         return if (isLoggedIn) {
             LoginStatus(
@@ -360,7 +360,7 @@ private suspend fun fetchAuthenticatedLoginStatus(
                 v4ip = body.extractPageVariable("v4ip")
             )
         } else {
-            LoginStatus(isLoggedIn = false)
+            null
         }
     }
 }
@@ -378,8 +378,7 @@ internal fun ByteArray.isCampusLogoutPage(): Boolean =
     }
 
 private fun String.pointsToLgn(): Boolean =
-    startsWith("https://lgn.bjut.edu.cn", ignoreCase = true) ||
-            startsWith("http://lgn.bjut.edu.cn", ignoreCase = true)
+    toHttpUrlOrNull()?.host == "lgn.bjut.edu.cn"
 
 private fun String.extractPageVariable(name: String): String =
     Regex("$name\\s*=\\s*'([^']*)'").find(this)?.groupValues?.get(1)?.trim().orEmpty()
