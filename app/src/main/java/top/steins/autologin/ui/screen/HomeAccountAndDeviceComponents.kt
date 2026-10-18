@@ -13,12 +13,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -40,7 +37,6 @@ import top.steins.autologin.ui.theme.appCardElevation
 @Composable
 internal fun AccountInfoCard(
     overview: AccountOverview?,
-    isLoading: Boolean,
     errorMessage: String,
     onRetry: () -> Unit
 ) {
@@ -49,8 +45,6 @@ internal fun AccountInfoCard(
         content = when {
             overview != null && hasError -> AccountInfoContent.OverviewWithError
             overview != null -> AccountInfoContent.Overview
-            isLoading && hasError -> AccountInfoContent.LoadingWithError
-            isLoading -> AccountInfoContent.Loading
             hasError -> AccountInfoContent.Error
             else -> AccountInfoContent.Empty
         },
@@ -113,23 +107,6 @@ internal fun AccountInfoCard(
                             usedFlowMb = currentOverview.usedFlowMb,
                             remainingFlowMb = currentOverview.remainingFlowMb
                         )
-                    } ?: if (
-                        state.content == AccountInfoContent.Loading ||
-                        state.content == AccountInfoContent.LoadingWithError
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(top = 16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                strokeWidth = 2.dp
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Text(stringResource(R.string.home_fetching_account))
-                        }
-                    } else {
-                        Unit
                     }
 
                     if (state.errorMessage.isNotBlank()) {

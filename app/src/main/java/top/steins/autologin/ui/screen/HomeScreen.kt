@@ -49,9 +49,7 @@ internal const val CardStaggerDelayMillis = 60
 
 internal enum class AccountInfoContent {
     Empty,
-    Loading,
     Error,
-    LoadingWithError,
     Overview,
     OverviewWithError
 }
@@ -295,7 +293,6 @@ fun HomeScreen(
                         ) {
                             AccountInfoCard(
                                 overview = overviewForCards,
-                                isLoading = isAccountInfoLoading,
                                 errorMessage = accountInfoError,
                                 onRetry = onRetryAccountInfo
                             )

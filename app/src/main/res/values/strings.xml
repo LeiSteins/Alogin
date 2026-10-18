@@ -37,7 +37,6 @@
     <string name="home_current_network">当前网络</string>
     <string name="home_ip_address">IP 地址</string>
     <string name="home_logged_in">已登录</string>
-    <string name="home_fetching_account">正在获取账号信息…</string>
     <string name="home_retry_fetch">重新获取</string>
     <string name="home_flow_used_percent">已用 %1$d%%</string>
     <string name="home_flow_used">已用 %1$s</string>
