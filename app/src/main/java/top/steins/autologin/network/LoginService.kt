@@ -25,6 +25,7 @@ data class LoginStatus(
 
 sealed class LoginResult {
     data object Success : LoginResult()
+    data object AlreadyOnline : LoginResult()
     data class Failure(val message: String) : LoginResult()
     data class NetworkError(val message: String) : LoginResult()
 }
@@ -210,6 +211,7 @@ private suspend fun executeLoginRequest(
         }
         return when (val parsed = LoginResponseParser.parse(response.body?.string().orEmpty())) {
             LoginParseResult.Success -> LoginResult.Success
+            LoginParseResult.AlreadyOnline -> LoginResult.AlreadyOnline
             is LoginParseResult.Failure -> LoginResult.Failure(
                 loginFailureMessage(context, parsed.serverMessage)
             )
@@ -241,10 +243,12 @@ internal fun String?.isWlgnInvalidPasswordMessage(): Boolean =
 
 internal suspend fun checkLoginStatus(
     context: Context,
-    client: OkHttpClient
+    client: OkHttpClient,
+    knownLoggedIn: Boolean = false,
+    wlanUserIp: String = ""
 ): LoginStatus = withContext(Dispatchers.IO) {
     try {
-        fetchLoginStatus(client) ?: LoginStatus(
+        fetchLoginStatus(client, knownLoggedIn, wlanUserIp) ?: LoginStatus(
             isLoggedIn = false,
             error = context.getString(R.string.status_verification_failed)
         )
@@ -261,15 +265,21 @@ internal suspend fun checkLoginStatus(
     }
 }
 
-// 无法通过登录页判断时返回 null，交由调用方显示核验错误。
-internal suspend fun fetchLoginStatus(client: OkHttpClient): LoginStatus? {
-    when (recheckLoginStatus(client)) {
-        LoginRecheckResult.LoggedOut -> return LoginStatus(isLoggedIn = false)
-        LoginRecheckResult.Unknown -> return null
-        LoginRecheckResult.LoggedIn -> Unit
+// 无法通过门户状态接口或页面判断时返回 null，交由调用方显示核验错误。
+internal suspend fun fetchLoginStatus(
+    client: OkHttpClient,
+    knownLoggedIn: Boolean = false,
+    wlanUserIp: String = ""
+): LoginStatus? {
+    if (!knownLoggedIn) {
+        when (recheckLoginStatus(client, wlanUserIp)) {
+            LoginRecheckResult.LoggedOut -> return LoginStatus(isLoggedIn = false)
+            LoginRecheckResult.Unknown -> return null
+            LoginRecheckResult.LoggedIn -> Unit
+        }
     }
 
-    // 登录页已确认在线；lgn 仅用于补充当前认证账号，失败不得改变登录状态。
+    // 登录页或认证接口已确认在线；lgn 仅用于补充当前认证账号，失败不得改变登录状态。
     return try {
         retryAfterDnsFailure {
             fetchAuthenticatedLoginStatus(client)
@@ -281,7 +291,10 @@ internal suspend fun fetchLoginStatus(client: OkHttpClient): LoginStatus? {
     }
 }
 
-internal suspend fun recheckLoginStatus(client: OkHttpClient): LoginRecheckResult {
+internal suspend fun recheckLoginStatus(
+    client: OkHttpClient,
+    wlanUserIp: String = ""
+): LoginRecheckResult {
     val verificationClient = client.newBuilder()
         .followRedirects(false)
         .connectTimeout(LOGIN_RECHECK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
@@ -292,17 +305,34 @@ internal suspend fun recheckLoginStatus(client: OkHttpClient): LoginRecheckResul
         "http://$EPORTAL_HOST/",
         "https://$WLGN_HOST/a79.htm"
     )
+    var observedLoginPage = false
+    var unresolvedDynamicPortal = false
     for (url in portalUrls) {
-        val result = checkLoginPortalState(verificationClient, url)
-        if (result != LoginRecheckResult.Unknown) return result
+        val check = checkLoginPortalState(verificationClient, url, wlanUserIp)
+        unresolvedDynamicPortal = unresolvedDynamicPortal || check.unresolvedDynamicPortal
+        when (check.state) {
+            LoginRecheckResult.LoggedIn -> return LoginRecheckResult.LoggedIn
+            LoginRecheckResult.LoggedOut -> observedLoginPage = true
+            LoginRecheckResult.Unknown -> Unit
+        }
     }
-    return LoginRecheckResult.Unknown
+    return if (observedLoginPage && !unresolvedDynamicPortal) {
+        LoginRecheckResult.LoggedOut
+    } else {
+        LoginRecheckResult.Unknown
+    }
 }
+
+private data class PortalStateCheck(
+    val state: LoginRecheckResult,
+    val unresolvedDynamicPortal: Boolean
+)
 
 private suspend fun checkLoginPortalState(
     client: OkHttpClient,
-    url: String
-): LoginRecheckResult {
+    url: String,
+    wlanUserIp: String
+): PortalStateCheck {
     val request = Request.Builder()
         .url(url)
         .get()
@@ -310,7 +340,8 @@ private suspend fun checkLoginPortalState(
         .header("Accept", "*/*")
         .build()
 
-    return try {
+    var dynamicPortal = false
+    val state = try {
         client.executeCancellable(request).use { response ->
             val location = response.header("Location").orEmpty()
             if (response.code in 300..399 && location.pointsToLgn()) {
@@ -321,10 +352,14 @@ private suspend fun checkLoginPortalState(
             }
 
             val body = response.body?.bytes() ?: byteArrayOf()
-            when {
-                body.isCampusLoginPage() -> LoginRecheckResult.LoggedOut
-                body.isCampusLogoutPage() -> LoginRecheckResult.LoggedIn
-                else -> LoginRecheckResult.Unknown
+            val titleStatus = body.loginStatusFromPageTitle()
+            if (titleStatus == LoginRecheckResult.LoggedIn) {
+                LoginRecheckResult.LoggedIn
+            } else if (body.isDynamicCampusPortal()) {
+                dynamicPortal = true
+                fetchDynamicPortalStatus(client, request, body, wlanUserIp)
+            } else {
+                titleStatus
             }
         }
     } catch (error: CancellationException) {
@@ -332,6 +367,7 @@ private suspend fun checkLoginPortalState(
     } catch (_: Exception) {
         LoginRecheckResult.Unknown
     }
+    return PortalStateCheck(state, dynamicPortal && state == LoginRecheckResult.Unknown)
 }
 
 private suspend fun fetchAuthenticatedLoginStatus(
@@ -366,16 +402,24 @@ private suspend fun fetchAuthenticatedLoginStatus(
 }
 
 internal fun ByteArray.isCampusLoginPage(): Boolean =
-    LOGIN_PAGE_CHARSETS.any { charset ->
-        LOGIN_PAGE_TITLE_REGEX.containsMatchIn(toString(charset))
+    loginStatusFromPageTitle() == LoginRecheckResult.LoggedOut
+
+internal fun ByteArray.loginStatusFromPageTitle(): LoginRecheckResult {
+    for (charset in LOGIN_PAGE_CHARSETS) {
+        val body = toString(charset)
+        when {
+            LOGIN_PAGE_TITLE_REGEX.containsMatchIn(body) -> return LoginRecheckResult.LoggedOut
+            LOGOUT_PAGE_TITLE_REGEX.containsMatchIn(body) -> return LoginRecheckResult.LoggedIn
+        }
     }
+    return LoginRecheckResult.Unknown
+}
 
 internal fun ByteArray.isCampusLogoutPage(): Boolean =
-    LOGIN_PAGE_CHARSETS.any { charset ->
-        val body = toString(charset)
-        body.contains("Dr.COMWebLoginID_1.htm", ignoreCase = true) ||
-                LOGOUT_PAGE_TITLE_REGEX.containsMatchIn(body)
-    }
+    loginStatusFromPageTitle() == LoginRecheckResult.LoggedIn ||
+            LOGIN_PAGE_CHARSETS.any { charset ->
+                toString(charset).contains("Dr.COMWebLoginID_1.htm", ignoreCase = true)
+            }
 
 private fun String.pointsToLgn(): Boolean =
     toHttpUrlOrNull()?.host == "lgn.bjut.edu.cn"

@@ -33,6 +33,7 @@
     <string name="home_primary_login">登 录</string>
     <string name="home_refreshing_account">正在刷新账号信息…</string>
     <string name="home_login_success_fetching">登录成功，正在获取账号信息…</string>
+    <string name="home_already_online_fetching">当前 IP 已在线，正在获取账号信息…</string>
     <string name="home_refreshing">正在刷新…</string>
     <string name="home_current_network">当前网络</string>
     <string name="home_ip_address">IP 地址</string>

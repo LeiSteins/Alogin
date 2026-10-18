@@ -14,6 +14,42 @@ class LoginResponseParserTest {
     }
 
     @Test
+    fun parse_recognizesEportalIpAlreadyOnlineResponse() {
+        val response = """dr1003({"result":0,"msg":"IP: 10.1.2.3 已经在线! ","ret_code":2});"""
+
+        assertEquals(LoginParseResult.AlreadyOnline, LoginResponseParser.parse(response))
+    }
+
+    @Test
+    fun parse_recognizesIpAlreadyOnlineInMsga() {
+        val response = """dr1003({"result":0,"msg":1,"msga":"IP：10.1.2.3已在线！"});"""
+
+        assertEquals(LoginParseResult.AlreadyOnline, LoginResponseParser.parse(response))
+    }
+
+    @Test
+    fun parse_recognizesPlainIpAlreadyOnlineMessage() {
+        assertEquals(LoginParseResult.AlreadyOnline, LoginResponseParser.parse("IP 已经在线"))
+    }
+
+    @Test
+    fun parse_doesNotTreatAccountAlreadyOnlineAsCurrentIpOnline() {
+        val response = """dr1003({"result":0,"msg":"账号已经在线，无法登录"});"""
+
+        assertEquals(
+            LoginParseResult.Failure("账号已经在线，无法登录"),
+            LoginResponseParser.parse(response)
+        )
+    }
+
+    @Test
+    fun parse_doesNotTreatRetCodeAloneAsCurrentIpOnline() {
+        val response = """dr1003({"result":0,"msg":"密码错误","ret_code":2});"""
+
+        assertEquals(LoginParseResult.Failure("密码错误"), LoginResponseParser.parse(response))
+    }
+
+    @Test
     fun parse_keepsServerFailureMessage() {
         val result = LoginResponseParser.parse("dr1003({\"result\":0,\"msg\":\"密码错误\"})")
 

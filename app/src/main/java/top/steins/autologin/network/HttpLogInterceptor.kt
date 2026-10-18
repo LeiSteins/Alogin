@@ -9,6 +9,7 @@ import okhttp3.Response
 import okio.Buffer
 import top.steins.autologin.R
 import java.io.IOException
+import java.nio.charset.Charset
 import java.nio.charset.StandardCharsets
 import java.util.Locale
 
@@ -96,7 +97,10 @@ class HttpLogInterceptor(
 
     private fun captureResponseBody(response: Response): String = try {
         val bytes = response.peekBody(MAX_RESPONSE_BODY_BYTES + 1).bytes()
-        val text = bytes.toString(StandardCharsets.UTF_8)
+        val charset = response.body?.contentType()?.charset()
+            ?: htmlCharset(bytes)
+            ?: StandardCharsets.UTF_8
+        val text = bytes.toString(charset)
         if (bytes.size > MAX_RESPONSE_BODY_BYTES) {
             "$text\n" + messages.get(
                 R.string.log_response_body_truncated,
@@ -107,6 +111,16 @@ class HttpLogInterceptor(
         }
     } catch (e: Exception) {
         messages.get(R.string.log_response_body_read_failed, e.message.orEmpty())
+    }
+
+    private fun htmlCharset(bytes: ByteArray): Charset? {
+        val prefix = String(bytes, 0, minOf(bytes.size, MAX_CHARSET_PROBE_BYTES), StandardCharsets.ISO_8859_1)
+        val name = HTML_CHARSET_PATTERN.find(prefix)?.groupValues?.get(1) ?: return null
+        return try {
+            Charset.forName(name)
+        } catch (_: IllegalArgumentException) {
+            null
+        }
     }
 
     /**
@@ -134,7 +148,12 @@ class HttpLogInterceptor(
     companion object {
         private const val MAX_REQUEST_BODY_BYTES = 2_000L
         private const val MAX_RESPONSE_BODY_BYTES = 64L * 1024
+        private const val MAX_CHARSET_PROBE_BYTES = 4 * 1024
         private const val REDACTED_VALUE = "***"
+        private val HTML_CHARSET_PATTERN = Regex(
+            """<meta\b[^>]*\bcharset\s*=\s*["']?\s*([a-zA-Z0-9._:-]+)""",
+            RegexOption.IGNORE_CASE
+        )
 
         // WLGN 使用 DDDDD/upass，Eportal 使用 user_account/user_password，
         // 自助服务 SSO 使用 XOR 编码的 user_account 与 wlan_user_ip。

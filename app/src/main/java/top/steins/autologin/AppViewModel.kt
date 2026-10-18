@@ -227,12 +227,13 @@ class AppViewModel(
         )
     }
 
-    fun confirmLogin() {
+    fun confirmLogin(knownLoggedIn: Boolean = false) {
         startRefresh(
             trigger = AccountInfoRefreshTrigger.LoginConfirmation,
             clearSession = false,
             attempts = LOGIN_CONFIRMATION_ATTEMPTS,
-            initialDelayMs = LOGIN_CONFIRMATION_INITIAL_DELAY_MS
+            initialDelayMs = LOGIN_CONFIRMATION_INITIAL_DELAY_MS,
+            knownLoggedIn = knownLoggedIn
         )
     }
 
@@ -257,7 +258,8 @@ class AppViewModel(
         trigger: AccountInfoRefreshTrigger,
         clearSession: Boolean,
         attempts: Int,
-        initialDelayMs: Long
+        initialDelayMs: Long,
+        knownLoggedIn: Boolean = false
     ) {
         refreshGeneration += 1
         val generation = refreshGeneration
@@ -273,11 +275,14 @@ class AppViewModel(
                     refreshStatusInternal(
                         generation = generation,
                         clearSession = clearSession && attempt == 0,
-                        showFinalError = attempt == attempts - 1
+                        showFinalError = attempt == attempts - 1,
+                        knownLoggedIn = knownLoggedIn
                     )
                 }
-                if (outcome == RefreshAttemptOutcome.LoginSucceeded) {
-                    confirmLogin()
+                if (outcome == RefreshAttemptOutcome.LoginSucceeded ||
+                    outcome == RefreshAttemptOutcome.LoginAlreadyOnline
+                ) {
+                    confirmLogin(knownLoggedIn = outcome == RefreshAttemptOutcome.LoginAlreadyOnline)
                     return@launch
                 }
                 if (outcome == RefreshAttemptOutcome.Complete) {
@@ -317,6 +322,11 @@ class AppViewModel(
                         confirmLogin()
                         updateCoordinator.scheduleAutomaticCheck()
                         strings.get(R.string.home_login_success_fetching)
+                    }
+                    LoginResult.AlreadyOnline -> {
+                        confirmLogin(knownLoggedIn = true)
+                        updateCoordinator.scheduleAutomaticCheck()
+                        strings.get(R.string.home_already_online_fetching)
                     }
                     is LoginResult.Failure -> result.message
                     is LoginResult.NetworkError -> result.message
@@ -366,6 +376,10 @@ class AppViewModel(
                 updateCoordinator.scheduleAutomaticCheck()
                 RefreshAttemptOutcome.LoginSucceeded
             }
+            LoginResult.AlreadyOnline -> {
+                updateCoordinator.scheduleAutomaticCheck()
+                RefreshAttemptOutcome.LoginAlreadyOnline
+            }
             is LoginResult.Failure -> {
                 updateState(generation) {
                     copy(isAccountInfoLoading = false, networkStatusError = result.message)
@@ -411,7 +425,8 @@ class AppViewModel(
     private suspend fun refreshStatusInternal(
         generation: Long,
         clearSession: Boolean,
-        showFinalError: Boolean
+        showFinalError: Boolean,
+        knownLoggedIn: Boolean
     ): RefreshAttemptOutcome {
         if (clearSession) selfService.clearSession()
 
@@ -451,7 +466,7 @@ class AppViewModel(
             copy(isAccountInfoLoading = true, canLogoutDevices = false)
         }
 
-        val status = network.fetchLoginStatus()
+        val status = network.fetchLoginStatus(knownLoggedIn)
         if (!status.isLoggedIn) {
             if (status.error.isNotBlank()) {
                 updateState(generation) {

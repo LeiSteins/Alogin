@@ -132,6 +132,72 @@ class AppViewModelTest {
     }
 
     @Test
+    fun login_alreadyOnlineLoadsCurrentAccountAndRefreshesHome() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val viewModel = createStartupViewModel(enabled = false)
+            network.loginResult = LoginResult.AlreadyOnline
+            network.knownOnlineLoginStatus = LoginStatus(isLoggedIn = true, uid = "2021002")
+            val overview = AccountOverview("2021002", "100", "900", "20", emptyList())
+            selfService.overviewResult = AccountOverviewResult.Success(overview)
+
+            assertEquals(LoginResult.AlreadyOnline, viewModel.login())
+            advanceUntilIdle()
+
+            assertEquals(1, network.loginCount)
+            assertEquals(listOf(true), network.loginStatusKnownOnlineRequests)
+            assertEquals("2021002", selfService.lastRequestedUsername)
+            assertTrue(viewModel.uiState.value.isOnline)
+            assertEquals(overview, viewModel.uiState.value.accountOverview)
+            assertFalse(viewModel.uiState.value.isAccountInfoLoading)
+            assertEquals(
+                "msg:${R.string.home_already_online_fetching}", viewModel.uiState.value.loginMessage
+            )
+
+            // 已在线信息只用于本次登录确认，后续刷新仍通过登录页核验。
+            viewModel.refreshStatus()
+            advanceUntilIdle()
+            assertEquals(listOf(true, false), network.loginStatusKnownOnlineRequests)
+            assertFalse(viewModel.uiState.value.isOnline)
+            assertEquals(1, network.loginCount)
+        }
+
+    @Test
+    fun login_alreadyOnlineKeepsOnlineStateWhenAccountCannotBeDetermined() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val viewModel = createStartupViewModel(enabled = false)
+            network.loginResult = LoginResult.AlreadyOnline
+
+            viewModel.login()
+            advanceUntilIdle()
+
+            assertTrue(viewModel.uiState.value.isOnline)
+            assertNull(viewModel.uiState.value.accountOverview)
+            assertEquals("msg:${R.string.account_info_fetch_failed}", viewModel.uiState.value.accountInfoError)
+            assertEquals(0, selfService.overviewLoadCount)
+            assertEquals(1, network.loginCount)
+        }
+
+    @Test
+    fun startupAutoLogin_alreadyOnlineResponseLoadsAccountWithoutAnotherLogin() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val viewModel = createStartupViewModel()
+            network.loginResult = LoginResult.AlreadyOnline
+            network.knownOnlineLoginStatus = LoginStatus(isLoggedIn = true, uid = "2021002")
+            val overview = AccountOverview("2021002", "100", "900", "20", emptyList())
+            selfService.overviewResult = AccountOverviewResult.Success(overview)
+
+            viewModel.onAppForegrounded()
+            advanceUntilIdle()
+
+            assertEquals(1, network.loginCount)
+            assertEquals(listOf(false, true), network.loginStatusKnownOnlineRequests)
+            assertEquals("2021002", selfService.lastRequestedUsername)
+            assertTrue(viewModel.uiState.value.isOnline)
+            assertEquals(overview, viewModel.uiState.value.accountOverview)
+            assertEquals("", viewModel.uiState.value.networkStatusError)
+        }
+
+    @Test
     fun login_callerCancellationKeepsSingleTaskAndConfirmsStatus() =
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
             val gate = CompletableDeferred<Unit>()
@@ -1408,12 +1474,14 @@ private class FakeSelfServiceGateway : SelfServiceGateway {
     var overviewResult: AccountOverviewResult = AccountOverviewResult.Failure("fail")
     val overviewResults = ArrayDeque<AccountOverviewResult>()
     var overviewLoadCount = 0
+    var lastRequestedUsername: String? = null
     var logoutResult: DeviceLogoutResult = DeviceLogoutResult.Failure("fail")
     var logoutRequest: Triple<String, String, String>? = null
     var cleared = false
 
     override suspend fun loadAccountOverview(lgnUsername: String): AccountOverviewResult {
         overviewLoadCount += 1
+        lastRequestedUsername = lgnUsername
         overviewGate?.await()
         return overviewResults.removeFirstOrNull() ?: overviewResult
     }
@@ -1446,6 +1514,8 @@ private class FakeNetworkEnvironment : NetworkEnvironment {
         isConnected = false
     )
     var loginStatus = LoginStatus(isLoggedIn = false)
+    var knownOnlineLoginStatus = LoginStatus(isLoggedIn = true)
+    val loginStatusKnownOnlineRequests = mutableListOf<Boolean>()
     var loginResult: LoginResult = LoginResult.Failure("")
     var performedLogin: Pair<String, String>? = null
     var loginCount = 0
@@ -1463,10 +1533,11 @@ private class FakeNetworkEnvironment : NetworkEnvironment {
 
     override fun hasValidatedInternet(): Boolean = validatedInternet
 
-    override suspend fun fetchLoginStatus(): LoginStatus {
+    override suspend fun fetchLoginStatus(knownLoggedIn: Boolean): LoginStatus {
         loginStatusFetchCount += 1
+        loginStatusKnownOnlineRequests += knownLoggedIn
         loginStatusGate?.await()
-        return loginStatus
+        return if (knownLoggedIn) knownOnlineLoginStatus else loginStatus
     }
 
     override suspend fun performLogin(

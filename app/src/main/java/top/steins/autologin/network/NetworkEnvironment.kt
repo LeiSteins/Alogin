@@ -19,7 +19,8 @@ interface NetworkEnvironment : AutoCloseable {
 
     fun hasValidatedInternet(): Boolean
 
-    suspend fun fetchLoginStatus(): LoginStatus
+    /** knownLoggedIn 仅用于认证接口明确返回当前 IP 已在线后的账号信息刷新。 */
+    suspend fun fetchLoginStatus(knownLoggedIn: Boolean = false): LoginStatus
 
     suspend fun performLogin(
         username: String,
@@ -63,13 +64,18 @@ class DefaultNetworkEnvironment internal constructor(
                 capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
     }
 
-    override suspend fun fetchLoginStatus(): LoginStatus {
+    override suspend fun fetchLoginStatus(knownLoggedIn: Boolean): LoginStatus {
         val route = campusNetwork.awaitRoute(requireDns = false)
             ?: return LoginStatus(
                 isLoggedIn = false,
                 error = appContext.getString(R.string.campus_direct_network_unavailable)
             )
-        return checkLoginStatus(appContext, loginClients.get(route.network))
+        return checkLoginStatus(
+            appContext,
+            loginClients.get(route.network),
+            knownLoggedIn = knownLoggedIn,
+            wlanUserIp = route.ipv4Address
+        )
     }
 
     override suspend fun performLogin(

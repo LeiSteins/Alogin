@@ -18,6 +18,34 @@ import org.junit.Test
 class LoginStatusParsingTest {
 
     @Test
+    fun fetchLoginStatus_loadsCurrentAccountDirectlyWhenLoginAlreadyConfirmed() = runTest {
+        val requestedUrls = mutableListOf<String>()
+        val client = clientWithInterceptor { chain ->
+            requestedUrls += chain.request().url.toString()
+            response(chain, body = "<title>注销页</title><script>uid='2021002';</script>")
+        }
+
+        val result = fetchLoginStatus(client, knownLoggedIn = true)
+
+        assertEquals(LoginStatus(isLoggedIn = true, uid = "2021002"), result)
+        assertEquals(listOf("https://lgn.bjut.edu.cn/"), requestedUrls)
+    }
+
+    @Test
+    fun fetchLoginStatus_keepsKnownLoginWhenCurrentAccountCannotBeLoaded() = runTest {
+        val requestedUrls = mutableListOf<String>()
+        val client = clientWithInterceptor { chain ->
+            requestedUrls += chain.request().url.toString()
+            throw IOException("unavailable")
+        }
+
+        val result = fetchLoginStatus(client, knownLoggedIn = true)
+
+        assertEquals(LoginStatus(isLoggedIn = true), result)
+        assertEquals(listOf("https://lgn.bjut.edu.cn/"), requestedUrls)
+    }
+
+    @Test
     fun fetchLoginStatus_skipsLgnWhenGatewayShowsLoginPage() = runTest {
         val requestedUrls = mutableListOf<String>()
         val client = clientWithInterceptor { chain ->
@@ -28,7 +56,10 @@ class LoginStatusParsingTest {
         val result = fetchLoginStatus(client)
 
         assertEquals(LoginStatus(isLoggedIn = false), result)
-        assertEquals(listOf("http://10.21.221.98/"), requestedUrls)
+        assertEquals(
+            listOf("http://10.21.221.98/", "https://wlgn.bjut.edu.cn/a79.htm"),
+            requestedUrls
+        )
     }
 
     @Test
@@ -173,16 +204,36 @@ class LoginStatusParsingTest {
         val client = clientWithInterceptor { chain ->
             val host = chain.request().url.host
             requestedHosts += host
-            when (host) {
-                "10.21.221.98" -> response(chain, body = loginPage)
-                else -> throw AssertionError("Unexpected host: $host")
-            }
+            response(chain, body = loginPage)
         }
 
         val result = recheckLoginStatus(client)
 
         assertEquals(LoginRecheckResult.LoggedOut, result)
-        assertEquals(listOf("10.21.221.98"), requestedHosts)
+        assertEquals(listOf("10.21.221.98", "wlgn.bjut.edu.cn"), requestedHosts)
+    }
+
+    @Test
+    fun recheckLoginStatus_checksWlgnLogoutTitleAfterGatewayLoginTitle() = runTest {
+        val requestedHosts = mutableListOf<String>()
+        val client = clientWithInterceptor { chain ->
+            val host = chain.request().url.host
+            requestedHosts += host
+            val title = if (host == "10.21.221.98") "上网登录页" else "注销页"
+            response(chain, body = "<title>$title</title>")
+        }
+
+        assertEquals(LoginRecheckResult.LoggedIn, recheckLoginStatus(client))
+        assertEquals(listOf("10.21.221.98", "wlgn.bjut.edu.cn"), requestedHosts)
+    }
+
+    @Test
+    fun recheckLoginStatus_doesNotTreatScriptReferenceAsLogoutPageTitle() = runTest {
+        val client = clientWithInterceptor { chain ->
+            response(chain, body = "<title>其他页面</title><script src='Dr.COMWebLoginID_1.htm'></script>")
+        }
+
+        assertEquals(LoginRecheckResult.Unknown, recheckLoginStatus(client))
     }
 
     @Test
@@ -224,6 +275,22 @@ class LoginStatusParsingTest {
         val body = "<html><head><title>注销页</title></head></html>"
 
         assertFalse(body.toByteArray(Charsets.UTF_8).isCampusLoginPage())
+    }
+
+    @Test
+    fun loginStatusFromPageTitle_recognizesLogoutTitleInBothEncodings() {
+        val body = "<HTML><HEAD><TITLE>\n 注销页 \n</TITLE></HEAD></HTML>"
+
+        for (charset in listOf(Charsets.UTF_8, Charset.forName("GB2312"))) {
+            assertEquals(LoginRecheckResult.LoggedIn, body.toByteArray(charset).loginStatusFromPageTitle())
+        }
+    }
+
+    @Test
+    fun loginStatusFromPageTitle_doesNotUseTextOutsideTitle() {
+        val body = "<title>其他页面</title><p>注销页 上网登录页</p>"
+
+        assertEquals(LoginRecheckResult.Unknown, body.toByteArray().loginStatusFromPageTitle())
     }
 
     private fun clientWithInterceptor(block: (Interceptor.Chain) -> Response): OkHttpClient =

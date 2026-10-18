@@ -6,6 +6,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -15,6 +16,7 @@ import top.steins.autologin.R
 import java.io.ByteArrayOutputStream
 import java.net.ServerSocket
 import java.nio.charset.StandardCharsets
+import java.nio.charset.Charset
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
 
@@ -55,6 +57,56 @@ class HttpLogInterceptorTest {
             server.awaitRequest()
 
             assertTrue(HttpLogStorage.logs.value.isEmpty())
+        }
+    }
+
+    @Test
+    fun interceptor_decodesGb2312AndGbkResponsesWithoutChangingBusinessBytes() {
+        for (charsetName in listOf("GB2312", "GBK")) {
+            val text = "<title>上网登录页</title><p>校园网账号信息</p>"
+            assertLoggedResponse(text, text.toByteArray(Charset.forName(charsetName)), "text/html; charset=$charsetName")
+        }
+    }
+
+    @Test
+    fun interceptor_usesHtmlMetaCharsetWhenHttpHeaderOmitsIt() {
+        for (meta in listOf(
+            "<meta http-equiv=\"Content-Type\" content=\"text/html; charset=gb2312\">",
+            "<meta charset='GB2312'>"
+        )) {
+            val text = "<html><head>$meta<title>注销页</title></head></html>"
+            assertLoggedResponse(text, text.toByteArray(Charset.forName("GB2312")), "text/html")
+        }
+    }
+
+    @Test
+    fun interceptor_prefersHttpCharsetOverConflictingHtmlMeta() {
+        val text = "<meta charset='UTF-8'><title>上网登录页</title>"
+        assertLoggedResponse(text, text.toByteArray(Charset.forName("GBK")), "text/html; charset=gbk")
+    }
+
+    @Test
+    fun interceptor_defaultsToUtf8WhenCharsetIsMissingOrUnsupported() {
+        val text = "登录成功，正在获取账号信息"
+        for (contentType in listOf("text/plain", "text/plain; charset=unsupported-charset")) {
+            assertLoggedResponse(text, text.toByteArray(StandardCharsets.UTF_8), contentType)
+        }
+        val html = "<meta charset='unsupported-charset'><title>注销页</title>"
+        assertLoggedResponse(html, html.toByteArray(StandardCharsets.UTF_8), "text/html")
+    }
+
+    private fun assertLoggedResponse(text: String, bytes: ByteArray, contentType: String) {
+        HttpLogStorage.clear()
+        CapturingTestServer(bytes, contentType).use { server ->
+            val client = OkHttpClient.Builder()
+                .addInterceptor(HttpLogInterceptor(messages))
+                .build()
+            client.newCall(Request.Builder().url("http://127.0.0.1:${server.port}/status").build())
+                .execute().use { response ->
+                    assertArrayEquals(bytes, response.body?.bytes())
+                }
+            server.awaitRequest()
+            assertEquals(text, HttpLogStorage.logs.value.single().responseBody)
         }
     }
 
@@ -196,7 +248,10 @@ class HttpLogInterceptorTest {
     }
 }
 
-private class CapturingTestServer(responseBody: ByteArray) : AutoCloseable {
+private class CapturingTestServer(
+    responseBody: ByteArray,
+    contentType: String = "text/plain; charset=utf-8"
+) : AutoCloseable {
     private val server = ServerSocket(0)
     private val capturedRequest = AtomicReference<String>()
     private val serverFailure = AtomicReference<Throwable?>()
@@ -213,7 +268,7 @@ private class CapturingTestServer(responseBody: ByteArray) : AutoCloseable {
                     output.write(
                         (
                                 "HTTP/1.1 200 OK\r\n" +
-                                        "Content-Type: text/plain; charset=utf-8\r\n" +
+                                        "Content-Type: $contentType\r\n" +
                                         "Content-Length: ${responseBody.size}\r\n" +
                                         "Connection: close\r\n\r\n"
                                 ).toByteArray(StandardCharsets.UTF_8)
