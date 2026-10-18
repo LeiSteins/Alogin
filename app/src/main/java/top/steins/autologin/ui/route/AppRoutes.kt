@@ -1,11 +1,15 @@
 package top.steins.autologin.ui.route
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.currentStateAsState
 import top.steins.autologin.AppViewModel
 import top.steins.autologin.network.update.UpdateState
 import top.steins.autologin.ui.component.CapsuleToastState
@@ -89,6 +93,12 @@ fun SettingsRoute(
     val targetWifis by viewModel.targetWifis.collectAsStateWithLifecycle()
     val httpLogEnabled by viewModel.httpLogEnabled.collectAsStateWithLifecycle()
     val httpLogs by viewModel.httpLogs.collectAsStateWithLifecycle()
+    val lifecycleState by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
+    // 随设置页返回栈保存；已有的日志入口直接显示，新开启的入口只播放一次插入动画。
+    var hasShownHttpLogEntry by rememberSaveable { mutableStateOf(httpLogEnabled) }
+    LaunchedEffect(httpLogEnabled) {
+        if (!httpLogEnabled) hasShownHttpLogEntry = false
+    }
 
     SettingsScreen(
         targetWifiCount = targetWifis.size,
@@ -98,7 +108,10 @@ fun SettingsRoute(
         onNavigateToLog = onNavigateToLog,
         onNavigateToWifiConfig = onNavigateToWifiConfig,
         onNavigateToSoftwareSettings = onNavigateToSoftwareSettings,
-        onNavigateToAbout = onNavigateToAbout
+        onNavigateToAbout = onNavigateToAbout,
+        animateHttpLogEntry = httpLogEnabled && !hasShownHttpLogEntry,
+        isPageResumed = lifecycleState == Lifecycle.State.RESUMED,
+        onHttpLogEntryAnimationFinished = { hasShownHttpLogEntry = true }
     )
 }
 

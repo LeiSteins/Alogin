@@ -1,29 +1,42 @@
 package top.steins.autologin.ui.screen
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
-import top.steins.autologin.R
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
-import top.steins.autologin.ui.component.SettingsOptionCard
+import androidx.compose.ui.unit.dp
+import top.steins.autologin.R
 import top.steins.autologin.ui.component.ListItemChevron
 import top.steins.autologin.ui.component.NavigationTopBar
+import top.steins.autologin.ui.component.SettingsOptionCard
 import top.steins.autologin.ui.theme.ScreenHorizontalPadding
+
+private const val SettingsEntryAnimationDurationMillis = 250
 
 @Composable
 fun SettingsScreen(
@@ -34,8 +47,33 @@ fun SettingsScreen(
     onNavigateToLog: () -> Unit,
     onNavigateToWifiConfig: () -> Unit,
     onNavigateToSoftwareSettings: () -> Unit,
-    onNavigateToAbout: () -> Unit
+    onNavigateToAbout: () -> Unit,
+    animateHttpLogEntry: Boolean = false,
+    isPageResumed: Boolean = true,
+    onHttpLogEntryAnimationFinished: () -> Unit = {}
 ) {
+    val httpLogVisibility = remember {
+        MutableTransitionState(httpLogEnabled && !animateHttpLogEntry)
+    }
+    val currentOnAnimationFinished by rememberUpdatedState(onHttpLogEntryAnimationFinished)
+    LaunchedEffect(httpLogEnabled, animateHttpLogEntry, isPageResumed) {
+        // 等页面返回转场结束后再插入，避免在关于页背后提前播放。
+        httpLogVisibility.targetState = httpLogEnabled && (!animateHttpLogEntry || isPageResumed)
+    }
+    LaunchedEffect(
+        httpLogVisibility.isIdle,
+        httpLogVisibility.currentState,
+        httpLogEnabled,
+        animateHttpLogEntry,
+        isPageResumed
+    ) {
+        if (httpLogEnabled && animateHttpLogEntry && isPageResumed &&
+            httpLogVisibility.isIdle && httpLogVisibility.currentState
+        ) {
+            currentOnAnimationFinished()
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
             topBar = {
@@ -45,131 +83,82 @@ fun SettingsScreen(
                 )
             }
         ) { innerPadding ->
-            Column(
+            LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(innerPadding)
-                    .padding(horizontal = ScreenHorizontalPadding),
-                horizontalAlignment = Alignment.CenterHorizontally
+                    .padding(innerPadding),
+                contentPadding = PaddingValues(horizontal = ScreenHorizontalPadding)
             ) {
-                // 目标网络入口
-                SettingsOptionCard {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onNavigateToWifiConfig() }
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column {
-                            Text(
-                                stringResource(R.string.settings_target_wifi),
-                                style = MaterialTheme.typography.titleMedium
-                            )
-                            Text(
-                                pluralStringResource(
-                                    R.plurals.target_wifi_configured_count,
-                                    targetWifiCount,
-                                    targetWifiCount
-                                ),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        ListItemChevron()
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // 软件设置入口
-                SettingsOptionCard {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onNavigateToSoftwareSettings() }
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column {
-                            Text(
-                                stringResource(R.string.software_settings_title),
-                                style = MaterialTheme.typography.titleMedium
-                            )
-                            Text(
-                                stringResource(R.string.software_settings_summary),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        ListItemChevron()
-                    }
-                }
-
-                if (httpLogEnabled) {
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // HTTP Log 入口仅在关于页解锁后显示。
+                item(key = "settings") {
                     SettingsOptionCard {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onNavigateToLog() }
-                                .padding(horizontal = 16.dp, vertical = 14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                        SettingsEntryRow(
+                            title = stringResource(R.string.settings_target_wifi),
+                            summary = pluralStringResource(
+                                R.plurals.target_wifi_configured_count,
+                                targetWifiCount,
+                                targetWifiCount
+                            ),
+                            onClick = onNavigateToWifiConfig
+                        )
+                        SettingsEntryRow(
+                            title = stringResource(R.string.software_settings_title),
+                            summary = stringResource(R.string.software_settings_summary),
+                            onClick = onNavigateToSoftwareSettings
+                        )
+                        // HTTP Log 入口仅在关于页解锁后显示。
+                        AnimatedVisibility(
+                            visibleState = httpLogVisibility,
+                            enter = expandVertically(tween(SettingsEntryAnimationDurationMillis)) +
+                                    fadeIn(tween(SettingsEntryAnimationDurationMillis)),
+                            exit = shrinkVertically(tween(SettingsEntryAnimationDurationMillis)) +
+                                    fadeOut(tween(SettingsEntryAnimationDurationMillis))
                         ) {
-                            Column {
-                                Text(
-                                    stringResource(R.string.settings_http_log),
-                                    style = MaterialTheme.typography.titleMedium
-                                )
-                                Text(
-                                    pluralStringResource(
-                                        R.plurals.log_entry_count,
-                                        logEntryCount,
-                                        logEntryCount
-                                    ),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            ListItemChevron()
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // 关于应用入口
-                SettingsOptionCard {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onNavigateToAbout() }
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column {
-                            Text(
-                                stringResource(R.string.about_title),
-                                style = MaterialTheme.typography.titleMedium
-                            )
-                            Text(
-                                stringResource(R.string.about_settings_summary),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            SettingsEntryRow(
+                                title = stringResource(R.string.settings_http_log),
+                                summary = pluralStringResource(
+                                    R.plurals.log_entry_count,
+                                    logEntryCount,
+                                    logEntryCount
+                                ),
+                                onClick = onNavigateToLog,
+                                enabled = httpLogEnabled
                             )
                         }
-                        ListItemChevron()
+                        SettingsEntryRow(
+                            title = stringResource(R.string.about_title),
+                            summary = stringResource(R.string.about_settings_summary),
+                            onClick = onNavigateToAbout
+                        )
                     }
                 }
-
             }
         }
     }
+}
 
+@Composable
+private fun SettingsEntryRow(
+    title: String,
+    summary: String,
+    onClick: () -> Unit,
+    enabled: Boolean = true
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            Text(
+                summary,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        ListItemChevron()
+    }
 }

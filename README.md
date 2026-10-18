@@ -11,12 +11,15 @@
 ## 功能
 
 - 一键认证：保存账号和密码后，可在目标 Wi-Fi 上发起认证。
+- 多账号管理：支持保存多个账号、切换登录账号、修改密码和删除已保存账号。
+- 启动时自动登录：可在软件设置中开启，启动应用后在满足登录条件时尝试认证，默认关闭。
 - 认证门户适配：自动探测并使用项目已实现的认证门户流程。
 - 目标 Wi-Fi 管理：支持手动添加、删除或扫描附近 Wi-Fi 后加入目标列表。
 - 网络状态：显示当前连接的 Wi-Fi、设备 IP 地址和认证状态；网络切换后会自动刷新。
 - 账号概览：认证成功后可查看账号、流量、余额及关联设备信息。
 - 设备管理：可在服务端支持时使关联设备下线。
-- 调试与更新：提供默认关闭的可选 HTTP 请求日志和应用内更新检查。
+- 外观设置：支持跟随系统、浅色和深色主题。
+- 调试与更新：提供默认关闭的可选 HTTP 请求日志，可在“关于应用”页检查更新并查看更新说明。
 
 ## 下载与安装
 
@@ -24,25 +27,42 @@
 
 ## 使用方法
 
-1. 在主页面右上角的“账号管理”中填写并保存认证账号和密码。
+1. 打开主页面右上角的“账号管理”，点击“添加账号”，填写认证账号和密码后选择“保存并使用”。
 2. 在“设置 → 目标网络”中添加可使用校园网登录的 Wi-Fi；也可以扫描附近网络后选择加入。
 3. 连接已配置的目标 Wi-Fi，并在主页点击“登录”。
 4. 认证完成后，主页会显示网络状态和可获取的账号信息。
 
-> Android 需要位置权限才能读取 Wi-Fi 名称；扫描附近网络时，Android 13+ 使用「附近设备」权限，旧版本使用位置权限。仅在需要这些功能时授权即可。
+账号管理页支持保存多个账号。点击账号行可切换下次登录使用的账号，当前网络连接不会因此改变；点击账号右侧的编辑图标可修改密码，或在编辑面板中删除账号。保存新账号或更新密码后，该账号会被设为当前登录账号。
+
+如需启动时自动登录，在“设置 → 软件设置”中开启“启动软件后尝试自动登录”。该功能默认关闭；启用后，启动应用并连接目标 Wi-Fi、已保存账号密码且尚未认证时，会尝试登录。
+
+检查更新的入口为“设置 → 关于应用 → 检查更新”，发现新版本后可查看更新说明并下载 APK。
+
+### Wi-Fi 权限
+
+本应用读取 Wi-Fi 名称和扫描附近网络时需要精确位置权限，Android 13 及以上版本也使用该权限。若系统提供“大致位置”和“精确位置”选项，请选择精确位置。扫描附近网络还需要开启系统定位服务和 Wi-Fi；未开启时应用会提示。
 
 ## 构建与测试
 
-环境要求：JDK 17、Android SDK，以及项目 Gradle Wrapper 所需的网络依赖。
+环境准备：
+
+- 安装 JDK 17，并确认 `java -version` 使用该版本。
+- 安装 Android SDK。当前编译平台为 API 37，请通过 Android Studio 的 SDK Manager 安装对应 SDK Platform 和构建所需的 Build-Tools；设备测试和安装还需要 Platform-Tools。编译平台版本以 [`app/build.gradle.kts`](app/build.gradle.kts) 中的 `compileSdk` 为准。
+- 使用 Android Studio 配置本地 SDK 路径，或在命令行环境设置 `ANDROID_HOME`，并接受所需 SDK 的许可。本地 `local.properties` 不应提交。
+- 运行发布脚本测试需要 Python 3，仅使用标准库。
+- 首次构建需要网络，以下载 Gradle Wrapper 分发包和项目依赖。
 
 在项目根目录执行：
 
 ```bash
-# 构建 Debug APK
-./gradlew assembleDebug
+# 构建 Debug APK 并运行 Android Lint
+./gradlew assembleDebug lintDebug
 
 # 运行本地单元测试
 ./gradlew test
+
+# 运行发布脚本测试
+python3 -m unittest discover -s scripts -p "test_*.py"
 
 # 在已连接的设备或模拟器上运行测试
 ./gradlew connectedAndroidTest
@@ -51,41 +71,15 @@
 ./gradlew installDebug
 ```
 
-Windows PowerShell 请将 `./gradlew` 替换为 `.\gradlew.bat`。
+Windows PowerShell 请将 `./gradlew` 替换为 `.\gradlew.bat`，将 `python3` 替换为本机 Python 3 的启动命令，例如 `python` 或 `py -3`。
 
-Debug APK 的默认输出位置为 `app/build/outputs/apk/debug/`。
+Debug APK 的默认输出位置为 `app/build/outputs/apk/debug/app-debug.apk`。设备测试和安装命令需连接设备或启动模拟器。
 
-推送 `v*` 标签会触发 Release 工作流，在测试和签名构建成功后创建 GitHub Release，并将 APK 上传到更新服务器。
+## 发布
 
-发布前同步递增 `app/build.gradle.kts` 中的 `versionName` 和 `versionCode`，并新增
-[`release-notes/<版本号>.md`](release-notes/README.md) 中文更新说明。标签需与 `versionName`
-一致。工作流生成的 `latest.json` 和 APK 一同附加到 GitHub Release，更新说明作为 Release 正文。
+发布前在 `app/build.gradle.kts` 中同时递增 `versionName` 和 `versionCode`，新增 `release-notes/<versionName>.md` 中文版本说明，再推送与 `versionName` 一致的 `v<版本号>` 标签；不要复用已发布的版本。[Release 工作流](.github/workflows/release.yml)会运行测试、构建签名 APK、创建 GitHub Release，并部署更新服务器。
 
-应用从 `https://aloginupdate.steins.top/latest.json` 检查版本，并在下载前显示更新说明。
-版本文件格式如下（数值仅为示例）：
-
-```json
-{
-  "schemaVersion": 1,
-  "version": "0.2.0",
-  "versionCode": 20,
-  "fileName": "alogin-v0.2.0.apk",
-  "releaseNotes": "- 新增更新说明\n- 修复登录问题"
-}
-```
-
-客户端仅在版本名称和版本代码均高于当前安装版本时提示更新；下载地址由可信服务器地址与
-匹配版本的 APK 文件名组成。清单缺失或损坏时显示检查失败，允许重试。
-
-服务器部署沿用现有 `production` 环境中的 `DEPLOY_HOST`、`DEPLOY_PATH`、`DEPLOY_PORT`、
-`DEPLOY_USER` 和 SSH secrets，无需新增凭据。工作流先上传 APK 及校验文件，再上传临时版本文件，
-最后通过同目录重命名原子替换 `latest.json`。部署串行执行，拒绝较小 `versionCode` 或不同版本复用
-相同 `versionCode` 覆盖最新标识；相同版本允许重跑。服务器必须允许访问该 JSON 文件；建议为
-`latest.json` 配置 `Cache-Control: no-cache`，使用 CDN 时同时配置缓存规则。
-
-首次启用需要完成一次发布以创建服务器上的 `latest.json`。旧版应用仍可通过现有目录列表发现 APK，
-因此迁移期间保留目录列表及原有 APK 文件。更新说明不会在 Release 正文被手工编辑后自动重新同步；
-需要修改仓库中的对应说明并走发布流程。
+版本说明格式见 [release-notes/README.md](release-notes/README.md)。
 
 ## 技术栈
 
@@ -99,11 +93,13 @@ Debug APK 的默认输出位置为 `app/build/outputs/apk/debug/`。
 
 ```text
 app/src/main/java/top/steins/autologin/
-├── data/       # 本地设置与目标 Wi-Fi 配置
+├── data/       # 凭据加密、多账号持久化、本地设置与目标 Wi-Fi 配置
 ├── network/    # 认证、账号服务、网络信息与更新逻辑
 ├── navigation/ # Compose 导航定义
 └── ui/         # Compose 页面、组件与主题
 ```
+
+JVM 测试位于 `app/src/test`，设备测试位于 `app/src/androidTest`，发布脚本及其测试位于 `scripts`。
 
 ## 隐私与安全
 
