@@ -11,6 +11,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,8 +21,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -34,8 +34,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -75,6 +75,8 @@ fun WifiConfigScreen(
     val focusManager = LocalFocusManager.current
     var showScanSheet by remember { mutableStateOf(false) }
     val scanSheetState = rememberModalBottomSheetState()
+    // 已有及显示过的行再次进入视口时，直接显示，避免重复播放新增动画。
+    val displayedSsids = remember { targetWifis.toMutableSet() }
     val wifiItemContainerColor = MaterialTheme.colorScheme.surfaceContainer
 
     fun addNewSsid() {
@@ -101,119 +103,110 @@ fun WifiConfigScreen(
                 )
             }
         ) { innerPadding ->
-            // 跟随 Scaffold 内容的首次组合，避免子组合前就切换为新增行状态。
-            var isInitialComposition by remember { mutableStateOf(true) }
-            SideEffect {
-                isInitialComposition = false
-            }
-
-            Column(
+            LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(innerPadding)
-                    .padding(vertical = 16.dp),
+                    .padding(innerPadding),
+                contentPadding = PaddingValues(vertical = 16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // 添加行
-                WifiSsidInput(
-                    value = newSsid,
-                    onValueChange = { newSsid = it },
-                    onAdd = ::addNewSsid,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = ScreenHorizontalPadding)
-                )
+                item(key = "controls") {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .then(if (targetWifis.isEmpty()) Modifier.fillParentMaxHeight() else Modifier),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        // 添加行
+                        WifiSsidInput(
+                            value = newSsid,
+                            onValueChange = { newSsid = it },
+                            onAdd = ::addNewSsid,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = ScreenHorizontalPadding)
+                        )
 
-                Spacer(modifier = Modifier.height(16.dp))
+                        Spacer(modifier = Modifier.height(16.dp))
 
-                // 扫描附近的 WiFi 按钮
-                Button(
-                    onClick = {
-                        focusManager.clearFocus()
-                        showScanSheet = true
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = ScreenHorizontalPadding)
-                        .height(54.dp),
-                    shape = AppCardShape
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.add_circle),
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = stringResource(R.string.wifi_scan_button),
-                        style = MaterialTheme.typography.titleMedium
-                    )
+                        // 扫描附近的 WiFi 按钮
+                        Button(
+                            onClick = {
+                                focusManager.clearFocus()
+                                showScanSheet = true
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = ScreenHorizontalPadding)
+                                .height(54.dp),
+                            shape = AppCardShape
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.add_circle),
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = stringResource(R.string.wifi_scan_button),
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                        }
+
+                        Text(
+                            text = stringResource(R.string.wifi_config_description),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(
+                                    horizontal = ScreenHorizontalPadding + 4.dp,
+                                    vertical = 12.dp
+                                ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Start
+                        )
+
+                        if (targetWifis.isEmpty()) {
+                            Box(
+                                modifier = Modifier.fillMaxWidth().weight(1f),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    stringResource(R.string.wifi_empty),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
                 }
 
-                Text(
-                    text = stringResource(R.string.wifi_config_description),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(
-                            horizontal = ScreenHorizontalPadding + 4.dp,
-                            vertical = 12.dp
-                        ),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Start
-                )
-
-                // WiFi 列表
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    contentAlignment = Alignment.TopCenter
-                ) {
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = targetWifis.isNotEmpty(),
-                        modifier = Modifier.fillMaxWidth(),
-                        enter = fadeIn(tween(160)),
-                        exit = fadeOut(tween(120))
-                    ) {
+                if (targetWifis.isNotEmpty()) {
+                    item(key = "wifiList") {
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = ScreenHorizontalPadding),
                             shape = AppCardShape,
-                            colors = CardDefaults.cardColors(
-                                containerColor = wifiItemContainerColor
-                            ),
-                            elevation = appCardElevation(),
+                            colors = CardDefaults.cardColors(containerColor = wifiItemContainerColor),
+                            elevation = appCardElevation()
                         ) {
-                            Column(
-                                modifier = Modifier.fillMaxWidth()
-                                    .verticalScroll(rememberScrollState())
-                            ) {
+                            Column(modifier = Modifier.fillMaxWidth()) {
                                 targetWifis.forEach { ssid ->
                                     key(ssid) {
+                                        val initiallyVisible = remember { !displayedSsids.add(ssid) }
                                         TargetWifiRow(
                                             ssid = ssid,
-                                            initiallyVisible = isInitialComposition,
-                                            onRemove = { onRemoveTargetWifi(ssid) }
+                                            initiallyVisible = initiallyVisible,
+                                            onRemove = {
+                                                displayedSsids.remove(ssid)
+                                                onRemoveTargetWifi(ssid)
+                                            }
                                         )
                                     }
                                 }
                             }
                         }
-                    }
-
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = targetWifis.isEmpty(),
-                        modifier = Modifier.align(Alignment.Center),
-                        enter = fadeIn(tween(180)),
-                        exit = fadeOut(tween(120))
-                    ) {
-                        Text(
-                            stringResource(R.string.wifi_empty),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
                     }
                 }
             }
@@ -247,6 +240,7 @@ private fun TargetWifiRow(
     onRemove: () -> Unit
 ) {
     var deleting by remember { mutableStateOf(false) }
+    var removalReported by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
     val visibility = remember { MutableTransitionState(initiallyVisible) }
     val currentOnRemove by rememberUpdatedState(onRemove)
@@ -257,8 +251,19 @@ private fun TargetWifiRow(
 
     // 等整行收缩、淡出完成后，再更新持久化列表。
     LaunchedEffect(deleting, visibility.isIdle, visibility.currentState) {
-        if (deleting && visibility.isIdle && !visibility.currentState) {
+        if (deleting && visibility.isIdle && !visibility.currentState && !removalReported) {
+            removalReported = true
             currentOnRemove()
+        }
+    }
+
+    // 删除动画期间滚出视口时仍完成删除，并避免回调重复执行。
+    DisposableEffect(Unit) {
+        onDispose {
+            if (deleting && !removalReported) {
+                removalReported = true
+                currentOnRemove()
+            }
         }
     }
 

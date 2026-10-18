@@ -1,9 +1,7 @@
 package top.steins.autologin.ui.screen
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -14,16 +12,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -38,11 +31,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalResources
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.selected
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import top.steins.autologin.R
@@ -138,77 +127,25 @@ fun AccountScreen(
                     }
                 }
             }
-            if (accounts.isEmpty()) {
-                item {
-                    Card(
-                        shape = AppCardShape,
-                        colors = CardDefaults.cardColors(containerColor = colors.surfaceContainer)
-                    ) {
-                        Column(
-                            Modifier.fillMaxWidth().padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Text(stringResource(R.string.account_empty_title), style = MaterialTheme.typography.titleMedium)
-                            Text(
-                                stringResource(R.string.account_empty_hint),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = colors.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-            }
-            items(accounts, key = { it.username }) { account ->
-                val isActive = account.username == username
-                Card(
-                    shape = AppCardShape,
-                    colors = CardDefaults.cardColors(containerColor = colors.surfaceContainer)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth()
-                            .semantics { selected = isActive }
-                            .clickable(enabled = !isMutating, role = Role.RadioButton) {
-                                if (!isActive) {
-                                    isMutating = true
-                                    scope.launch {
-                                        try {
-                                            report(onSelectAccount(account.username), R.string.account_switched)
-                                        } finally {
-                                            isMutating = false
-                                        }
-                                    }
+            item(key = "accountList") {
+                AccountListCard(
+                    username = username,
+                    accounts = accounts,
+                    enabled = !isMutating,
+                    onSelectAccount = { accountUsername ->
+                        if (accountUsername != username) {
+                            isMutating = true
+                            scope.launch {
+                                try {
+                                    report(onSelectAccount(accountUsername), R.string.account_switched)
+                                } finally {
+                                    isMutating = false
                                 }
-                            }.padding(start = 16.dp, end = 4.dp, top = 12.dp, bottom = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Surface(
-                            shape = RoundedCornerShape(14.dp),
-                            color = if (isActive) colors.primaryContainer else colors.surfaceContainerHigh
-                        ) {
-                            Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
-                                Text(
-                                    account.username.takeLast(2).uppercase(),
-                                    style = MaterialTheme.typography.titleSmall,
-                                    color = if (isActive) colors.onPrimaryContainer else colors.onSurfaceVariant
-                                )
                             }
                         }
-                        Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                            Text(
-                                account.username, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                style = MaterialTheme.typography.titleMedium
-                            )
-                            Text(
-                                stringResource(if (isActive) R.string.account_selected else R.string.account_tap_to_use),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (isActive) colors.primary else colors.onSurfaceVariant
-                            )
-                        }
-                        IconButton(onClick = { editingAccount = account; showEditor = true }) {
-                            Icon(painterResource(R.drawable.account_edit), stringResource(R.string.account_edit_named, account.username))
-                        }
-                    }
-                }
+                    },
+                    onEditAccount = { account -> editingAccount = account; showEditor = true }
+                )
             }
             item {
                 Text(
