@@ -4,13 +4,17 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import top.steins.autologin.R
+import top.steins.autologin.network.AccountDevice
 import top.steins.autologin.network.AccountOverview
 import top.steins.autologin.network.DeviceLogoutResult
 import top.steins.autologin.ui.theme.AloginTheme
@@ -22,6 +26,9 @@ class HomeScreenTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
     private val loggedInTitle = context.getString(R.string.home_logged_in)
     private val networkTitle = context.getString(R.string.home_current_network)
+    private val devicesTitle = context.getString(R.string.home_online_devices)
+    private val currentDevice = AccountDevice("current", "00:11:22:33:44:55", "10.0.0.1")
+    private val otherDevice = AccountDevice("other", "00:11:22:33:44:66", "10.0.0.2")
     private val overview = AccountOverview(
         username = "alice",
         usedFlowMb = "1024",
@@ -116,19 +123,132 @@ class HomeScreenTest {
         }
     }
 
-    private fun showHome(state: MutableState<HomeState>, onRetry: () -> Unit = {}) {
+    @Test
+    fun loggingOutCurrentDevice_waitsForOfflineConfirmationThenRemovesRowBeforeCardsExit() {
+        val state = mutableStateOf(
+            HomeState(
+                isOnline = true,
+                overview = overview.copy(devices = listOf(currentDevice, otherDevice)),
+                isDeviceListAvailable = true
+            )
+        )
+        var refreshCount = 0
+        showHome(state, onRefreshAfterDeviceLogout = { refreshCount += it })
+        val initialOtherRowTop = compose.onNodeWithText(otherDevice.macAddress)
+            .fetchSemanticsNode().positionInRoot.y
+        compose.mainClock.autoAdvance = false
+        try {
+            compose.onAllNodesWithContentDescription(context.getString(R.string.delete_device))
+                .onFirst().performClick()
+            compose.runOnIdle { assertEquals(1, refreshCount) }
+            compose.onNodeWithText(currentDevice.macAddress).assertIsDisplayed()
+
+            // 模拟离线核验清空详情、设备可用标记及当前 IP。
+            compose.runOnIdle { state.value = HomeState(ipAddress = "") }
+            compose.mainClock.advanceTimeBy(125)
+            compose.onNodeWithText(currentDevice.macAddress).assertExists()
+            val shrinkingOtherRowTop = compose.onNodeWithText(otherDevice.macAddress)
+                .fetchSemanticsNode().positionInRoot.y
+            assertTrue(shrinkingOtherRowTop < initialOtherRowTop)
+            compose.onNodeWithText(loggedInTitle).assertIsDisplayed()
+            compose.onNodeWithText(devicesTitle).assertIsDisplayed()
+            compose.onNodeWithText(currentDevice.ipAddress).assertIsDisplayed()
+            compose.onNodeWithText(networkTitle).assertDoesNotExist()
+
+            compose.mainClock.advanceTimeBy(250)
+            compose.onNodeWithText(currentDevice.macAddress).assertDoesNotExist()
+            compose.onNodeWithText(otherDevice.macAddress).assertExists()
+            compose.onNodeWithText(loggedInTitle).assertExists()
+            compose.onNodeWithText(devicesTitle).assertExists()
+            compose.onNodeWithText(currentDevice.ipAddress).assertExists()
+            compose.onNodeWithText(networkTitle).assertDoesNotExist()
+
+            compose.mainClock.advanceTimeBy(1_000)
+            compose.onNodeWithText(loggedInTitle).assertDoesNotExist()
+            compose.onNodeWithText(devicesTitle).assertDoesNotExist()
+            compose.onNodeWithText(otherDevice.macAddress).assertDoesNotExist()
+            compose.onNodeWithText(currentDevice.ipAddress).assertDoesNotExist()
+            compose.onNodeWithText(networkTitle).assertIsDisplayed()
+        } finally {
+            compose.mainClock.autoAdvance = true
+        }
+    }
+
+    @Test
+    fun goingOfflineWithoutCurrentDevice_skipsRowRemovalAndWaitsForOnlineCardsToExit() {
+        val state = mutableStateOf(
+            HomeState(
+                isOnline = true,
+                overview = overview.copy(devices = listOf(otherDevice)),
+                isDeviceListAvailable = true
+            )
+        )
+        showHome(state)
+        compose.waitForIdle()
+        compose.mainClock.autoAdvance = false
+        try {
+            compose.runOnIdle { state.value = HomeState() }
+            compose.mainClock.advanceTimeBy(125)
+            compose.onNodeWithText(loggedInTitle).assertExists()
+            compose.onNodeWithText(devicesTitle).assertExists()
+            compose.onNodeWithText(otherDevice.macAddress).assertExists()
+            compose.onNodeWithText(networkTitle).assertDoesNotExist()
+
+            compose.mainClock.advanceTimeBy(275)
+            compose.onNodeWithText(loggedInTitle).assertDoesNotExist()
+            compose.onNodeWithText(devicesTitle).assertDoesNotExist()
+            compose.onNodeWithText(networkTitle).assertIsDisplayed()
+        } finally {
+            compose.mainClock.autoAdvance = true
+        }
+    }
+
+    @Test
+    fun reconnectingDuringOnlineCardsExit_cancelsOfflineSequenceAndRestoresCurrentDevice() {
+        val onlineState = HomeState(
+            isOnline = true,
+            overview = overview.copy(devices = listOf(currentDevice, otherDevice)),
+            isDeviceListAvailable = true
+        )
+        val state = mutableStateOf(onlineState)
+        showHome(state)
+        compose.waitForIdle()
+        compose.mainClock.autoAdvance = false
+        try {
+            compose.runOnIdle { state.value = HomeState() }
+            compose.mainClock.advanceTimeBy(375)
+            compose.onNodeWithText(currentDevice.macAddress).assertDoesNotExist()
+            compose.onNodeWithText(networkTitle).assertDoesNotExist()
+
+            compose.runOnIdle { state.value = onlineState }
+            compose.mainClock.advanceTimeBy(1_000)
+            compose.onNodeWithText(currentDevice.macAddress).assertIsDisplayed()
+            compose.onNodeWithText(otherDevice.macAddress).assertIsDisplayed()
+            compose.onNodeWithText(loggedInTitle).assertIsDisplayed()
+            compose.onNodeWithText(devicesTitle).assertIsDisplayed()
+            compose.onNodeWithText(networkTitle).assertDoesNotExist()
+        } finally {
+            compose.mainClock.autoAdvance = true
+        }
+    }
+
+    private fun showHome(
+        state: MutableState<HomeState>,
+        onRetry: () -> Unit = {},
+        onRefreshAfterDeviceLogout: (Int) -> Unit = {}
+    ) {
         compose.setContent {
             AloginTheme(darkTheme = false) {
                 HomeScreen(
                     wifiName = "Campus WiFi",
-                    ipAddress = "10.0.0.1",
+                    ipAddress = state.value.ipAddress,
                     isOnline = state.value.isOnline,
                     isLoggingIn = false,
                     accountOverview = state.value.overview,
                     isAccountInfoLoading = state.value.isLoading,
                     accountInfoError = state.value.error,
-                    isDeviceListAvailable = false,
-                    canLogoutDevices = false,
+                    isDeviceListAvailable = state.value.isDeviceListAvailable,
+                    canLogoutDevices = state.value.isDeviceListAvailable,
                     networkStatusError = "",
                     targetWifis = listOf("Campus WiFi"),
                     onRefreshAccountInfo = {},
@@ -136,7 +256,7 @@ class HomeScreenTest {
                     onRetryAccountInfo = onRetry,
                     onLogin = {},
                     onLogoutDevice = { _, _, _ -> DeviceLogoutResult.Success },
-                    onRefreshAfterDeviceLogout = {},
+                    onRefreshAfterDeviceLogout = onRefreshAfterDeviceLogout,
                     onRefreshAfterIndeterminateDeviceLogout = {},
                     onShowToast = {},
                     onNavigateToAccount = {},
@@ -150,6 +270,8 @@ class HomeScreenTest {
         val isOnline: Boolean = false,
         val isLoading: Boolean = false,
         val overview: AccountOverview? = null,
-        val error: String = ""
+        val error: String = "",
+        val isDeviceListAvailable: Boolean = false,
+        val ipAddress: String = "10.0.0.1"
     )
 }

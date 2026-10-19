@@ -25,6 +25,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -45,7 +46,29 @@ import top.steins.autologin.ui.theme.ScreenHorizontalPadding
 import top.steins.autologin.ui.theme.TopBarHeight
 
 internal const val CardAnimationDurationMillis = 250
-internal const val CardStaggerDelayMillis = 60
+
+private enum class HomePresentationStage {
+    Online,
+    RemovingCurrentDevice,
+    HidingOnline,
+    Offline,
+    HidingNetwork
+}
+
+private data class HomeOnlineContent(
+    val overview: AccountOverview?,
+    val errorMessage: String,
+    val isDeviceListAvailable: Boolean,
+    val wifiName: String,
+    val ipAddress: String
+)
+
+private suspend fun awaitCardAnimation() {
+    // 等待重组启动动画，并在末帧之后切换展示阶段。
+    withFrameNanos { }
+    delay(CardAnimationDurationMillis.toLong())
+    withFrameNanos { }
+}
 
 internal enum class AccountInfoContent {
     Empty,
@@ -88,10 +111,14 @@ fun HomeScreen(
     val scope = rememberCoroutineScope()
 
     var isDeletingDevice by remember { mutableStateOf(false) }
-    var lastAccountOverview by remember { mutableStateOf<AccountOverview?>(null) }
-    var lastOnlineNetworkInfo by remember { mutableStateOf(wifiName to ipAddress) }
-    var renderOnlineCards by remember { mutableStateOf(isOnline) }
-    var renderNetworkCard by remember { mutableStateOf(!isOnline) }
+    val currentOnlineContent = HomeOnlineContent(
+        accountOverview, accountInfoError, isDeviceListAvailable, wifiName, ipAddress
+    )
+    var lastOnlineContent by remember { mutableStateOf(currentOnlineContent) }
+    var presentationStage by remember {
+        mutableStateOf(if (isOnline) HomePresentationStage.Online else HomePresentationStage.Offline)
+    }
+    var hideCurrentDevice by remember { mutableStateOf(false) }
     // 此状态随 Home 的导航返回栈条目保存，返回主页时无需重播装饰性入场动画。
     var hasPresentedHome by rememberSaveable { mutableStateOf(false) }
     val hadAccountContentOnEntry = remember {
@@ -105,32 +132,29 @@ fun HomeScreen(
         hasPresentedHome = true
     }
 
-    LaunchedEffect(accountOverview) {
-        if (accountOverview != null) {
-            lastAccountOverview = accountOverview
-        }
-    }
-
-    LaunchedEffect(isOnline, wifiName, ipAddress) {
+    LaunchedEffect(isOnline, currentOnlineContent) {
         if (isOnline) {
-            lastOnlineNetworkInfo = wifiName to ipAddress
+            lastOnlineContent = currentOnlineContent
         }
     }
 
-    // 顶部信息退场时保留最后一次在线内容，避免文字在淡出期间变成离线状态。
-    val networkInfoForSummary = if (isOnline) wifiName to ipAddress else lastOnlineNetworkInfo
+    // 离线确认会清空业务状态；保留完整在线快照，直到行删除和卡片退场全部完成。
+    val contentForCards = if (isOnline) currentOnlineContent else lastOnlineContent
+    val overviewForCards = contentForCards.overview
     val isTargetWifi = targetWifis.contains(wifiName)
-    // 网络离线后 ViewModel 会清空账号信息；保留上一份数据直到退出动画播放完成。
-    val overviewForCards = accountOverview ?: if (!isOnline) lastAccountOverview else null
-    val hasAccountCardContent = overviewForCards != null || accountInfoError.isNotBlank()
-    // 在线时先完成网络卡片退场，再以完整详情（或获取失败提示）呈现账号卡片。
-    val canRenderOnlineCards = renderOnlineCards && hasAccountCardContent &&
-            (!isOnline || !renderNetworkCard)
+    val renderNetworkCard = presentationStage == HomePresentationStage.Offline ||
+            presentationStage == HomePresentationStage.HidingNetwork
+    val onlineContentVisible = presentationStage == HomePresentationStage.Online ||
+            presentationStage == HomePresentationStage.RemovingCurrentDevice ||
+            presentationStage == HomePresentationStage.HidingNetwork
+    val canRenderOnlineCards = !renderNetworkCard &&
+            (overviewForCards != null || contentForCards.errorMessage.isNotBlank())
+    val isGoingOffline = !isOnline && presentationStage != HomePresentationStage.Offline
     val devicesForCards = overviewForCards
         ?.devices
         .orEmpty()
-        .sortedByDescending { device -> device.isCurrentDevice(ipAddress) }
-    val onlineCardCount = if (overviewForCards != null && isDeviceListAvailable) 2 else 1
+        .filterNot { device -> hideCurrentDevice && device.isCurrentDevice(contentForCards.ipAddress) }
+        .sortedByDescending { device -> device.isCurrentDevice(contentForCards.ipAddress) }
 
     LaunchedEffect(isOnline) {
         val wasOnline = previousOnlineState
@@ -139,23 +163,28 @@ fun HomeScreen(
             if (!wasOnline) {
                 showOnlineCardsImmediately = false
             }
-            renderOnlineCards = true
+            hideCurrentDevice = false
             if (renderNetworkCard) {
-                delay(CardAnimationDurationMillis.toLong())
-                renderNetworkCard = false
+                presentationStage = HomePresentationStage.HidingNetwork
+                awaitCardAnimation()
             }
+            presentationStage = HomePresentationStage.Online
         } else {
             if (wasOnline) {
                 showNetworkCardImmediately = false
+                val hasCurrentDevice = contentForCards.isDeviceListAvailable &&
+                        overviewForCards?.devices.orEmpty().any { device ->
+                            device.isCurrentDevice(contentForCards.ipAddress)
+                        }
+                if (presentationStage == HomePresentationStage.Online && hasCurrentDevice) {
+                    hideCurrentDevice = true
+                    presentationStage = HomePresentationStage.RemovingCurrentDevice
+                    awaitCardAnimation()
+                }
+                presentationStage = HomePresentationStage.HidingOnline
+                awaitCardAnimation()
             }
-            renderNetworkCard = true
-            if (renderOnlineCards) {
-                delay(
-                    CardAnimationDurationMillis +
-                            (onlineCardCount - 1) * CardStaggerDelayMillis.toLong()
-                )
-                renderOnlineCards = false
-            }
+            presentationStage = HomePresentationStage.Offline
         }
     }
 
@@ -208,15 +237,15 @@ fun HomeScreen(
                             .padding(start = 4.dp, end = 4.dp)
                     ) {
                         ScaleFadeBox(
-                            visible = isOnline,
+                            visible = onlineContentVisible,
                             initiallyVisible = showOnlineCardsImmediately,
                             durationMillis = CardAnimationDurationMillis,
                             modifier = Modifier
                                 .fillMaxWidth()
                         ) {
                             NetworkInfoSummary(
-                                wifiName = networkInfoForSummary.first,
-                                ipAddress = networkInfoForSummary.second
+                                wifiName = contentForCards.wifiName,
+                                ipAddress = contentForCards.ipAddress
                             )
                         }
                     }
@@ -252,7 +281,8 @@ fun HomeScreen(
                         else -> stringResource(R.string.home_primary_refresh)
                     },
                     isLoading = isLoggingIn || isAccountInfoLoading,
-                    enabled = !isLoggingIn && !isAccountInfoLoading && !isDeletingDevice,
+                    enabled = !isLoggingIn && !isAccountInfoLoading && !isDeletingDevice &&
+                            !isGoingOffline,
                     onClick = {
                         hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
                         performPrimaryAction()
@@ -278,8 +308,7 @@ fun HomeScreen(
                         StaggeredCard(
                             visible = !isOnline,
                             initiallyVisible = showNetworkCardImmediately,
-                            index = 0,
-                            count = 1
+                            index = 0
                         ) {
                             NetworkInfoCard(
                                 wifiName = wifiName,
@@ -293,31 +322,30 @@ fun HomeScreen(
                 if (canRenderOnlineCards) {
                     item(key = "account-info") {
                         StaggeredCard(
-                            visible = isOnline,
+                            visible = onlineContentVisible,
                             initiallyVisible = showOnlineCardsImmediately && hadAccountContentOnEntry,
-                            index = 0,
-                            count = onlineCardCount
+                            index = 0
                         ) {
                             AccountInfoCard(
                                 overview = overviewForCards,
-                                errorMessage = accountInfoError,
+                                errorMessage = contentForCards.errorMessage,
                                 onRetry = onRetryAccountInfo
                             )
                         }
                     }
 
-                    if (overviewForCards != null && isDeviceListAvailable) {
+                    if (overviewForCards != null && contentForCards.isDeviceListAvailable) {
                         item(key = "device-list") {
                             StaggeredCard(
-                                visible = isOnline,
+                                visible = onlineContentVisible,
                                 initiallyVisible = showOnlineCardsImmediately && hadAccountContentOnEntry,
-                                index = 1,
-                                count = onlineCardCount
+                                index = 1
                             ) {
                                 DeviceListCard(
                                     devices = devicesForCards,
-                                    localIpAddress = ipAddress,
-                                    enabled = !isDeletingDevice && canLogoutDevices,
+                                    localIpAddress = contentForCards.ipAddress,
+                                    enabled = isOnline && !isDeletingDevice && canLogoutDevices,
+                                    showEmptyState = isOnline,
                                     onDelete = { device ->
                                         hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
                                         isDeletingDevice = true

@@ -38,7 +38,6 @@ internal fun StaggeredCard(
     visible: Boolean,
     initiallyVisible: Boolean,
     index: Int,
-    count: Int,
     content: @Composable () -> Unit
 ) {
     ScaleFadeBox(
@@ -46,8 +45,8 @@ internal fun StaggeredCard(
         modifier = Modifier.fillMaxWidth(),
         initiallyVisible = initiallyVisible,
         durationMillis = CardAnimationDurationMillis,
-        enterDelayMillis = index * CardStaggerDelayMillis,
-        exitDelayMillis = (count - index - 1).coerceAtLeast(0) * CardStaggerDelayMillis
+        // 每张卡片入场完成后，才开始下一张卡片的入场动画。
+        enterDelayMillis = index * CardAnimationDurationMillis
     ) {
         content()
     }

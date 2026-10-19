@@ -51,6 +51,7 @@ internal fun DeviceListCard(
     devices: List<AccountDevice>,
     localIpAddress: String,
     enabled: Boolean,
+    showEmptyState: Boolean = true,
     onDelete: (AccountDevice) -> Unit
 ) {
     var renderedDevices by remember { mutableStateOf(devices) }
@@ -112,7 +113,7 @@ internal fun DeviceListCard(
                 }
             }
             AnimatedVisibility(
-                visible = renderedDevices.isEmpty(),
+                visible = showEmptyState && renderedDevices.isEmpty(),
                 enter = expandVertically(tween(CardAnimationDurationMillis)) +
                         fadeIn(tween(CardAnimationDurationMillis)),
                 exit = shrinkVertically(tween(CardAnimationDurationMillis)) +
