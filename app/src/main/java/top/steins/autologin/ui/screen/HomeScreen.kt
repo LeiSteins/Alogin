@@ -94,6 +94,9 @@ fun HomeScreen(
     var renderNetworkCard by remember { mutableStateOf(!isOnline) }
     // 此状态随 Home 的导航返回栈条目保存，返回主页时无需重播装饰性入场动画。
     var hasPresentedHome by rememberSaveable { mutableStateOf(false) }
+    val hadAccountContentOnEntry = remember {
+        accountOverview != null || accountInfoError.isNotBlank()
+    }
     var showOnlineCardsImmediately by remember { mutableStateOf(hasPresentedHome) }
     var showNetworkCardImmediately by remember { mutableStateOf(hasPresentedHome) }
     var previousOnlineState by remember { mutableStateOf(isOnline) }
@@ -119,6 +122,10 @@ fun HomeScreen(
     val isTargetWifi = targetWifis.contains(wifiName)
     // 网络离线后 ViewModel 会清空账号信息；保留上一份数据直到退出动画播放完成。
     val overviewForCards = accountOverview ?: if (!isOnline) lastAccountOverview else null
+    val hasAccountCardContent = overviewForCards != null || accountInfoError.isNotBlank()
+    // 在线时先完成网络卡片退场，再以完整详情（或获取失败提示）呈现账号卡片。
+    val canRenderOnlineCards = renderOnlineCards && hasAccountCardContent &&
+            (!isOnline || !renderNetworkCard)
     val devicesForCards = overviewForCards
         ?.devices
         .orEmpty()
@@ -283,11 +290,11 @@ fun HomeScreen(
                     }
                 }
 
-                if (renderOnlineCards) {
+                if (canRenderOnlineCards) {
                     item(key = "account-info") {
                         StaggeredCard(
                             visible = isOnline,
-                            initiallyVisible = showOnlineCardsImmediately,
+                            initiallyVisible = showOnlineCardsImmediately && hadAccountContentOnEntry,
                             index = 0,
                             count = onlineCardCount
                         ) {
@@ -303,7 +310,7 @@ fun HomeScreen(
                         item(key = "device-list") {
                             StaggeredCard(
                                 visible = isOnline,
-                                initiallyVisible = showOnlineCardsImmediately,
+                                initiallyVisible = showOnlineCardsImmediately && hadAccountContentOnEntry,
                                 index = 1,
                                 count = onlineCardCount
                             ) {
