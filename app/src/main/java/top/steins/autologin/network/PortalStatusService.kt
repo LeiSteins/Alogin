@@ -21,9 +21,10 @@ internal suspend fun fetchDynamicPortalStatus(
     val ipAddress = wlanUserIp.ifBlank { page.pageVariable("v46ip").ifBlank { page.pageVariable("ss5") } }
     if (!ipAddress.isUsableIpv4()) return LoginRecheckResult.Unknown
 
+    // 门户脚本的 API 端口为 HTTP 801、HTTPS 802，配置与页面使用不同端口。
     // 只使用原门户主机上的固定接口，不执行页面脚本或采用页面提供的任意 URL。
     val apiBase = pageRequest.url.newBuilder()
-        .port(if (pageRequest.url.isHttps) 443 else 801)
+        .port(if (pageRequest.url.isHttps) 802 else 801)
         .encodedPath("/eportal/portal/")
         .query(null)
         .fragment(null)

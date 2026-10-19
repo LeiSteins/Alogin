@@ -89,6 +89,59 @@ class PortalStatusServiceTest {
     }
 
     @Test
+    fun recheckLoginStatus_loadsWlgnConfigFromHttps802AndKernelStatusFrom443() = runTest {
+        val requests = mutableListOf<Request>()
+        val client = clientWithInterceptor { chain ->
+            val request = chain.request()
+            if (request.url.host != "wlgn.bjut.edu.cn") throw IOException("unavailable")
+            requests += request
+            when (request.url.encodedPath) {
+                "/a79.htm" -> response(chain, body = dynamicPage)
+                "/eportal/portal/page/loadConfig" -> {
+                    assertEquals(802, request.url.port)
+                    response(chain, body = config("0"))
+                }
+                "/drcom/chkstatus" -> {
+                    assertEquals(443, request.url.port)
+                    response(chain, body = """dr1003({"result":1});""")
+                }
+                else -> throw AssertionError("Unexpected path")
+            }
+        }
+
+        assertEquals(LoginRecheckResult.LoggedIn, recheckLoginStatus(client, wlanUserIp = "10.1.2.4"))
+        assertEquals(
+            listOf("/a79.htm", "/eportal/portal/page/loadConfig", "/drcom/chkstatus"),
+            requests.map { it.url.encodedPath }
+        )
+        assertTrue(requests.all { it.url.isHttps })
+    }
+
+    @Test
+    fun recheckLoginStatus_usesHttps802ForWlgnRadiusStatusWhenConfigured() = runTest {
+        val requests = mutableListOf<Request>()
+        val client = clientWithInterceptor { chain ->
+            val request = chain.request()
+            if (request.url.host != "wlgn.bjut.edu.cn") throw IOException("unavailable")
+            requests += request
+            when (request.url.encodedPath) {
+                "/a79.htm" -> response(chain, body = dynamicPage)
+                "/eportal/portal/page/loadConfig" -> response(chain, body = config("1"))
+                "/eportal/portal/online_list" -> response(chain, body = """dr1003({"result":1});""")
+                else -> throw AssertionError("Unexpected path")
+            }
+        }
+
+        assertEquals(LoginRecheckResult.LoggedIn, recheckLoginStatus(client, wlanUserIp = "10.1.2.4"))
+        assertEquals(listOf(443, 802, 802), requests.map { it.url.port })
+        assertEquals(
+            listOf("/a79.htm", "/eportal/portal/page/loadConfig", "/eportal/portal/online_list"),
+            requests.map { it.url.encodedPath }
+        )
+        assertTrue(requests.all { it.url.isHttps })
+    }
+
+    @Test
     fun fetchLoginStatus_returnsUnknownWhenPortalConfigurationCannotBeRead() = runTest {
         for (configBody in listOf("<html>unavailable</html>", "{}", config("2"), "dr1003({")) {
             val paths = mutableListOf<String>()
