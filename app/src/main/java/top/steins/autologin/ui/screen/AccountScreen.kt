@@ -28,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalResources
@@ -39,6 +40,7 @@ import top.steins.autologin.data.CredentialSaveResult
 import top.steins.autologin.data.SavedAccount
 import top.steins.autologin.ui.component.NavigationTopBar
 import top.steins.autologin.ui.theme.AppCardShape
+import top.steins.autologin.ui.theme.LocalAloginDarkTheme
 import top.steins.autologin.ui.theme.ScreenHorizontalPadding
 
 @Composable
@@ -58,6 +60,7 @@ fun AccountScreen(
     val scope = rememberCoroutineScope()
     val resources = LocalResources.current
     val colors = MaterialTheme.colorScheme
+    val summaryTextColor = if (LocalAloginDarkTheme.current) Color.White else Color.Black
 
     fun report(result: CredentialSaveResult, success: Int): Boolean {
         onShowToast(resources.getString(when (result) {
@@ -93,17 +96,18 @@ fun AccountScreen(
                         Text(
                             stringResource(R.string.account_current),
                             style = MaterialTheme.typography.labelLarge,
-                            color = colors.onSurfaceVariant
+                            color = summaryTextColor
                         )
                         Text(
                             username.ifBlank { stringResource(R.string.account_welcome) },
                             style = MaterialTheme.typography.headlineSmall,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            color = summaryTextColor
                         )
                         Text(
                             stringResource(R.string.account_switch_hint),
                             style = MaterialTheme.typography.bodyMedium,
-                            color = colors.onSurfaceVariant
+                            color = summaryTextColor
                         )
                     }
                 }
