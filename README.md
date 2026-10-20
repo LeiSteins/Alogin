@@ -108,6 +108,10 @@ app/src/main/java/top/steins/autologin/
 
 JVM 测试位于 `app/src/test`，设备测试位于 `app/src/androidTest`，发布脚本及其测试位于 `scripts`。
 
+功能层按用途接收网络观察、校园网认证、账号会话与无感知服务接口，底层共享连接和自助服务会话；
+`AppViewModel` 负责组装功能并统一释放网络资源。HTTP 日志由工厂创建同一个存储实例，
+分别注入网络请求写入接口与日志管理接口，会话协调器通过回调记录刷新事件。
+
 ## 隐私与安全
 
 - 账号和密码仅保存在设备本地，优先使用 Android Keystore 托管密钥并通过 Tink

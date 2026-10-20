@@ -22,15 +22,15 @@ data class HttpLogEntry(
     val eventMessage: String = ""
 )
 
-object HttpLogStorage {
+class HttpLogStorage : HttpLogStore {
     private val _logs = MutableStateFlow<List<HttpLogEntry>>(emptyList())
-    val logs: StateFlow<List<HttpLogEntry>> = _logs.asStateFlow()
+    override val logs: StateFlow<List<HttpLogEntry>> = _logs.asStateFlow()
 
     @Volatile
-    var isEnabled: Boolean = false
+    override var isEnabled: Boolean = false
         private set
 
-    fun setEnabled(enabled: Boolean) {
+    override fun setEnabled(enabled: Boolean) {
         synchronized(this) {
             isEnabled = enabled
             if (!enabled) {
@@ -39,7 +39,7 @@ object HttpLogStorage {
         }
     }
 
-    fun add(entry: HttpLogEntry) {
+    override fun add(entry: HttpLogEntry) {
         synchronized(this) {
             if (!isEnabled) return
             // 只保留最近若干条，避免日志无限增长占用内存。
@@ -47,29 +47,13 @@ object HttpLogStorage {
         }
     }
 
-    fun logAccountInfoRefresh(reason: String) {
-        if (!isEnabled) return
-        add(
-            HttpLogEntry(
-                id = System.nanoTime(),
-                method = "REFRESH",
-                url = "app://account-info/refresh",
-                statusCode = 0,
-                timestamp = System.currentTimeMillis(),
-                requestBody = "",
-                responseBody = "",
-                error = null,
-                type = HttpLogEntryType.ACCOUNT_INFO_REFRESH,
-                eventMessage = reason
-            )
-        )
-    }
-
-    fun clear() {
+    override fun clear() {
         synchronized(this) {
             _logs.value = emptyList()
         }
     }
 
-    private const val MAX_LOG_ENTRIES = 200
+    private companion object {
+        const val MAX_LOG_ENTRIES = 200
+    }
 }

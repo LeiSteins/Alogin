@@ -2,10 +2,9 @@ package top.steins.autologin
 
 import androidx.lifecycle.ViewModelStore
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.cancelAndJoin
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -13,6 +12,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
@@ -21,7 +21,6 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -30,42 +29,43 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TestWatcher
 import org.junit.runner.Description
-import top.steins.autologin.data.AppearanceMode
-import top.steins.autologin.data.CredentialSaveResult
 import top.steins.autologin.data.AccountStore
 import top.steins.autologin.data.AppPreferences
+import top.steins.autologin.data.AppearanceMode
+import top.steins.autologin.data.CredentialSaveResult
 import top.steins.autologin.data.HttpLogPreferences
+import top.steins.autologin.data.TargetWifiConfigChange
 import top.steins.autologin.data.UpdateCheckStore
 import top.steins.autologin.data.WifiConfigStore
-import top.steins.autologin.data.TargetWifiConfigChange
 import top.steins.autologin.data.WifiLoginMethod
 import top.steins.autologin.network.AccountDevice
 import top.steins.autologin.network.AccountOverview
 import top.steins.autologin.network.AccountOverviewResult
-import top.steins.autologin.network.CurrentNetworkInfo
 import top.steins.autologin.network.CampusNetworkChange
+import top.steins.autologin.network.CurrentNetworkInfo
 import top.steins.autologin.network.DeviceLogoutResult
 import top.steins.autologin.network.HttpLogEntry
+import top.steins.autologin.network.HttpLogEntryType
 import top.steins.autologin.network.HttpLogStorage
 import top.steins.autologin.network.LoginResult
 import top.steins.autologin.network.LoginStatus
 import top.steins.autologin.network.NetworkEnvironment
-import top.steins.autologin.network.SelfServiceGateway
 import top.steins.autologin.network.SeamlessAction
 import top.steins.autologin.network.SeamlessActionResult
 import top.steins.autologin.network.SeamlessInfo
 import top.steins.autologin.network.SeamlessLoadResult
 import top.steins.autologin.network.SeamlessStatus
-import top.steins.autologin.network.update.UpdateDownloadState
+import top.steins.autologin.network.SelfServiceGateway
+import top.steins.autologin.network.WifiScanOutcome
 import top.steins.autologin.network.update.UpdateDownloadFailure
-import top.steins.autologin.network.update.UpdateTransfer
+import top.steins.autologin.network.update.UpdateDownloadState
 import top.steins.autologin.network.update.UpdateGateway
 import top.steins.autologin.network.update.UpdateInfo
+import top.steins.autologin.network.update.UpdateState
+import top.steins.autologin.network.update.UpdateTransfer
 import top.steins.autologin.state.CampusSessionCoordinator
 import top.steins.autologin.state.HttpLogStateHolder
 import top.steins.autologin.state.UpdateStateHolder
-import top.steins.autologin.network.WifiScanOutcome
-import top.steins.autologin.network.update.UpdateState
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class MainDispatcherRule(
@@ -82,6 +82,7 @@ class MainDispatcherRule(
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class AppViewModelTest {
+    private val logStore = HttpLogStorage()
 
     @get:Rule
     val mainDispatcherRule = MainDispatcherRule()
@@ -91,11 +92,6 @@ class AppViewModelTest {
     private val updates = FakeUpdateGateway()
     private val network = FakeNetworkEnvironment()
     private val newerVersion = "${BuildConfig.VERSION_NAME.substringBefore('.').toInt() + 1}.0.0"
-
-    @After
-    fun resetHttpLogStorage() {
-        HttpLogStorage.setEnabled(false)
-    }
 
     private fun createViewModel(
         hasLocationPermission: () -> Boolean = { true },
@@ -110,6 +106,7 @@ class AppViewModelTest {
         selfService = selfService,
         updates = updates,
         network = network,
+        logStore = logStore,
         hasLocationPermission = hasLocationPermission,
         currentTimeMillis = currentTimeMillis,
         scanWifi = { WifiScanOutcome.NoResults }
@@ -485,6 +482,8 @@ class AppViewModelTest {
             runCurrent()
             assertFalse(viewModel.session.uiState.value.isLoggingIn)
             assertNull(viewModel.session.uiState.value.loginMessage)
+            assertEquals(1, selfService.closeCount)
+            assertEquals(1, network.closeCount)
         }
 
     @Test
@@ -1739,7 +1738,7 @@ class AppViewModelTest {
         assertTrue(viewModel.logs.onAboutVersionClicked())
         assertTrue(viewModel.logs.httpLogEnabled.value)
         assertTrue(settings.httpLogEnabled.value)
-        assertTrue(HttpLogStorage.isEnabled)
+        assertTrue(logStore.isEnabled)
     }
 
     @Test
@@ -1748,7 +1747,7 @@ class AppViewModelTest {
         repeat(HttpLogStateHolder.HTTP_LOG_UNLOCK_TAP_COUNT) {
             viewModel.logs.onAboutVersionClicked()
         }
-        HttpLogStorage.add(
+        logStore.add(
             HttpLogEntry(
                 id = 1,
                 method = "GET",
@@ -1765,9 +1764,28 @@ class AppViewModelTest {
 
         assertFalse(viewModel.logs.httpLogEnabled.value)
         assertFalse(settings.httpLogEnabled.value)
-        assertFalse(HttpLogStorage.isEnabled)
-        assertTrue(HttpLogStorage.logs.value.isEmpty())
+        assertFalse(logStore.isEnabled)
+        assertTrue(logStore.logs.value.isEmpty())
     }
+
+    @Test
+    fun refreshStatus_usesInjectedLogStoreAndStopsRecordingAfterDisable() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            settings.setHttpLogEnabled(true)
+            val viewModel = createViewModel()
+
+            viewModel.session.refreshStatus()
+            runCurrent()
+
+            assertEquals(HttpLogEntryType.ACCOUNT_INFO_REFRESH, logStore.logs.value.single().type)
+            assertEquals(logStore.logs.value, viewModel.logs.httpLogs.value)
+
+            viewModel.logs.disableHttpLog()
+            viewModel.session.refreshStatus()
+            runCurrent()
+
+            assertTrue(logStore.logs.value.isEmpty())
+        }
 
     @Test
     fun onLocationPermissionChanged_updatesStateAndTriggersRefresh() {
@@ -1901,6 +1919,12 @@ private class FakeSettingsStore : AccountStore, WifiConfigStore, AppPreferences,
 }
 
 private class FakeSelfServiceGateway : SelfServiceGateway {
+    var closeCount = 0
+
+    override fun close() {
+        closeCount += 1
+    }
+
     var seamlessLoadGate: CompletableDeferred<Unit>? = null
     var seamlessActionGate: CompletableDeferred<Unit>? = null
     var seamlessLoadResult: SeamlessLoadResult = SeamlessLoadResult.Success(SeamlessInfo("2021001", 1, SeamlessStatus.Enabled))
@@ -1959,6 +1983,12 @@ private class FakeSelfServiceGateway : SelfServiceGateway {
 }
 
 private class FakeNetworkEnvironment : NetworkEnvironment {
+    var closeCount = 0
+
+    override fun close() {
+        closeCount += 1
+    }
+
     var loginGate: CompletableDeferred<Unit>? = null
     var loginStatusGate: CompletableDeferred<Unit>? = null
     private val campusNetworkChanges = MutableSharedFlow<CampusNetworkChange>(

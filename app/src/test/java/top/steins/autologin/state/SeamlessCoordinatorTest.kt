@@ -2,7 +2,6 @@ package top.steins.autologin.state
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -12,26 +11,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import top.steins.autologin.AppStrings
 import top.steins.autologin.data.WifiLoginMethod
-import top.steins.autologin.network.AccountOverviewResult
-import top.steins.autologin.network.CampusNetworkChange
-import top.steins.autologin.network.CurrentNetworkInfo
-import top.steins.autologin.network.DeviceLogoutResult
-import top.steins.autologin.network.LoginResult
 import top.steins.autologin.network.LoginStatus
-import top.steins.autologin.network.NetworkEnvironment
+import top.steins.autologin.network.LoginStatusReader
 import top.steins.autologin.network.SeamlessAction
 import top.steins.autologin.network.SeamlessActionResult
 import top.steins.autologin.network.SeamlessInfo
 import top.steins.autologin.network.SeamlessLoadResult
 import top.steins.autologin.network.SeamlessStatus
-import top.steins.autologin.network.SelfServiceGateway
+import top.steins.autologin.network.SeamlessGateway
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SeamlessCoordinatorTest {
     private val strings = AppStrings { resource, _ -> "msg:$resource" }
     private val session = TestSessionAccess()
     private val service = TestSelfService()
-    private val network = TestNetworkEnvironment()
+    private val network = TestLoginStatusReader()
 
     @Test
     fun query_reportsConfirmedStatusForCanonicalAccountWithoutChangingSnapshot() = runTest {
@@ -156,7 +150,7 @@ private class TestSessionAccess : SeamlessSessionAccess {
     }
 }
 
-private class TestSelfService : SelfServiceGateway {
+private class TestSelfService : SeamlessGateway {
     var loadGate: CompletableDeferred<Unit>? = null
     var actionGate: CompletableDeferred<Unit>? = null
     var loadCount = 0
@@ -178,29 +172,13 @@ private class TestSelfService : SelfServiceGateway {
         actionGate?.await()
         return SeamlessActionResult.Success
     }
-
-    override suspend fun loadAccountOverview(lgnUsername: String): AccountOverviewResult =
-        error("Unexpected account overview request")
-
-    override suspend fun logoutDevice(sessionId: String, ipAddress: String, macAddress: String): DeviceLogoutResult =
-        error("Unexpected device logout")
-
-    override suspend fun clearSession() = error("Unexpected session reset")
 }
 
-private class TestNetworkEnvironment : NetworkEnvironment {
+private class TestLoginStatusReader : LoginStatusReader {
     var authenticationGate: CompletableDeferred<Unit>? = null
 
     override suspend fun fetchLoginStatus(knownLoggedIn: Boolean, preferredMethod: WifiLoginMethod?): LoginStatus {
         authenticationGate?.await()
         return LoginStatus(isLoggedIn = true, uid = "2021001")
     }
-
-    override fun observeCampusNetworkChanges() = emptyFlow<CampusNetworkChange>()
-    override fun fetchCurrentNetworkInfo(canReadWifiName: Boolean): CurrentNetworkInfo =
-        error("Unexpected network info request")
-
-    override fun hasValidatedInternet(): Boolean = error("Unexpected internet validation")
-    override suspend fun performLogin(username: String, password: String, preferredMethod: WifiLoginMethod?): LoginResult =
-        error("Unexpected login")
 }

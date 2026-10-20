@@ -4,7 +4,6 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertFalse
@@ -21,15 +20,11 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
 
 class HttpLogInterceptorTest {
+    private val logStore = HttpLogStorage()
 
     @Before
     fun setUp() {
-        HttpLogStorage.setEnabled(true)
-    }
-
-    @After
-    fun tearDown() {
-        HttpLogStorage.setEnabled(false)
+        logStore.setEnabled(true)
     }
 
     private val messages = HttpLogMessageProvider { resId, formatArgs ->
@@ -45,13 +40,13 @@ class HttpLogInterceptorTest {
     fun interceptor_hidesDeviceTokensAndBodiesWithoutChangingActualTraffic() {
         val responseBody = """{"total":1,"rows":[["1","AABBCC112233","phone","",""]]}"""
         CapturingTestServer(responseBody.toByteArray(StandardCharsets.UTF_8)).use { server ->
-            val client = OkHttpClient.Builder().addInterceptor(HttpLogInterceptor(messages)).build()
+            val client = OkHttpClient.Builder().addInterceptor(HttpLogInterceptor(messages, logStore)).build()
             client.newCall(Request.Builder()
                 .url("http://127.0.0.1:${server.port}/Self/service/bindMac?ajaxCsrfToken=private-token&mac=AABBCC112233")
                 .post("macAddress=AABBCC112233&ajaxCsrfToken=private-token".toRequestBody("application/x-www-form-urlencoded".toMediaType()))
                 .build()).execute().use { assertEquals(responseBody, it.body?.string()) }
             server.awaitRequest()
-            val log = HttpLogStorage.logs.value.single()
+            val log = logStore.logs.value.single()
             assertFalse(log.url.contains("private-token"))
             assertFalse(log.url.contains("AABBCC112233"))
             assertFalse(log.requestBody.contains("private-token"))
@@ -63,9 +58,9 @@ class HttpLogInterceptorTest {
     @Test
     fun interceptor_whenDisabledPassesThroughWithoutRecording() {
         CapturingTestServer("ok".toByteArray(StandardCharsets.UTF_8)).use { server ->
-            HttpLogStorage.setEnabled(false)
+            logStore.setEnabled(false)
             val client = OkHttpClient.Builder()
-                .addInterceptor(HttpLogInterceptor(messages))
+                .addInterceptor(HttpLogInterceptor(messages, logStore))
                 .build()
 
             client.newCall(
@@ -75,7 +70,7 @@ class HttpLogInterceptorTest {
             }
             server.awaitRequest()
 
-            assertTrue(HttpLogStorage.logs.value.isEmpty())
+            assertTrue(logStore.logs.value.isEmpty())
         }
     }
 
@@ -115,17 +110,17 @@ class HttpLogInterceptorTest {
     }
 
     private fun assertLoggedResponse(text: String, bytes: ByteArray, contentType: String) {
-        HttpLogStorage.clear()
+        logStore.clear()
         CapturingTestServer(bytes, contentType).use { server ->
             val client = OkHttpClient.Builder()
-                .addInterceptor(HttpLogInterceptor(messages))
+                .addInterceptor(HttpLogInterceptor(messages, logStore))
                 .build()
             client.newCall(Request.Builder().url("http://127.0.0.1:${server.port}/status").build())
                 .execute().use { response ->
                     assertArrayEquals(bytes, response.body?.bytes())
                 }
             server.awaitRequest()
-            assertEquals(text, HttpLogStorage.logs.value.single().responseBody)
+            assertEquals(text, logStore.logs.value.single().responseBody)
         }
     }
 
@@ -167,10 +162,10 @@ class HttpLogInterceptorTest {
                 }
             }
 
-            HttpLogStorage.clear()
+            logStore.clear()
             try {
                 val client = OkHttpClient.Builder()
-                    .addInterceptor(HttpLogInterceptor(messages))
+                    .addInterceptor(HttpLogInterceptor(messages, logStore))
                     .build()
                 val response = client.newCall(
                     Request.Builder()
@@ -186,11 +181,11 @@ class HttpLogInterceptorTest {
 
                 assertNull(serverFailure.get())
                 assertEquals(requestBody, receivedRequestBody.get())
-                val log = HttpLogStorage.logs.value.single()
+                val log = logStore.logs.value.single()
                 assertEquals(requestBody, log.requestBody)
                 assertEquals(responseBody, log.responseBody)
             } finally {
-                HttpLogStorage.clear()
+                logStore.clear()
             }
         }
     }
@@ -198,10 +193,10 @@ class HttpLogInterceptorTest {
     @Test
     fun interceptor_redactsSensitiveQueryParamsInLogOnly() {
         CapturingTestServer("ok".toByteArray(StandardCharsets.UTF_8)).use { server ->
-            HttpLogStorage.clear()
+            logStore.clear()
             try {
                 val client = OkHttpClient.Builder()
-                    .addInterceptor(HttpLogInterceptor(messages))
+                    .addInterceptor(HttpLogInterceptor(messages, logStore))
                     .build()
                 val url = "http://127.0.0.1:${server.port}/login" +
                         "?callback=dr1003" +
@@ -221,7 +216,7 @@ class HttpLogInterceptorTest {
                 assertTrue(rawRequest.contains("upass=secret123"))
                 assertTrue(rawRequest.contains("user_password=secret456"))
 
-                val log = HttpLogStorage.logs.value.single()
+                val log = logStore.logs.value.single()
                 assertTrue(log.url.contains("upass=***"))
                 assertTrue(log.url.contains("user_password=***"))
                 assertTrue(log.url.contains("user_account=***"))
@@ -231,7 +226,7 @@ class HttpLogInterceptorTest {
                 assertTrue(log.url.contains("callback=dr1003"))
                 assertTrue(log.url.contains("lang=zh"))
             } finally {
-                HttpLogStorage.clear()
+                logStore.clear()
             }
         }
     }
@@ -240,10 +235,10 @@ class HttpLogInterceptorTest {
     fun interceptor_truncatesLargeResponseBodyInLogButKeepsFullBodyForBusiness() {
         val responseBody = "z".repeat(200_000)
         CapturingTestServer(responseBody.toByteArray(StandardCharsets.UTF_8)).use { server ->
-            HttpLogStorage.clear()
+            logStore.clear()
             try {
                 val client = OkHttpClient.Builder()
-                    .addInterceptor(HttpLogInterceptor(messages))
+                    .addInterceptor(HttpLogInterceptor(messages, logStore))
                     .build()
                 val response = client.newCall(
                     Request.Builder()
@@ -257,11 +252,11 @@ class HttpLogInterceptorTest {
                 }
                 server.awaitRequest()
 
-                val log = HttpLogStorage.logs.value.single()
+                val log = logStore.logs.value.single()
                 assertTrue(log.responseBody.contains("已截断"))
                 assertTrue(log.responseBody.length < responseBody.length)
             } finally {
-                HttpLogStorage.clear()
+                logStore.clear()
             }
         }
     }

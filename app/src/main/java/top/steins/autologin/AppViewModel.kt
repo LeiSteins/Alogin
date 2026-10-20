@@ -7,9 +7,11 @@ import top.steins.autologin.data.AppPreferences
 import top.steins.autologin.data.HttpLogPreferences
 import top.steins.autologin.data.UpdateCheckStore
 import top.steins.autologin.data.WifiConfigStore
+import top.steins.autologin.network.HttpLogStore
 import top.steins.autologin.network.NetworkEnvironment
 import top.steins.autologin.network.SelfServiceGateway
 import top.steins.autologin.network.WifiScanOutcome
+import top.steins.autologin.network.logAccountInfoRefresh
 import top.steins.autologin.network.update.UpdateGateway
 import top.steins.autologin.state.AccountStateHolder
 import top.steins.autologin.state.CampusSessionCoordinator
@@ -26,15 +28,16 @@ class AppViewModel(
     appPreferences: AppPreferences,
     logPreferences: HttpLogPreferences,
     updateCheckStore: UpdateCheckStore,
-    selfService: SelfServiceGateway,
+    private val selfService: SelfServiceGateway,
     updates: UpdateGateway,
-    network: NetworkEnvironment,
+    private val network: NetworkEnvironment,
+    logStore: HttpLogStore,
     hasLocationPermission: () -> Boolean,
     currentTimeMillis: () -> Long = System::currentTimeMillis,
     scanWifi: suspend () -> WifiScanOutcome
 ) : ViewModel() {
     val accounts = AccountStateHolder(accountStore)
-    val logs = HttpLogStateHolder(logPreferences)
+    val logs = HttpLogStateHolder(logPreferences, logStore)
     val update = UpdateStateHolder(
         scope = viewModelScope,
         strings = strings,
@@ -54,7 +57,10 @@ class AppViewModel(
         wifiConfig = wifiConfig,
         preferences = appPreferences,
         selfService = selfService,
+        seamlessService = selfService,
         network = network,
+        authentication = network,
+        logAccountInfoRefresh = logStore::logAccountInfoRefresh,
         hasLocationPermission = hasLocationPermission,
         onLoginStarted = update::cancelForLogin,
         onLoginSucceeded = update::scheduleAutomaticCheck
@@ -63,6 +69,7 @@ class AppViewModel(
     val wifiScan = WifiScanStateHolder(viewModelScope, scanWifi, strings)
 
     override fun onCleared() {
-        session.close()
+        selfService.close()
+        network.close()
     }
 }

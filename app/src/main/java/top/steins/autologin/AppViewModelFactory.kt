@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModelProvider
 import top.steins.autologin.data.SettingsRepository
 import top.steins.autologin.network.DefaultCampusNetworkProvider
 import top.steins.autologin.network.DefaultNetworkEnvironment
+import top.steins.autologin.network.HttpLogStorage
 import top.steins.autologin.network.SelfServiceRepository
 import top.steins.autologin.network.hasWifiLocationPermission
 import top.steins.autologin.network.scanNearbyWifi
@@ -21,6 +22,7 @@ fun appViewModelFactory(application: Application): ViewModelProvider.Factory =
             }
             val campusNetwork = DefaultCampusNetworkProvider(application)
             val settings = SettingsRepository(application)
+            val logStore = HttpLogStorage()
             return AppViewModel(
                 strings = AppStrings { resId, args ->
                     application.getString(resId, *args)
@@ -30,9 +32,10 @@ fun appViewModelFactory(application: Application): ViewModelProvider.Factory =
                 appPreferences = settings,
                 logPreferences = settings,
                 updateCheckStore = settings,
-                selfService = SelfServiceRepository(application, campusNetwork),
+                selfService = SelfServiceRepository(application, campusNetwork, logStore),
                 updates = UpdateRepository(application),
-                network = DefaultNetworkEnvironment(application, campusNetwork),
+                network = DefaultNetworkEnvironment(application, campusNetwork, logStore),
+                logStore = logStore,
                 hasLocationPermission = { hasWifiLocationPermission(application) },
                 scanWifi = { scanNearbyWifi(application) }
             ) as T

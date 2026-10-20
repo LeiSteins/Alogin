@@ -24,11 +24,12 @@ fun httpLogMessageProvider(context: Context): HttpLogMessageProvider =
     }
 
 class HttpLogInterceptor(
-    private val messages: HttpLogMessageProvider
+    private val messages: HttpLogMessageProvider,
+    private val logSink: HttpLogSink
 ) : Interceptor {
 
     override fun intercept(chain: Interceptor.Chain): Response {
-        if (!HttpLogStorage.isEnabled) {
+        if (!logSink.isEnabled) {
             return chain.proceed(chain.request())
         }
 
@@ -48,7 +49,7 @@ class HttpLogInterceptor(
                 messages.get(R.string.log_sensitive_body_omitted)
             } else captureResponseBody(response)
 
-            HttpLogStorage.add(
+            logSink.add(
                 HttpLogEntry(
                     id = System.nanoTime(),
                     method = originalRequest.method,
@@ -63,7 +64,7 @@ class HttpLogInterceptor(
 
             response
         } catch (e: IOException) {
-            HttpLogStorage.add(
+            logSink.add(
                 HttpLogEntry(
                     id = System.nanoTime(),
                     method = originalRequest.method,

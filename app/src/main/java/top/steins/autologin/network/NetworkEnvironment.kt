@@ -7,42 +7,20 @@ import kotlinx.coroutines.flow.Flow
 import top.steins.autologin.R
 import top.steins.autologin.data.WifiLoginMethod
 
-/**
- * 网络状态的入口抽象，把 ViewModel 与系统 API 解耦，便于单元测试注入替身。
- */
-interface NetworkEnvironment : AutoCloseable {
-    fun observeCampusNetworkChanges(): Flow<CampusNetworkChange>
-
-    fun fetchCurrentNetworkInfo(canReadWifiName: Boolean): CurrentNetworkInfo
-
-    suspend fun awaitCurrentNetworkInfo(canReadWifiName: Boolean): CurrentNetworkInfo =
-        fetchCurrentNetworkInfo(canReadWifiName)
-
-    fun hasValidatedInternet(): Boolean
-
-    /** knownLoggedIn 仅用于认证接口明确返回当前 IP 已在线后的账号信息刷新。 */
-    suspend fun fetchLoginStatus(
-        knownLoggedIn: Boolean = false,
-        preferredMethod: WifiLoginMethod? = null
-    ): LoginStatus
-
-    suspend fun performLogin(
-        username: String,
-        password: String,
-        preferredMethod: WifiLoginMethod? = null
-    ): LoginResult
-
+/** 仅用于应用组装和资源释放；功能层按用途接收窄接口。 */
+interface NetworkEnvironment : NetworkMonitor, InternetConnectivity, CampusAuthentication, AutoCloseable {
     override fun close() = Unit
 }
 
 class DefaultNetworkEnvironment internal constructor(
     context: Context,
-    private val campusNetwork: CampusNetworkProvider = DefaultCampusNetworkProvider(context)
+    private val campusNetwork: CampusNetworkProvider,
+    logSink: HttpLogSink
 ) : NetworkEnvironment {
 
     private val appContext = context.applicationContext
     private val loginClients = CampusHttpClientCache { network ->
-        createLoginClient(appContext, network)
+        createLoginClient(appContext, network, logSink)
     }
 
     override fun observeCampusNetworkChanges(): Flow<CampusNetworkChange> =

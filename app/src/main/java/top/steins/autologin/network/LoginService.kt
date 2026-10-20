@@ -32,7 +32,11 @@ sealed class LoginResult {
     data class NetworkError(val message: String) : LoginResult()
 }
 
-internal fun createLoginClient(context: Context, network: Network): OkHttpClient =
+internal fun createLoginClient(
+    context: Context,
+    network: Network,
+    logSink: HttpLogSink
+): OkHttpClient =
     OkHttpClient.Builder()
         .bindToCampusNetwork(network)
         .allowCampusCertificateErrors()
@@ -40,7 +44,7 @@ internal fun createLoginClient(context: Context, network: Network): OkHttpClient
         .readTimeout(CAMPUS_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .callTimeout(CAMPUS_CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .followRedirects(false)
-        .addInterceptor(HttpLogInterceptor(httpLogMessageProvider(context.applicationContext)))
+        .addInterceptor(HttpLogInterceptor(httpLogMessageProvider(context.applicationContext), logSink))
         .build()
 
 internal suspend fun login(

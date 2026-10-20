@@ -28,14 +28,15 @@ import top.steins.autologin.data.WifiConfigStore
 import top.steins.autologin.data.WifiLoginMethod
 import top.steins.autologin.network.AccountDevice
 import top.steins.autologin.network.AccountOverviewResult
+import top.steins.autologin.network.AccountSessionGateway
+import top.steins.autologin.network.CampusAuthentication
 import top.steins.autologin.network.CampusNetworkChange
 import top.steins.autologin.network.DeviceLogoutResult
-import top.steins.autologin.network.HttpLogStorage
 import top.steins.autologin.network.LoginResult
-import top.steins.autologin.network.NetworkEnvironment
+import top.steins.autologin.network.NetworkMonitor
 import top.steins.autologin.network.SeamlessAction
+import top.steins.autologin.network.SeamlessGateway
 import top.steins.autologin.network.SeamlessStatus
-import top.steins.autologin.network.SelfServiceGateway
 
 /**
  * 协调网络变化、认证状态和自助服务会话，避免 Compose 生命周期与并发网络请求互相覆盖状态。
@@ -48,12 +49,15 @@ class CampusSessionCoordinator(
     private val accounts: AccountStore,
     private val wifiConfig: WifiConfigStore,
     preferences: AppPreferences,
-    private val selfService: SelfServiceGateway,
-    private val network: NetworkEnvironment,
+    private val selfService: AccountSessionGateway,
+    seamlessService: SeamlessGateway,
+    private val network: NetworkMonitor,
+    private val authentication: CampusAuthentication,
+    private val logAccountInfoRefresh: (String) -> Unit,
     private val hasLocationPermission: () -> Boolean,
     private val onLoginStarted: () -> Unit = {},
     private val onLoginSucceeded: () -> Unit = {}
-) : AutoCloseable {
+) {
 
     val targetSsids = wifiConfig.targetSsids
     private val selectedAccountUsername = accounts.selectedAccountUsername
@@ -106,8 +110,8 @@ class CampusSessionCoordinator(
     private val seamless = SeamlessCoordinator(
         scope = scope,
         strings = strings,
-        selfService = selfService,
-        network = network,
+        selfService = seamlessService,
+        authentication = authentication,
         session = seamlessSession,
         preferredWifiLoginMethod = ::preferredWifiLoginMethod,
         refreshNetworkStatus = { refreshStatus() }
@@ -249,7 +253,7 @@ class CampusSessionCoordinator(
                 accountsReady.await()
                 if (initialDelayMs > 0) delay(initialDelayMs)
                 repeat(attempts) { attempt ->
-                    HttpLogStorage.logAccountInfoRefresh(
+                    logAccountInfoRefresh(
                         trigger.description(strings, attempt + 1, attempts)
                     )
                     val outcome = accountOperationMutex.withLock {
@@ -344,7 +348,7 @@ class CampusSessionCoordinator(
                 LoginResult.Failure(strings.get(R.string.login_cellular_blocked))
             !networkInfo.isWifi || networkInfo.wifiName !in wifiConfig.targetSsids.value ->
                 LoginResult.Failure(strings.get(R.string.login_wrong_network))
-            else -> network.performLogin(
+            else -> authentication.performLogin(
                 username,
                 password,
                 preferredMethod = preferredWifiLoginMethod(networkInfo.wifiName)
@@ -506,7 +510,7 @@ class CampusSessionCoordinator(
             copy(isAccountInfoLoading = true, canLogoutDevices = false)
         }
 
-        val status = network.fetchLoginStatus(
+        val status = authentication.fetchLoginStatus(
             knownLoggedIn = knownLoggedIn,
             preferredMethod = preferredWifiLoginMethod(networkInfo.wifiName)
         )
@@ -656,11 +660,6 @@ class CampusSessionCoordinator(
         scope.launch {
             collect { onValue(it) }
         }
-    }
-
-    override fun close() {
-        selfService.close()
-        network.close()
     }
 
     companion object {

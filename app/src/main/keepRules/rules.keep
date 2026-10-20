@@ -21,14 +21,7 @@
     public java.util.List checkServerTrusted(java.security.cert.X509Certificate[], java.lang.String, java.lang.String);
 }
 
-# 保留 OkHttp Interceptor 实现（接口来自外部库，确保不被内联破坏）
--keep class top.steins.autologin.network.HttpLogInterceptor { *; }
-
-# 保留 HTTP 日志数据类（Compose UI 直接访问其属性）
--keep class top.steins.autologin.network.HttpLogEntry { *; }
-
-# 保留 HTTP 日志存储单例（StateFlow 被 UI 层 collect）
--keep class top.steins.autologin.network.HttpLogStorage { *; }
+# HTTP 日志通过显式接口注入和直接属性访问，不依赖反射或序列化，无需保留规则。
 
 # 保留登录相关数据类
 -keep class top.steins.autologin.network.LoginStatus { *; }

@@ -60,24 +60,8 @@ sealed interface DeviceLogoutResult {
     data class Indeterminate(val message: String) : DeviceLogoutResult
 }
 
-/**
- * 账号自助服务的入口抽象，便于 ViewModel 单元测试注入替身。
- */
-interface SelfServiceGateway : AutoCloseable {
-    suspend fun loadAccountOverview(lgnUsername: String): AccountOverviewResult
-
-    suspend fun loadSeamlessInfo(username: String): SeamlessLoadResult
-
-    suspend fun performSeamlessAction(info: SeamlessInfo, action: SeamlessAction): SeamlessActionResult
-
-    suspend fun logoutDevice(
-        sessionId: String,
-        ipAddress: String,
-        macAddress: String
-    ): DeviceLogoutResult
-
-    suspend fun clearSession()
-
+/** 仅用于应用组装和资源释放；账号与无感知功能共用同一实现。 */
+interface SelfServiceGateway : AccountSessionGateway, SeamlessGateway, AutoCloseable {
     override fun close() = Unit
 }
 
@@ -88,7 +72,8 @@ interface SelfServiceGateway : AutoCloseable {
  */
 class SelfServiceRepository internal constructor(
     context: Context,
-    private val campusNetwork: CampusNetworkProvider
+    private val campusNetwork: CampusNetworkProvider,
+    logSink: HttpLogSink
 ) : SelfServiceGateway {
 
     private val appContext = context.applicationContext
@@ -107,7 +92,7 @@ class SelfServiceRepository internal constructor(
             .followSslRedirects(true)
             // 开关和解绑使用 GET，连接中断后不能由 HTTP 客户端自动重发。
             .retryOnConnectionFailure(false)
-            .addInterceptor(HttpLogInterceptor(httpLogMessageProvider(appContext)))
+            .addInterceptor(HttpLogInterceptor(httpLogMessageProvider(appContext), logSink))
             .build()
     }
 

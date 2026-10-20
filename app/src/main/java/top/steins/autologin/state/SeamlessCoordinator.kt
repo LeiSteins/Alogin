@@ -12,10 +12,10 @@ import top.steins.autologin.AppStrings
 import top.steins.autologin.R
 import top.steins.autologin.SeamlessUiState
 import top.steins.autologin.data.WifiLoginMethod
-import top.steins.autologin.network.NetworkEnvironment
-import top.steins.autologin.network.SelfServiceGateway
+import top.steins.autologin.network.LoginStatusReader
 import top.steins.autologin.network.SeamlessAction
 import top.steins.autologin.network.SeamlessActionResult
+import top.steins.autologin.network.SeamlessGateway
 import top.steins.autologin.network.SeamlessLoadResult
 import top.steins.autologin.network.SeamlessStatus
 
@@ -23,8 +23,8 @@ import top.steins.autologin.network.SeamlessStatus
 internal class SeamlessCoordinator(
     private val scope: CoroutineScope,
     private val strings: AppStrings,
-    private val selfService: SelfServiceGateway,
-    private val network: NetworkEnvironment,
+    private val selfService: SeamlessGateway,
+    private val authentication: LoginStatusReader,
     private val session: SeamlessSessionAccess,
     private val preferredWifiLoginMethod: (String) -> WifiLoginMethod?,
     private val refreshNetworkStatus: () -> Unit
@@ -102,7 +102,7 @@ internal class SeamlessCoordinator(
             try {
                 session.withSession(snapshot) {
                     if (epoch != seamlessEpoch) return@withSession
-                    val authenticated = network.fetchLoginStatus(
+                    val authenticated = authentication.fetchLoginStatus(
                         preferredMethod = preferredWifiLoginMethod(snapshot.wifiName)
                     )
                     if (epoch != seamlessEpoch || !session.isCurrent(snapshot)) return@withSession
