@@ -1,4 +1,4 @@
-package top.steins.autologin
+package top.steins.autologin.state
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -14,6 +14,8 @@ import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import top.steins.autologin.AppStrings
+import top.steins.autologin.R
 import top.steins.autologin.data.SettingsGateway
 import top.steins.autologin.network.update.SemanticVersion
 import top.steins.autologin.network.update.UpdateDownloadState
@@ -24,7 +26,7 @@ import top.steins.autologin.network.update.UpdateGateway
 import top.steins.autologin.network.update.UpdateState
 
 /** 独立管理更新检查、节流和下载消息，避免这些状态挤入网络认证协调器。 */
-internal class AppUpdateCoordinator(
+class UpdateStateHolder(
     private val scope: CoroutineScope,
     private val strings: AppStrings,
     private val settings: SettingsGateway,
@@ -241,6 +243,8 @@ internal class AppUpdateCoordinator(
     }
 
     companion object {
+        const val AUTOMATIC_UPDATE_CHECK_DELAY_MS = 3_000L
+        const val AUTOMATIC_UPDATE_CHECK_INTERVAL_MS = 24L * 60L * 60L * 1_000L
         const val DOWNLOAD_PROGRESS_INTERVAL_MS = 1_000L
         const val INITIAL_CHECK_RETRY_DELAY_MS = 5L * 60L * 1_000L
         const val MAXIMUM_CHECK_RETRY_DELAY_MS = 60L * 60L * 1_000L

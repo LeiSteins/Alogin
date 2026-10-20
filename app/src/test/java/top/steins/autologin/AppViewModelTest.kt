@@ -57,6 +57,10 @@ import top.steins.autologin.network.update.UpdateDownloadFailure
 import top.steins.autologin.network.update.UpdateTransfer
 import top.steins.autologin.network.update.UpdateGateway
 import top.steins.autologin.network.update.UpdateInfo
+import top.steins.autologin.state.CampusSessionCoordinator
+import top.steins.autologin.state.HttpLogStateHolder
+import top.steins.autologin.state.UpdateStateHolder
+import top.steins.autologin.network.WifiScanOutcome
 import top.steins.autologin.network.update.UpdateState
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -99,7 +103,8 @@ class AppViewModelTest {
         updates = updates,
         network = network,
         hasLocationPermission = hasLocationPermission,
-        currentTimeMillis = currentTimeMillis
+        currentTimeMillis = currentTimeMillis,
+        scanWifi = { WifiScanOutcome.NoResults }
     )
 
     private fun availableUpdate() = UpdateInfo(
@@ -124,7 +129,7 @@ class AppViewModelTest {
                 listOf(AccountDevice("session-1", "00:11:22:33:44:55", "10.1.2.3"))
             )
         )
-        return createViewModel().also { it.refreshStatus() }
+        return createViewModel().also { it.session.refreshStatus() }
     }
 
     @Test
@@ -133,7 +138,7 @@ class AppViewModelTest {
         val viewModel = createOnlineViewModel()
         advanceUntilIdle()
         assertEquals("2021001", selfService.seamlessRequestedAccount)
-        assertEquals(SeamlessStatus.Enabled, viewModel.seamlessState.value.info?.status)
+        assertEquals(SeamlessStatus.Enabled, viewModel.session.seamlessState.value.info?.status)
     }
 
     @Test
@@ -141,90 +146,90 @@ class AppViewModelTest {
         selfService.seamlessLoadResult = SeamlessLoadResult.Failure("list unavailable")
         val viewModel = createOnlineViewModel()
         advanceUntilIdle()
-        assertTrue(viewModel.uiState.value.isOnline)
-        assertEquals("2021001", viewModel.uiState.value.accountOverview?.username)
-        assertEquals("list unavailable", viewModel.seamlessState.value.error)
-        assertFalse(viewModel.seamlessState.value.canManage)
-        assertEquals(SeamlessStatus.Unknown, viewModel.uiState.value.seamlessStatus)
+        assertTrue(viewModel.session.uiState.value.isOnline)
+        assertEquals("2021001", viewModel.session.uiState.value.accountOverview?.username)
+        assertEquals("list unavailable", viewModel.session.seamlessState.value.error)
+        assertFalse(viewModel.session.seamlessState.value.canManage)
+        assertEquals(SeamlessStatus.Unknown, viewModel.session.uiState.value.seamlessStatus)
     }
 
     @Test
     fun seamlessQuery_reentryKeepsPreviousStateUntilNewDataArrives() = runTest {
         val viewModel = createOnlineViewModel()
         advanceUntilIdle()
-        val previous = viewModel.seamlessState.value
+        val previous = viewModel.session.seamlessState.value
         val previousLoads = selfService.seamlessLoadCount
         val gate = CompletableDeferred<Unit>()
         selfService.seamlessLoadGate = gate
         val nextInfo = SeamlessInfo("2021001", 2, SeamlessStatus.Disabled)
         selfService.seamlessLoadResult = SeamlessLoadResult.Success(nextInfo)
 
-        viewModel.refreshSeamlessInfo()
+        viewModel.session.refreshSeamlessInfo()
         runCurrent()
-        assertEquals(previous.copy(isLoading = true), viewModel.seamlessState.value)
-        assertFalse(viewModel.seamlessState.value.canManage)
+        assertEquals(previous.copy(isLoading = true), viewModel.session.seamlessState.value)
+        assertFalse(viewModel.session.seamlessState.value.canManage)
         assertEquals(previousLoads + 1, selfService.seamlessLoadCount)
 
         gate.complete(Unit)
         advanceUntilIdle()
-        assertEquals(nextInfo, viewModel.seamlessState.value.info)
-        assertFalse(viewModel.seamlessState.value.isLoading)
-        assertTrue(viewModel.seamlessState.value.canManage)
+        assertEquals(nextInfo, viewModel.session.seamlessState.value.info)
+        assertFalse(viewModel.session.seamlessState.value.isLoading)
+        assertTrue(viewModel.session.seamlessState.value.canManage)
     }
 
     @Test
     fun seamlessQuery_failureKeepsPreviousDataAndDisablesWritesUntilRecovery() = runTest {
         val viewModel = createOnlineViewModel()
         advanceUntilIdle()
-        val previousInfo = viewModel.seamlessState.value.info
+        val previousInfo = viewModel.session.seamlessState.value.info
         selfService.seamlessLoadResult = SeamlessLoadResult.Failure("list unavailable")
 
-        viewModel.refreshSeamlessInfo()
+        viewModel.session.refreshSeamlessInfo()
         advanceUntilIdle()
-        assertEquals(previousInfo, viewModel.seamlessState.value.info)
-        assertEquals("list unavailable", viewModel.seamlessState.value.error)
-        assertFalse(viewModel.seamlessState.value.canManage)
+        assertEquals(previousInfo, viewModel.session.seamlessState.value.info)
+        assertEquals("list unavailable", viewModel.session.seamlessState.value.error)
+        assertFalse(viewModel.session.seamlessState.value.canManage)
 
         val gate = CompletableDeferred<Unit>()
         selfService.seamlessLoadGate = gate
         selfService.seamlessLoadResult = SeamlessLoadResult.Success(previousInfo!!)
-        viewModel.refreshSeamlessInfo()
+        viewModel.session.refreshSeamlessInfo()
         runCurrent()
-        assertEquals(previousInfo, viewModel.seamlessState.value.info)
-        assertEquals("list unavailable", viewModel.seamlessState.value.error)
+        assertEquals(previousInfo, viewModel.session.seamlessState.value.info)
+        assertEquals("list unavailable", viewModel.session.seamlessState.value.error)
         gate.complete(Unit)
         advanceUntilIdle()
-        assertEquals("", viewModel.seamlessState.value.error)
-        assertTrue(viewModel.seamlessState.value.canManage)
+        assertEquals("", viewModel.session.seamlessState.value.error)
+        assertTrue(viewModel.session.seamlessState.value.canManage)
     }
 
     @Test
     fun seamlessHomeStatus_fullRefreshKeepsLastValueUntilNewStatusArrives() = runTest {
         val viewModel = createOnlineViewModel()
         advanceUntilIdle()
-        assertEquals(SeamlessStatus.Enabled, viewModel.uiState.value.seamlessStatus)
-        val previousInfo = viewModel.seamlessState.value.info
+        assertEquals(SeamlessStatus.Enabled, viewModel.session.uiState.value.seamlessStatus)
+        val previousInfo = viewModel.session.seamlessState.value.info
         val overviewGate = CompletableDeferred<Unit>()
         val statusGate = CompletableDeferred<Unit>()
         selfService.overviewGate = overviewGate
         selfService.seamlessLoadGate = statusGate
         selfService.seamlessLoadResult = SeamlessLoadResult.Success(SeamlessInfo("2021001", 2, SeamlessStatus.Disabled))
 
-        viewModel.refreshAccountInfo()
+        viewModel.session.refreshAccountInfo()
         runCurrent()
-        assertEquals(SeamlessStatus.Enabled, viewModel.uiState.value.seamlessStatus)
-        assertEquals(previousInfo, viewModel.seamlessState.value.info)
-        assertTrue(viewModel.seamlessState.value.isLoading)
+        assertEquals(SeamlessStatus.Enabled, viewModel.session.uiState.value.seamlessStatus)
+        assertEquals(previousInfo, viewModel.session.seamlessState.value.info)
+        assertTrue(viewModel.session.seamlessState.value.isLoading)
         overviewGate.complete(Unit)
         runCurrent()
-        assertTrue(viewModel.seamlessState.value.isLoading)
-        assertEquals(previousInfo, viewModel.seamlessState.value.info)
-        assertEquals(SeamlessStatus.Enabled, viewModel.uiState.value.seamlessStatus)
+        assertTrue(viewModel.session.seamlessState.value.isLoading)
+        assertEquals(previousInfo, viewModel.session.seamlessState.value.info)
+        assertEquals(SeamlessStatus.Enabled, viewModel.session.uiState.value.seamlessStatus)
 
         statusGate.complete(Unit)
         advanceUntilIdle()
-        assertEquals(SeamlessStatus.Disabled, viewModel.uiState.value.seamlessStatus)
-        assertEquals(SeamlessStatus.Disabled, viewModel.seamlessState.value.info?.status)
+        assertEquals(SeamlessStatus.Disabled, viewModel.session.uiState.value.seamlessStatus)
+        assertEquals(SeamlessStatus.Disabled, viewModel.session.seamlessState.value.info?.status)
     }
 
     @Test
@@ -236,9 +241,9 @@ class AppViewModelTest {
             SeamlessLoadResult.Success(SeamlessInfo("2021001", 2, statusError = "status unavailable"))
         )) {
             selfService.seamlessLoadResult = result
-            viewModel.refreshAccountInfo()
+            viewModel.session.refreshAccountInfo()
             advanceUntilIdle()
-            assertEquals(SeamlessStatus.Enabled, viewModel.uiState.value.seamlessStatus)
+            assertEquals(SeamlessStatus.Enabled, viewModel.session.uiState.value.seamlessStatus)
         }
     }
 
@@ -247,10 +252,10 @@ class AppViewModelTest {
         val viewModel = createOnlineViewModel()
         advanceUntilIdle()
         network.loginStatus = LoginStatus(isLoggedIn = false, error = "timeout")
-        viewModel.refreshAccountInfo()
+        viewModel.session.refreshAccountInfo()
         advanceUntilIdle()
-        assertEquals("2021001", viewModel.uiState.value.accountOverview?.username)
-        assertEquals(SeamlessStatus.Enabled, viewModel.uiState.value.seamlessStatus)
+        assertEquals("2021001", viewModel.session.uiState.value.accountOverview?.username)
+        assertEquals(SeamlessStatus.Enabled, viewModel.session.uiState.value.seamlessStatus)
     }
 
     @Test
@@ -262,14 +267,14 @@ class AppViewModelTest {
         network.loginStatus = LoginStatus(isLoggedIn = true, uid = "another-account")
         selfService.overviewResult = AccountOverviewResult.Success(AccountOverview("another-account", "0", "0", "0", emptyList()))
         selfService.seamlessLoadResult = SeamlessLoadResult.Success(SeamlessInfo("another-account", 2, SeamlessStatus.Disabled))
-        viewModel.refreshAccountInfo()
+        viewModel.session.refreshAccountInfo()
         runCurrent()
-        assertEquals(SeamlessStatus.Unknown, viewModel.uiState.value.seamlessStatus)
-        assertNull(viewModel.seamlessState.value.info)
+        assertEquals(SeamlessStatus.Unknown, viewModel.session.uiState.value.seamlessStatus)
+        assertNull(viewModel.session.seamlessState.value.info)
         gate.complete(Unit)
         advanceUntilIdle()
-        assertEquals("another-account", viewModel.uiState.value.accountOverview?.username)
-        assertEquals(SeamlessStatus.Disabled, viewModel.uiState.value.seamlessStatus)
+        assertEquals("another-account", viewModel.session.uiState.value.accountOverview?.username)
+        assertEquals(SeamlessStatus.Disabled, viewModel.session.uiState.value.seamlessStatus)
     }
 
     @Test
@@ -280,14 +285,14 @@ class AppViewModelTest {
         val gate = CompletableDeferred<Unit>()
         selfService.seamlessActionGate = gate
         val action = SeamlessAction.Bind("AABBCC112233", true)
-        viewModel.performSeamlessAction(action)
+        viewModel.session.performSeamlessAction(action)
         runCurrent()
-        viewModel.performSeamlessAction(action)
-        assertTrue(viewModel.seamlessState.value.isSubmitting)
+        viewModel.session.performSeamlessAction(action)
+        assertTrue(viewModel.session.seamlessState.value.isSubmitting)
         assertEquals(1, selfService.seamlessActionCount)
         gate.complete(Unit)
         advanceUntilIdle()
-        assertFalse(viewModel.seamlessState.value.isSubmitting)
+        assertFalse(viewModel.session.seamlessState.value.isSubmitting)
         assertEquals(previousLoads + 1, selfService.seamlessLoadCount)
     }
 
@@ -296,11 +301,11 @@ class AppViewModelTest {
         val viewModel = createOnlineViewModel()
         advanceUntilIdle()
         network.loginStatus = LoginStatus(isLoggedIn = true, uid = "another-account")
-        viewModel.performSeamlessAction(SeamlessAction.Toggle(SeamlessStatus.Enabled))
+        viewModel.session.performSeamlessAction(SeamlessAction.Toggle(SeamlessStatus.Enabled))
         advanceUntilIdle()
         assertEquals(0, selfService.seamlessActionCount)
-        assertNull(viewModel.seamlessState.value.info)
-        assertEquals(SeamlessStatus.Unknown, viewModel.uiState.value.seamlessStatus)
+        assertNull(viewModel.session.seamlessState.value.info)
+        assertEquals(SeamlessStatus.Unknown, viewModel.session.uiState.value.seamlessStatus)
     }
 
     @Test
@@ -308,13 +313,13 @@ class AppViewModelTest {
         val viewModel = createOnlineViewModel()
         advanceUntilIdle()
         selfService.onSeamlessAction = { network.loginStatus = LoginStatus(isLoggedIn = false) }
-        viewModel.performSeamlessAction(SeamlessAction.Toggle(SeamlessStatus.Enabled))
+        viewModel.session.performSeamlessAction(SeamlessAction.Toggle(SeamlessStatus.Enabled))
         advanceUntilIdle()
         assertEquals(1, selfService.seamlessActionCount)
-        assertFalse(viewModel.uiState.value.isOnline)
-        assertNull(viewModel.uiState.value.accountOverview)
-        assertNull(viewModel.seamlessState.value.info)
-        assertEquals(SeamlessStatus.Unknown, viewModel.uiState.value.seamlessStatus)
+        assertFalse(viewModel.session.uiState.value.isOnline)
+        assertNull(viewModel.session.uiState.value.accountOverview)
+        assertNull(viewModel.session.seamlessState.value.info)
+        assertEquals(SeamlessStatus.Unknown, viewModel.session.uiState.value.seamlessStatus)
     }
 
     @Test
@@ -323,16 +328,16 @@ class AppViewModelTest {
         advanceUntilIdle()
         val gate = CompletableDeferred<Unit>()
         selfService.seamlessLoadGate = gate
-        viewModel.refreshSeamlessInfo()
+        viewModel.session.refreshSeamlessInfo()
         runCurrent()
         network.info = network.info.copy(wifiName = "other-wifi")
-        viewModel.refreshStatus()
+        viewModel.session.refreshStatus()
         runCurrent()
         gate.complete(Unit)
         advanceUntilIdle()
-        assertNull(viewModel.seamlessState.value.info)
-        assertFalse(viewModel.seamlessState.value.canManage)
-        assertEquals(SeamlessStatus.Unknown, viewModel.uiState.value.seamlessStatus)
+        assertNull(viewModel.session.seamlessState.value.info)
+        assertFalse(viewModel.session.seamlessState.value.canManage)
+        assertEquals(SeamlessStatus.Unknown, viewModel.session.uiState.value.seamlessStatus)
     }
 
     private fun createStartupViewModel(enabled: Boolean = true): AppViewModel {
@@ -354,24 +359,24 @@ class AppViewModelTest {
             val overview = AccountOverview("2021002", "100", "900", "20", emptyList())
             selfService.overviewResult = AccountOverviewResult.Success(overview)
 
-            assertEquals(LoginResult.AlreadyOnline, viewModel.login())
+            assertEquals(LoginResult.AlreadyOnline, viewModel.session.login())
             advanceUntilIdle()
 
             assertEquals(1, network.loginCount)
             assertEquals(listOf(true), network.loginStatusKnownOnlineRequests)
             assertEquals("2021002", selfService.lastRequestedUsername)
-            assertTrue(viewModel.uiState.value.isOnline)
-            assertEquals(overview, viewModel.uiState.value.accountOverview)
-            assertFalse(viewModel.uiState.value.isAccountInfoLoading)
+            assertTrue(viewModel.session.uiState.value.isOnline)
+            assertEquals(overview, viewModel.session.uiState.value.accountOverview)
+            assertFalse(viewModel.session.uiState.value.isAccountInfoLoading)
             assertEquals(
-                "msg:${R.string.home_already_online_fetching}", viewModel.uiState.value.loginMessage
+                "msg:${R.string.home_already_online_fetching}", viewModel.session.uiState.value.loginMessage
             )
 
             // 已在线信息只用于本次登录确认，后续刷新仍通过登录页核验。
-            viewModel.refreshStatus()
+            viewModel.session.refreshStatus()
             advanceUntilIdle()
             assertEquals(listOf(true, false), network.loginStatusKnownOnlineRequests)
-            assertFalse(viewModel.uiState.value.isOnline)
+            assertFalse(viewModel.session.uiState.value.isOnline)
             assertEquals(1, network.loginCount)
         }
 
@@ -381,12 +386,12 @@ class AppViewModelTest {
             val viewModel = createStartupViewModel(enabled = false)
             network.loginResult = LoginResult.AlreadyOnline
 
-            viewModel.login()
+            viewModel.session.login()
             advanceUntilIdle()
 
-            assertTrue(viewModel.uiState.value.isOnline)
-            assertNull(viewModel.uiState.value.accountOverview)
-            assertEquals("msg:${R.string.account_info_fetch_failed}", viewModel.uiState.value.accountInfoError)
+            assertTrue(viewModel.session.uiState.value.isOnline)
+            assertNull(viewModel.session.uiState.value.accountOverview)
+            assertEquals("msg:${R.string.account_info_fetch_failed}", viewModel.session.uiState.value.accountInfoError)
             assertEquals(0, selfService.overviewLoadCount)
             assertEquals(1, network.loginCount)
         }
@@ -400,15 +405,15 @@ class AppViewModelTest {
             val overview = AccountOverview("2021002", "100", "900", "20", emptyList())
             selfService.overviewResult = AccountOverviewResult.Success(overview)
 
-            viewModel.onAppForegrounded()
+            viewModel.session.onAppForegrounded()
             advanceUntilIdle()
 
             assertEquals(1, network.loginCount)
             assertEquals(listOf(false, true), network.loginStatusKnownOnlineRequests)
             assertEquals("2021002", selfService.lastRequestedUsername)
-            assertTrue(viewModel.uiState.value.isOnline)
-            assertEquals(overview, viewModel.uiState.value.accountOverview)
-            assertEquals("", viewModel.uiState.value.networkStatusError)
+            assertTrue(viewModel.session.uiState.value.isOnline)
+            assertEquals(overview, viewModel.session.uiState.value.accountOverview)
+            assertEquals("", viewModel.session.uiState.value.networkStatusError)
         }
 
     @Test
@@ -421,24 +426,24 @@ class AppViewModelTest {
             val overview = AccountOverview("2021001", "100", "900", "20", emptyList())
             selfService.overviewResult = AccountOverviewResult.Success(overview)
             val viewModel = createStartupViewModel(enabled = false)
-            val caller = launch { viewModel.login() }
+            val caller = launch { viewModel.session.login() }
             runCurrent()
-            assertTrue(viewModel.uiState.value.isLoggingIn)
-            viewModel.requestLogin()
+            assertTrue(viewModel.session.uiState.value.isLoggingIn)
+            viewModel.session.requestLogin()
             assertEquals(1, network.loginCount)
 
             caller.cancelAndJoin()
-            assertTrue(viewModel.uiState.value.isLoggingIn)
+            assertTrue(viewModel.session.uiState.value.isLoggingIn)
             gate.complete(Unit)
             advanceUntilIdle()
 
             assertEquals(1, network.loginCount)
-            assertFalse(viewModel.uiState.value.isLoggingIn)
-            assertTrue(viewModel.uiState.value.isOnline)
-            assertEquals(overview, viewModel.uiState.value.accountOverview)
-            assertEquals("msg:${R.string.home_login_success_fetching}", viewModel.uiState.value.loginMessage)
-            viewModel.consumeLoginMessage()
-            assertNull(viewModel.uiState.value.loginMessage)
+            assertFalse(viewModel.session.uiState.value.isLoggingIn)
+            assertTrue(viewModel.session.uiState.value.isOnline)
+            assertEquals(overview, viewModel.session.uiState.value.accountOverview)
+            assertEquals("msg:${R.string.home_login_success_fetching}", viewModel.session.uiState.value.loginMessage)
+            viewModel.session.consumeLoginMessage()
+            assertNull(viewModel.session.uiState.value.loginMessage)
         }
 
     @Test
@@ -448,14 +453,14 @@ class AppViewModelTest {
             settings.initializationGate = gate
             val viewModel = createStartupViewModel()
             network.loginResult = LoginResult.Failure("bad password")
-            viewModel.onAppForegrounded()
+            viewModel.session.onAppForegrounded()
             advanceTimeBy(2_000)
             runCurrent()
             assertEquals(0, network.loginCount)
             gate.complete(Unit)
             advanceUntilIdle()
             assertEquals(1, network.loginCount)
-            assertFalse(viewModel.uiState.value.isLoggingIn)
+            assertFalse(viewModel.session.uiState.value.isLoggingIn)
         }
 
     @Test
@@ -465,13 +470,13 @@ class AppViewModelTest {
             val viewModel = createStartupViewModel(enabled = false)
             val store = ViewModelStore()
             store.put("app", viewModel)
-            viewModel.requestLogin()
+            viewModel.session.requestLogin()
             runCurrent()
-            assertTrue(viewModel.uiState.value.isLoggingIn)
+            assertTrue(viewModel.session.uiState.value.isLoggingIn)
             store.clear()
             runCurrent()
-            assertFalse(viewModel.uiState.value.isLoggingIn)
-            assertNull(viewModel.uiState.value.loginMessage)
+            assertFalse(viewModel.session.uiState.value.isLoggingIn)
+            assertNull(viewModel.session.uiState.value.loginMessage)
         }
 
     @Test
@@ -486,13 +491,13 @@ class AppViewModelTest {
             for (transfer in terminalStates) {
                 updates.transfer = transfer
                 val before = updates.refreshCount
-                viewModel.setUpdateForeground(true)
+                viewModel.update.setForeground(true)
                 runCurrent()
                 assertEquals(before + 1, updates.refreshCount)
                 advanceTimeBy(60_000)
                 runCurrent()
                 assertEquals(before + 1, updates.refreshCount)
-                viewModel.setUpdateForeground(false)
+                viewModel.update.setForeground(false)
             }
         }
 
@@ -501,30 +506,30 @@ class AppViewModelTest {
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
             updates.transfer = UpdateTransfer(availableUpdate(), UpdateDownloadState.Downloading())
             val viewModel = createViewModel()
-            viewModel.setUpdateForeground(true)
+            viewModel.update.setForeground(true)
             runCurrent()
             assertEquals(1, updates.refreshCount)
-            advanceTimeBy(AppUpdateCoordinator.DOWNLOAD_PROGRESS_INTERVAL_MS)
+            advanceTimeBy(UpdateStateHolder.DOWNLOAD_PROGRESS_INTERVAL_MS)
             runCurrent()
             assertEquals(2, updates.refreshCount)
-            viewModel.setUpdateForeground(false)
+            viewModel.update.setForeground(false)
             advanceTimeBy(10_000)
             runCurrent()
             assertEquals(2, updates.refreshCount)
 
-            viewModel.setUpdateForeground(true)
+            viewModel.update.setForeground(true)
             runCurrent()
             assertEquals(3, updates.refreshCount)
             // 未收到完成广播时，也能通过下一次轮询发现完成。
             updates.transfer = UpdateTransfer(availableUpdate(), UpdateDownloadState.Ready)
-            advanceTimeBy(AppUpdateCoordinator.DOWNLOAD_PROGRESS_INTERVAL_MS)
+            advanceTimeBy(UpdateStateHolder.DOWNLOAD_PROGRESS_INTERVAL_MS)
             runCurrent()
             assertEquals(4, updates.refreshCount)
-            assertEquals(UpdateDownloadState.Ready, (viewModel.updateState.value as UpdateState.Available).download)
+            assertEquals(UpdateDownloadState.Ready, (viewModel.update.state.value as UpdateState.Available).download)
             advanceTimeBy(60_000)
             runCurrent()
             assertEquals(4, updates.refreshCount)
-            viewModel.setUpdateForeground(false)
+            viewModel.update.setForeground(false)
         }
 
     @Test
@@ -538,23 +543,23 @@ class AppViewModelTest {
                 isWifi = true, isCellular = false, isConnected = true
             )
             val timedViewModel = createViewModel(currentTimeMillis = { now })
-            timedViewModel.checkForUpdates(manual = true)
+            timedViewModel.update.check(manual = true)
             assertEquals(now - 1_000, settings.lastUpdateCheckTimestamp)
-            assertEquals(now + AppUpdateCoordinator.INITIAL_CHECK_RETRY_DELAY_MS, settings.updateCheckRetryTimestamp)
+            assertEquals(now + UpdateStateHolder.INITIAL_CHECK_RETRY_DELAY_MS, settings.updateCheckRetryTimestamp)
 
             network.loginResult = LoginResult.Success
             network.validatedInternet = true
-            timedViewModel.login()
+            timedViewModel.session.login()
             advanceUntilIdle()
             assertEquals(1, updates.fetchCount)
             now = settings.updateCheckRetryTimestamp
-            timedViewModel.login()
+            timedViewModel.session.login()
             advanceUntilIdle()
             assertEquals(2, updates.fetchCount)
-            assertEquals(now + 2 * AppUpdateCoordinator.INITIAL_CHECK_RETRY_DELAY_MS, settings.updateCheckRetryTimestamp)
+            assertEquals(now + 2 * UpdateStateHolder.INITIAL_CHECK_RETRY_DELAY_MS, settings.updateCheckRetryTimestamp)
 
             updates.fetchResult = Result.success(availableUpdate())
-            timedViewModel.checkForUpdates(manual = true)
+            timedViewModel.update.check(manual = true)
             assertEquals(3, updates.fetchCount)
             assertEquals(now, settings.lastUpdateCheckTimestamp)
             assertEquals(0L, settings.updateCheckRetryTimestamp)
@@ -574,20 +579,20 @@ class AppViewModelTest {
             val viewModel = createViewModel(currentTimeMillis = { now })
             var lastDelay = 0L
             repeat(8) {
-                viewModel.checkForUpdates(manual = true)
+                viewModel.update.check(manual = true)
                 lastDelay = settings.updateCheckRetryTimestamp - now
-                assertTrue(lastDelay <= AppUpdateCoordinator.MAXIMUM_CHECK_RETRY_DELAY_MS)
+                assertTrue(lastDelay <= UpdateStateHolder.MAXIMUM_CHECK_RETRY_DELAY_MS)
                 now = settings.updateCheckRetryTimestamp
             }
-            assertEquals(AppUpdateCoordinator.MAXIMUM_CHECK_RETRY_DELAY_MS, lastDelay)
+            assertEquals(UpdateStateHolder.MAXIMUM_CHECK_RETRY_DELAY_MS, lastDelay)
             val before = updates.fetchCount
             val restored = createViewModel(currentTimeMillis = { now - 1 })
-            restored.login()
+            restored.session.login()
             advanceUntilIdle()
             assertEquals(before, updates.fetchCount)
             now++
             val due = createViewModel(currentTimeMillis = { now })
-            due.login()
+            due.session.login()
             advanceUntilIdle()
             assertEquals(before + 1, updates.fetchCount)
         }
@@ -596,7 +601,7 @@ class AppViewModelTest {
     fun startupAutoLogin_disabledDoesNotSubmitCredentials() =
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
             val viewModel = createStartupViewModel(enabled = false)
-            viewModel.onAppForegrounded()
+            viewModel.session.onAppForegrounded()
             advanceUntilIdle()
 
             assertEquals(0, network.loginCount)
@@ -611,14 +616,14 @@ class AppViewModelTest {
             val overview = AccountOverview("2021001", "100", "900", "20", emptyList())
             selfService.overviewResult = AccountOverviewResult.Success(overview)
 
-            viewModel.onAppForegrounded()
+            viewModel.session.onAppForegrounded()
             advanceUntilIdle()
 
             assertEquals(1, network.loginCount)
             assertEquals("2021001" to "secret", network.performedLogin)
-            assertTrue(viewModel.uiState.value.isOnline)
-            assertFalse(viewModel.uiState.value.isAccountInfoLoading)
-            assertEquals(overview, viewModel.uiState.value.accountOverview)
+            assertTrue(viewModel.session.uiState.value.isOnline)
+            assertFalse(viewModel.session.uiState.value.isAccountInfoLoading)
+            assertEquals(overview, viewModel.session.uiState.value.accountOverview)
         }
 
     @Test
@@ -626,19 +631,19 @@ class AppViewModelTest {
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
             val viewModel = createStartupViewModel()
             network.loginResult = LoginResult.Failure("bad password")
-            viewModel.onAppForegrounded()
+            viewModel.session.onAppForegrounded()
             advanceUntilIdle()
 
             assertEquals(1, network.loginCount)
-            assertEquals("bad password", viewModel.uiState.value.networkStatusError)
-            assertFalse(viewModel.uiState.value.isAccountInfoLoading)
+            assertEquals("bad password", viewModel.session.uiState.value.networkStatusError)
+            assertFalse(viewModel.session.uiState.value.isAccountInfoLoading)
 
-            viewModel.refreshStatus()
-            viewModel.onAppForegrounded()
+            viewModel.session.refreshStatus()
+            viewModel.session.onAppForegrounded()
             advanceUntilIdle()
             assertEquals(1, network.loginCount)
 
-            viewModel.login()
+            viewModel.session.login()
             assertEquals(2, network.loginCount)
         }
 
@@ -647,12 +652,12 @@ class AppViewModelTest {
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
             val viewModel = createStartupViewModel()
             network.loginResult = LoginResult.NetworkError("unreachable")
-            viewModel.onAppForegrounded()
+            viewModel.session.onAppForegrounded()
             advanceUntilIdle()
 
             assertEquals(1, network.loginCount)
-            assertEquals("unreachable", viewModel.uiState.value.networkStatusError)
-            assertFalse(viewModel.uiState.value.isAccountInfoLoading)
+            assertEquals("unreachable", viewModel.session.uiState.value.networkStatusError)
+            assertFalse(viewModel.session.uiState.value.isAccountInfoLoading)
         }
 
     @Test
@@ -660,11 +665,11 @@ class AppViewModelTest {
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
             val viewModel = createStartupViewModel()
             network.loginStatus = LoginStatus(isLoggedIn = true, uid = "2021001")
-            viewModel.onAppForegrounded()
+            viewModel.session.onAppForegrounded()
             advanceUntilIdle()
 
             network.loginStatus = LoginStatus(isLoggedIn = false)
-            viewModel.refreshStatus()
+            viewModel.session.refreshStatus()
             advanceUntilIdle()
             assertEquals(0, network.loginCount)
         }
@@ -674,11 +679,11 @@ class AppViewModelTest {
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
             val viewModel = createStartupViewModel()
             settings.setCredentials("", "")
-            viewModel.onAppForegrounded()
+            viewModel.session.onAppForegrounded()
             advanceUntilIdle()
 
             settings.setCredentials("2021001", "secret")
-            viewModel.refreshStatus()
+            viewModel.session.refreshStatus()
             advanceUntilIdle()
             assertEquals(0, network.loginCount)
         }
@@ -688,7 +693,7 @@ class AppViewModelTest {
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
             val viewModel = createStartupViewModel()
             network.info = network.info.copy(wifiName = "other_wifi")
-            viewModel.onAppForegrounded()
+            viewModel.session.onAppForegrounded()
             advanceUntilIdle()
 
             network.info = network.info.copy(wifiName = "bjut_wifi")
@@ -702,7 +707,7 @@ class AppViewModelTest {
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
             val viewModel = createStartupViewModel()
             network.info = network.info.copy(isWifi = false, isCellular = true)
-            viewModel.onAppForegrounded()
+            viewModel.session.onAppForegrounded()
             advanceUntilIdle()
             assertEquals(0, network.loginCount)
         }
@@ -718,13 +723,13 @@ class AppViewModelTest {
             )
             var granted = false
             val viewModel = createViewModel(hasLocationPermission = { granted })
-            viewModel.onAppForegrounded()
+            viewModel.session.onAppForegrounded()
             advanceUntilIdle()
             assertEquals(0, network.loginCount)
 
             granted = true
             network.info = network.info.copy(wifiName = "bjut_wifi")
-            viewModel.onLocationPermissionChanged()
+            viewModel.session.onLocationPermissionChanged()
             advanceUntilIdle()
             assertEquals(1, network.loginCount)
         }
@@ -734,8 +739,8 @@ class AppViewModelTest {
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
             val viewModel = createStartupViewModel()
             network.loginStatus = LoginStatus(isLoggedIn = false, error = "not ready")
-            viewModel.onAppForegrounded()
-            advanceTimeBy(AppViewModel.FOREGROUND_REFRESH_INITIAL_DELAY_MS)
+            viewModel.session.onAppForegrounded()
+            advanceTimeBy(CampusSessionCoordinator.FOREGROUND_REFRESH_INITIAL_DELAY_MS)
             runCurrent()
             assertEquals(0, network.loginCount)
 
@@ -749,12 +754,12 @@ class AppViewModelTest {
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
             val viewModel = createStartupViewModel()
             network.loginStatus = LoginStatus(isLoggedIn = false, error = "unreachable")
-            viewModel.onAppForegrounded()
+            viewModel.session.onAppForegrounded()
             advanceUntilIdle()
-            assertEquals(AppViewModel.FOREGROUND_REFRESH_ATTEMPTS, network.loginStatusFetchCount)
+            assertEquals(CampusSessionCoordinator.FOREGROUND_REFRESH_ATTEMPTS, network.loginStatusFetchCount)
 
             network.loginStatus = LoginStatus(isLoggedIn = false)
-            viewModel.onAppForegrounded()
+            viewModel.session.onAppForegrounded()
             advanceUntilIdle()
             assertEquals(0, network.loginCount)
         }
@@ -763,15 +768,15 @@ class AppViewModelTest {
     fun startupAutoLogin_changingSettingAffectsNextStartupOnly() =
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
             val viewModel = createStartupViewModel(enabled = false)
-            viewModel.setAutoLoginOnStartup(true)
+            viewModel.preferences.setAutoLoginOnStartup(true)
             assertTrue(settings.autoLoginOnStartup.value)
-            viewModel.onAppForegrounded()
+            viewModel.session.onAppForegrounded()
             advanceUntilIdle()
             assertEquals(0, network.loginCount)
 
             val restartedViewModel = createViewModel()
-            restartedViewModel.onAppForegrounded()
-            restartedViewModel.setAutoLoginOnStartup(false)
+            restartedViewModel.session.onAppForegrounded()
+            restartedViewModel.preferences.setAutoLoginOnStartup(false)
             advanceUntilIdle()
             assertFalse(settings.autoLoginOnStartup.value)
             assertEquals(0, network.loginCount)
@@ -781,9 +786,9 @@ class AppViewModelTest {
     fun startupAutoLogin_manualLoginConsumesPendingAttempt() =
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
             val viewModel = createStartupViewModel()
-            viewModel.onAppForegrounded()
-            viewModel.login()
-            viewModel.onAppForegrounded()
+            viewModel.session.onAppForegrounded()
+            viewModel.session.login()
+            viewModel.session.onAppForegrounded()
             advanceUntilIdle()
             assertEquals(1, network.loginCount)
         }
@@ -792,112 +797,112 @@ class AppViewModelTest {
     fun download_repeatedClicksAndChecksDoNotReplaceActiveTask() {
         updates.fetchResult = Result.success(availableUpdate())
         val viewModel = createViewModel()
-        viewModel.setUpdateForeground(true)
-        viewModel.checkForUpdates(true)
-        viewModel.downloadAvailableUpdate()
-        viewModel.downloadAvailableUpdate()
-        viewModel.checkForUpdates(true)
+        viewModel.update.setForeground(true)
+        viewModel.update.check(true)
+        viewModel.update.downloadAvailable()
+        viewModel.update.downloadAvailable()
+        viewModel.update.check(true)
 
         assertEquals(1, updates.downloadCount)
         assertEquals(1, updates.fetchCount)
-        assertEquals(UpdateDownloadState.Downloading(), (viewModel.updateState.value as UpdateState.Available).download)
-        viewModel.setUpdateForeground(false)
+        assertEquals(UpdateDownloadState.Downloading(), (viewModel.update.state.value as UpdateState.Available).download)
+        viewModel.update.setForeground(false)
     }
 
     @Test
     fun download_completedInForegroundRequestsInstallationOnlyOnce() {
         updates.fetchResult = Result.success(availableUpdate())
         val viewModel = createViewModel()
-        viewModel.setUpdateForeground(true)
-        viewModel.checkForUpdates(true)
-        viewModel.downloadAvailableUpdate()
+        viewModel.update.setForeground(true)
+        viewModel.update.check(true)
+        viewModel.update.downloadAvailable()
         updates.publish(UpdateDownloadState.Ready)
 
-        assertEquals(availableUpdate(), viewModel.updateInstallation.value)
-        viewModel.consumeUpdateInstallation()
+        assertEquals(availableUpdate(), viewModel.update.installation.value)
+        viewModel.update.consumeInstallation()
         updates.publish(UpdateDownloadState.Ready)
-        assertNull(viewModel.updateInstallation.value)
+        assertNull(viewModel.update.installation.value)
         // 从安装器取消返回后，可手动安装同一个包，不再下载。
-        viewModel.setUpdateForeground(false)
-        viewModel.setUpdateForeground(true)
-        assertNull(viewModel.updateInstallation.value)
-        viewModel.downloadAvailableUpdate()
-        assertEquals(availableUpdate(), viewModel.updateInstallation.value)
+        viewModel.update.setForeground(false)
+        viewModel.update.setForeground(true)
+        assertNull(viewModel.update.installation.value)
+        viewModel.update.downloadAvailable()
+        assertEquals(availableUpdate(), viewModel.update.installation.value)
         assertEquals(1, updates.downloadCount)
-        viewModel.setUpdateForeground(false)
+        viewModel.update.setForeground(false)
     }
 
     @Test
     fun download_completedInBackgroundRestoresReadyWithoutLaunchingInstaller() {
         updates.fetchResult = Result.success(availableUpdate())
         val viewModel = createViewModel()
-        viewModel.setUpdateForeground(true)
-        viewModel.checkForUpdates(true)
-        viewModel.downloadAvailableUpdate()
-        viewModel.setUpdateForeground(false)
+        viewModel.update.setForeground(true)
+        viewModel.update.check(true)
+        viewModel.update.downloadAvailable()
+        viewModel.update.setForeground(false)
         updates.publish(UpdateDownloadState.Ready)
-        viewModel.setUpdateForeground(true)
+        viewModel.update.setForeground(true)
 
-        assertEquals(UpdateState.Available(availableUpdate(), UpdateDownloadState.Ready), viewModel.updateState.value)
-        assertNull(viewModel.updateInstallation.value)
-        viewModel.setUpdateForeground(false)
+        assertEquals(UpdateState.Available(availableUpdate(), UpdateDownloadState.Ready), viewModel.update.state.value)
+        assertNull(viewModel.update.installation.value)
+        viewModel.update.setForeground(false)
     }
 
     @Test
     fun download_restoresAfterProcessRestartWithoutCheckingServer() {
         updates.transfer = UpdateTransfer(availableUpdate(), UpdateDownloadState.Downloading(42, true))
         val viewModel = createViewModel()
-        viewModel.setUpdateForeground(true)
-        assertEquals(UpdateState.Available(availableUpdate(), updates.transfer!!.state), viewModel.updateState.value)
+        viewModel.update.setForeground(true)
+        assertEquals(UpdateState.Available(availableUpdate(), updates.transfer!!.state), viewModel.update.state.value)
         assertEquals(0, updates.fetchCount)
         assertEquals(0, updates.downloadCount)
         updates.publish(UpdateDownloadState.Ready)
-        assertNull(viewModel.updateInstallation.value)
-        viewModel.setUpdateForeground(false)
+        assertNull(viewModel.update.installation.value)
+        viewModel.update.setForeground(false)
     }
 
     @Test
     fun download_dismissingDialogDisablesAutomaticInstallation() {
         updates.fetchResult = Result.success(availableUpdate())
         val viewModel = createViewModel()
-        viewModel.setUpdateForeground(true)
-        viewModel.checkForUpdates(true)
-        viewModel.downloadAvailableUpdate()
-        viewModel.cancelAutomaticUpdateInstall()
+        viewModel.update.setForeground(true)
+        viewModel.update.check(true)
+        viewModel.update.downloadAvailable()
+        viewModel.update.cancelAutomaticInstall()
         updates.publish(UpdateDownloadState.Ready)
-        assertNull(viewModel.updateInstallation.value)
-        viewModel.setUpdateForeground(false)
+        assertNull(viewModel.update.installation.value)
+        viewModel.update.setForeground(false)
     }
 
     @Test
     fun installation_permissionReturnRequiresSameVersionAndReadyFile() {
         updates.transfer = UpdateTransfer(availableUpdate(), UpdateDownloadState.Ready)
         val viewModel = createViewModel()
-        viewModel.setUpdateForeground(true)
-        viewModel.resumeUpdateInstallation(989)
-        assertNull(viewModel.updateInstallation.value)
-        viewModel.resumeUpdateInstallation(990)
-        assertEquals(availableUpdate(), viewModel.updateInstallation.value)
-        viewModel.consumeUpdateInstallation()
+        viewModel.update.setForeground(true)
+        viewModel.update.resumeInstallation(989)
+        assertNull(viewModel.update.installation.value)
+        viewModel.update.resumeInstallation(990)
+        assertEquals(availableUpdate(), viewModel.update.installation.value)
+        viewModel.update.consumeInstallation()
         updates.publish(UpdateDownloadState.Failed(UpdateDownloadFailure.MISSING_FILE))
-        viewModel.resumeUpdateInstallation(990)
-        assertNull(viewModel.updateInstallation.value)
-        viewModel.setUpdateForeground(false)
+        viewModel.update.resumeInstallation(990)
+        assertNull(viewModel.update.installation.value)
+        viewModel.update.setForeground(false)
     }
 
     @Test
     fun installation_revalidatesFileAndOffersRedownloadWhenMissing() = runTest {
         updates.transfer = UpdateTransfer(availableUpdate(), UpdateDownloadState.Ready)
         val viewModel = createViewModel()
-        viewModel.setUpdateForeground(true)
-        assertNull(viewModel.validatedUpdateDownload(availableUpdate()))
+        viewModel.update.setForeground(true)
+        assertNull(viewModel.update.validatedDownload(availableUpdate()))
         assertEquals(
             UpdateDownloadState.Failed(UpdateDownloadFailure.INVALID_APK),
-            (viewModel.updateState.value as UpdateState.Available).download
+            (viewModel.update.state.value as UpdateState.Available).download
         )
-        viewModel.downloadAvailableUpdate()
+        viewModel.update.downloadAvailable()
         assertEquals(1, updates.downloadCount)
-        viewModel.setUpdateForeground(false)
+        viewModel.update.setForeground(false)
     }
 
     @Test
@@ -905,7 +910,7 @@ class AppViewModelTest {
         network.info = CurrentNetworkInfo("bjut_wifi", "10.1.2.3", true, false, true)
         val viewModel = createViewModel()
 
-        viewModel.refreshStatus()
+        viewModel.session.refreshStatus()
 
         assertEquals(listOf(WifiLoginMethod.WLGN), network.loginStatusPreferredMethods)
         assertNull(settings.getWifiLoginMethod("bjut_wifi"))
@@ -918,7 +923,7 @@ class AppViewModelTest {
         network.info = CurrentNetworkInfo("bjut_wifi", "10.1.2.3", true, false, true)
         val viewModel = createViewModel()
 
-        viewModel.login()
+        viewModel.session.login()
 
         assertEquals(WifiLoginMethod.EPORTAL, network.loginPreferredMethod)
     }
@@ -929,12 +934,12 @@ class AppViewModelTest {
         network.loginStatus = LoginStatus(false, verifiedMethod = WifiLoginMethod.WLGN)
         val viewModel = createViewModel()
 
-        viewModel.refreshStatus()
+        viewModel.session.refreshStatus()
 
         assertEquals(WifiLoginMethod.WLGN, settings.getWifiLoginMethod("bjut_wifi"))
         network.loginStatusPreferredMethods.clear()
         network.info = network.info.copy(ipAddress = "10.1.2.4")
-        viewModel.refreshStatus()
+        viewModel.session.refreshStatus()
 
         assertEquals(listOf(WifiLoginMethod.WLGN), network.loginStatusPreferredMethods)
     }
@@ -945,11 +950,11 @@ class AppViewModelTest {
         settings.saveWifiLoginMethod("bjut_wifi", WifiLoginMethod.WLGN)
         network.loginStatus = LoginStatus(false, verifiedMethod = WifiLoginMethod.EPORTAL)
         val viewModel = createViewModel()
-        viewModel.refreshStatus()
+        viewModel.session.refreshStatus()
         assertEquals(WifiLoginMethod.EPORTAL, settings.getWifiLoginMethod("bjut_wifi"))
 
         network.loginStatus = LoginStatus(false, error = "unavailable")
-        viewModel.refreshStatus()
+        viewModel.session.refreshStatus()
 
         assertEquals(WifiLoginMethod.EPORTAL, settings.getWifiLoginMethod("bjut_wifi"))
     }
@@ -962,7 +967,7 @@ class AppViewModelTest {
         network.loginStatusPreferredMethods.clear()
         network.info = network.info.copy(wifiName = "bjut-sushe-1")
 
-        viewModel.refreshStatus()
+        viewModel.session.refreshStatus()
 
         assertEquals(listOf<WifiLoginMethod?>(null), network.loginStatusPreferredMethods)
         assertNull(settings.getWifiLoginMethod("bjut-sushe-1"))
@@ -975,7 +980,7 @@ class AppViewModelTest {
             val viewModel = createViewModel()
             network.loginStatus = LoginStatus(false, verifiedMethod = WifiLoginMethod.WLGN)
             network.loginStatusGate = CompletableDeferred()
-            viewModel.refreshStatus()
+            viewModel.session.refreshStatus()
             network.info = network.info.copy(wifiName = "other_wifi")
 
             network.loginStatusGate!!.complete(Unit)
@@ -999,9 +1004,9 @@ class AppViewModelTest {
         selfService.overviewResult = AccountOverviewResult.Success(overview)
         val viewModel = createViewModel()
 
-        viewModel.refreshStatus()
+        viewModel.session.refreshStatus()
 
-        val state = viewModel.uiState.value
+        val state = viewModel.session.uiState.value
         assertEquals("bjut_wifi", state.wifiName)
         assertEquals("10.1.2.3", state.ipAddress)
         assertTrue(state.isOnline)
@@ -1012,18 +1017,18 @@ class AppViewModelTest {
     fun refreshAccountInfo_keepsHomeContentUntilStatusAndOverviewArrive() =
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
             val viewModel = createOnlineViewModel()
-            val original = viewModel.uiState.value
+            val original = viewModel.session.uiState.value
             val refreshedOverview = original.accountOverview!!.copy(usedTrafficMegabytes = "200")
             network.info = network.info.copy(wifiName = "bjut-sushe-1", ipAddress = "10.1.2.4")
             network.loginStatusGate = CompletableDeferred()
             selfService.overviewGate = CompletableDeferred()
             selfService.overviewResult = AccountOverviewResult.Success(refreshedOverview)
 
-            viewModel.refreshAccountInfo()
+            viewModel.session.refreshAccountInfo()
 
             assertEquals(
                 original.copy(isAccountInfoLoading = true, canLogoutDevices = false),
-                viewModel.uiState.value
+                viewModel.session.uiState.value
             )
 
             network.loginStatusGate!!.complete(Unit)
@@ -1036,37 +1041,37 @@ class AppViewModelTest {
                     isAccountInfoLoading = true,
                     canLogoutDevices = false
                 ),
-                viewModel.uiState.value
+                viewModel.session.uiState.value
             )
 
             selfService.overviewGate!!.complete(Unit)
             runCurrent()
 
-            assertEquals(refreshedOverview, viewModel.uiState.value.accountOverview)
-            assertFalse(viewModel.uiState.value.isAccountInfoLoading)
-            assertTrue(viewModel.uiState.value.isDeviceListAvailable)
-            assertTrue(viewModel.uiState.value.canLogoutDevices)
+            assertEquals(refreshedOverview, viewModel.session.uiState.value.accountOverview)
+            assertFalse(viewModel.session.uiState.value.isAccountInfoLoading)
+            assertTrue(viewModel.session.uiState.value.isDeviceListAvailable)
+            assertTrue(viewModel.session.uiState.value.canLogoutDevices)
         }
 
     @Test
     fun refreshAccountInfo_clearsCardsOnlyAfterLogoutIsConfirmed() =
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
             val viewModel = createOnlineViewModel()
-            val original = viewModel.uiState.value
+            val original = viewModel.session.uiState.value
             network.loginStatus = LoginStatus(isLoggedIn = false)
             network.loginStatusGate = CompletableDeferred()
 
-            viewModel.refreshAccountInfo()
+            viewModel.session.refreshAccountInfo()
 
             assertEquals(
                 original.copy(isAccountInfoLoading = true, canLogoutDevices = false),
-                viewModel.uiState.value
+                viewModel.session.uiState.value
             )
 
             network.loginStatusGate!!.complete(Unit)
             runCurrent()
 
-            val state = viewModel.uiState.value
+            val state = viewModel.session.uiState.value
             assertFalse(state.isOnline)
             assertNull(state.accountOverview)
             assertFalse(state.isAccountInfoLoading)
@@ -1078,14 +1083,14 @@ class AppViewModelTest {
     @Test
     fun refreshAccountInfo_keepsHomeContentWhenStatusRequestFails() {
         val viewModel = createOnlineViewModel()
-        val original = viewModel.uiState.value
+        val original = viewModel.session.uiState.value
         network.loginStatus = LoginStatus(isLoggedIn = false, error = "timeout")
 
-        viewModel.refreshAccountInfo()
+        viewModel.session.refreshAccountInfo()
 
         assertEquals(
             original.copy(accountInfoError = "timeout", canLogoutDevices = false),
-            viewModel.uiState.value
+            viewModel.session.uiState.value
         )
         assertEquals(1, selfService.overviewLoadCount)
         assertFalse(selfService.cleared)
@@ -1094,14 +1099,14 @@ class AppViewModelTest {
     @Test
     fun refreshAccountInfo_keepsExistingCardsWhenOverviewRequestFails() {
         val viewModel = createOnlineViewModel()
-        val original = viewModel.uiState.value
+        val original = viewModel.session.uiState.value
         selfService.overviewResult = AccountOverviewResult.Failure("timeout")
 
-        viewModel.refreshAccountInfo()
+        viewModel.session.refreshAccountInfo()
 
         assertEquals(
             original.copy(accountInfoError = "timeout", canLogoutDevices = false),
-            viewModel.uiState.value
+            viewModel.session.uiState.value
         )
     }
 
@@ -1111,15 +1116,15 @@ class AppViewModelTest {
             val viewModel = createOnlineViewModel()
             network.loginStatus = LoginStatus(isLoggedIn = true, uid = "2021002")
             selfService.overviewGate = CompletableDeferred()
-            val refreshedOverview = viewModel.uiState.value.accountOverview!!.copy(
+            val refreshedOverview = viewModel.session.uiState.value.accountOverview!!.copy(
                 username = "2021002",
                 devices = emptyList()
             )
             selfService.overviewResult = AccountOverviewResult.Success(refreshedOverview)
 
-            viewModel.refreshAccountInfo()
+            viewModel.session.refreshAccountInfo()
 
-            val loadingState = viewModel.uiState.value
+            val loadingState = viewModel.session.uiState.value
             assertTrue(loadingState.isOnline)
             assertTrue(loadingState.isAccountInfoLoading)
             assertNull(loadingState.accountOverview)
@@ -1129,8 +1134,8 @@ class AppViewModelTest {
             selfService.overviewGate!!.complete(Unit)
             runCurrent()
 
-            assertEquals(refreshedOverview, viewModel.uiState.value.accountOverview)
-            assertFalse(viewModel.uiState.value.isAccountInfoLoading)
+            assertEquals(refreshedOverview, viewModel.session.uiState.value.accountOverview)
+            assertFalse(viewModel.session.uiState.value.isAccountInfoLoading)
         }
 
     @Test
@@ -1155,8 +1160,8 @@ class AppViewModelTest {
             advanceUntilIdle()
 
             assertEquals(2, selfService.overviewLoadCount)
-            assertEquals(overview, viewModel.uiState.value.accountOverview)
-            assertEquals("", viewModel.uiState.value.accountInfoError)
+            assertEquals(overview, viewModel.session.uiState.value.accountOverview)
+            assertEquals("", viewModel.session.uiState.value.accountInfoError)
         }
 
     @Test
@@ -1180,7 +1185,7 @@ class AppViewModelTest {
             advanceUntilIdle()
 
             assertEquals(1, selfService.overviewLoadCount)
-            assertEquals("invalid response", viewModel.uiState.value.accountInfoError)
+            assertEquals("invalid response", viewModel.session.uiState.value.accountInfoError)
         }
 
     @Test
@@ -1203,9 +1208,9 @@ class AppViewModelTest {
             network.emitCampusNetworkChange(CampusNetworkChange.IP_ADDRESS_CHANGED)
             advanceUntilIdle()
 
-            assertEquals(AppViewModel.NETWORK_REFRESH_ATTEMPTS, selfService.overviewLoadCount)
-            assertFalse(viewModel.uiState.value.isAccountInfoLoading)
-            assertEquals("timeout", viewModel.uiState.value.accountInfoError)
+            assertEquals(CampusSessionCoordinator.NETWORK_REFRESH_ATTEMPTS, selfService.overviewLoadCount)
+            assertFalse(viewModel.session.uiState.value.isAccountInfoLoading)
+            assertEquals("timeout", viewModel.session.uiState.value.accountInfoError)
         }
 
     @Test
@@ -1225,8 +1230,8 @@ class AppViewModelTest {
             advanceUntilIdle()
 
             assertEquals(1, network.loginStatusFetchCount)
-            assertFalse(viewModel.uiState.value.isOnline)
-            assertEquals("", viewModel.uiState.value.networkStatusError)
+            assertFalse(viewModel.session.uiState.value.isOnline)
+            assertEquals("", viewModel.session.uiState.value.networkStatusError)
         }
 
     @Test
@@ -1240,9 +1245,9 @@ class AppViewModelTest {
         )
         val viewModel = createViewModel()
 
-        viewModel.refreshStatus()
+        viewModel.session.refreshStatus()
 
-        val state = viewModel.uiState.value
+        val state = viewModel.session.uiState.value
         assertFalse(state.isOnline)
         assertNull(state.accountOverview)
         assertTrue(selfService.cleared)
@@ -1252,7 +1257,7 @@ class AppViewModelTest {
     fun login_returnsFailureWhenCredentialsMissing() = runTest {
         val viewModel = createViewModel()
 
-        val result = viewModel.login()
+        val result = viewModel.session.login()
 
         assertEquals(
             LoginResult.Failure("msg:${R.string.login_no_credentials}"),
@@ -1272,7 +1277,7 @@ class AppViewModelTest {
         )
         val viewModel = createViewModel()
 
-        val result = viewModel.login()
+        val result = viewModel.session.login()
 
         assertEquals(
             LoginResult.Failure("msg:${R.string.login_wrong_network}"),
@@ -1293,7 +1298,7 @@ class AppViewModelTest {
         network.loginResult = LoginResult.Success
         val viewModel = createViewModel()
 
-        val result = viewModel.login()
+        val result = viewModel.session.login()
 
         assertEquals(LoginResult.Success, result)
         assertEquals(WifiLoginMethod.WLGN, network.loginPreferredMethod)
@@ -1318,13 +1323,13 @@ class AppViewModelTest {
             network.loginResult = LoginResult.Success
             val viewModel = createViewModel()
 
-            viewModel.onAppForegrounded()
-            advanceTimeBy(AppViewModel.FOREGROUND_REFRESH_INITIAL_DELAY_MS)
+            viewModel.session.onAppForegrounded()
+            advanceTimeBy(CampusSessionCoordinator.FOREGROUND_REFRESH_INITIAL_DELAY_MS)
             runCurrent()
             assertEquals(1, network.loginStatusFetchCount)
 
             val loginStartedAt = testScheduler.currentTime
-            assertEquals(LoginResult.Success, viewModel.login())
+            assertEquals(LoginResult.Success, viewModel.session.login())
 
             assertEquals(loginStartedAt, testScheduler.currentTime)
             assertEquals(
@@ -1338,43 +1343,154 @@ class AppViewModelTest {
         }
 
     @Test
-    fun foregroundRefreshDelays_doNotHoldAccountOperationMutex() =
+    fun foregroundInitialDelay_doesNotBlockDeviceLogout() =
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
-            network.info = CurrentNetworkInfo(
-                wifiName = "bjut_wifi",
-                ipAddress = "10.1.2.3",
-                isWifi = true,
-                isCellular = false,
-                isConnected = true
-            )
-            network.loginStatus = LoginStatus(isLoggedIn = false, error = "timeout")
-            val viewModel = createViewModel()
-            selfService.logoutResult = DeviceLogoutResult.Success
-
-            viewModel.onAppForegrounded()
+            val viewModel = createOnlineViewModel()
+            val device = viewModel.session.uiState.value.accountOverview!!.devices.single()
+            selfService.logoutResult = DeviceLogoutResult.Failure("rejected")
+            viewModel.session.onAppForegrounded()
             val initialDelayStartedAt = testScheduler.currentTime
 
-            assertEquals(
-                DeviceLogoutResult.Success,
-                viewModel.logoutDevice("session-1", "10.1.2.3", "AABBCCDDEEFF")
-            )
-            assertEquals(
-                Triple("session-1", "10.1.2.3", "AABBCCDDEEFF"),
-                selfService.logoutRequest
-            )
+            viewModel.session.logoutDevice(device)
+
+            assertEquals(Triple(device.sessionId, device.ipAddress, device.macAddress), selfService.logoutRequest)
             assertEquals(initialDelayStartedAt, testScheduler.currentTime)
-
-            advanceTimeBy(AppViewModel.FOREGROUND_REFRESH_INITIAL_DELAY_MS)
-            runCurrent()
-            assertEquals(1, network.loginStatusFetchCount)
-            val retryDelayStartedAt = testScheduler.currentTime
-
-            assertEquals(
-                DeviceLogoutResult.Success,
-                viewModel.logoutDevice("session-1", "10.1.2.3", "AABBCCDDEEFF")
-            )
-            assertEquals(retryDelayStartedAt, testScheduler.currentTime)
             advanceUntilIdle()
+        }
+
+    @Test
+    fun deviceLogout_callerLeavingKeepsOneTaskAndRefreshesAfterSuccess() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val viewModel = createOnlineViewModel()
+            val device = viewModel.session.uiState.value.accountOverview!!.devices.single()
+            val gate = CompletableDeferred<Unit>()
+            selfService.logoutGate = gate
+            selfService.logoutResult = DeviceLogoutResult.Success
+            val baseline = network.loginStatusFetchCount
+
+            val caller = launch { viewModel.session.logoutDevice(device) }
+            caller.cancelAndJoin()
+            viewModel.session.logoutDevice(device)
+            assertEquals(1, selfService.logoutCount)
+            assertTrue(viewModel.session.uiState.value.isLoggingOutDevice)
+
+            gate.complete(Unit)
+            runCurrent()
+            assertFalse(viewModel.session.uiState.value.isLoggingOutDevice)
+            assertEquals("msg:${R.string.logout_device_success}", viewModel.session.uiState.value.deviceLogoutMessage)
+            assertEquals(baseline, network.loginStatusFetchCount)
+            advanceTimeBy(CampusSessionCoordinator.DEVICE_LOGOUT_REFRESH_DELAY_MS)
+            runCurrent()
+            assertEquals(baseline + 1, network.loginStatusFetchCount)
+            viewModel.session.consumeDeviceLogoutMessage()
+            assertNull(viewModel.session.uiState.value.deviceLogoutMessage)
+        }
+
+    @Test
+    fun deviceLogout_indeterminateResultImmediatelyRechecksStatus() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val viewModel = createOnlineViewModel()
+            val device = viewModel.session.uiState.value.accountOverview!!.devices.single()
+            selfService.logoutResult = DeviceLogoutResult.Indeterminate("verify first")
+            network.loginStatus = LoginStatus(isLoggedIn = false)
+            val baseline = network.loginStatusFetchCount
+
+            viewModel.session.logoutDevice(device)
+
+            assertEquals(baseline + 1, network.loginStatusFetchCount)
+            assertFalse(viewModel.session.uiState.value.isOnline)
+            assertEquals("verify first", viewModel.session.uiState.value.deviceLogoutMessage)
+            assertFalse(viewModel.session.uiState.value.isLoggingOutDevice)
+        }
+
+    @Test
+    fun deviceLogout_failureKeepsSessionAndDoesNotRefresh() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val viewModel = createOnlineViewModel()
+            val device = viewModel.session.uiState.value.accountOverview!!.devices.single()
+            selfService.logoutResult = DeviceLogoutResult.Failure("rejected")
+            val baseline = network.loginStatusFetchCount
+
+            viewModel.session.logoutDevice(device)
+            advanceUntilIdle()
+
+            assertEquals(baseline, network.loginStatusFetchCount)
+            assertTrue(viewModel.session.uiState.value.isOnline)
+            assertEquals("rejected", viewModel.session.uiState.value.deviceLogoutMessage)
+            assertFalse(viewModel.session.uiState.value.isLoggingOutDevice)
+        }
+
+    @Test
+    fun deviceLogout_networkChangedWhileWaitingForSessionLockDoesNotSubmit() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val viewModel = createOnlineViewModel()
+            val device = viewModel.session.uiState.value.accountOverview!!.devices.single()
+            val gate = CompletableDeferred<Unit>()
+            selfService.seamlessLoadGate = gate
+            viewModel.session.refreshSeamlessInfo()
+            viewModel.session.logoutDevice(device)
+            assertEquals(0, selfService.logoutCount)
+            assertTrue(viewModel.session.uiState.value.isLoggingOutDevice)
+
+            network.info = network.info.copy(ipAddress = "10.1.2.99")
+            gate.complete(Unit)
+            runCurrent()
+
+            assertEquals(0, selfService.logoutCount)
+            assertFalse(viewModel.session.uiState.value.isLoggingOutDevice)
+        }
+
+    @Test
+    fun deviceLogout_waitsForSharedSeamlessSessionLock() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val viewModel = createOnlineViewModel()
+            val device = viewModel.session.uiState.value.accountOverview!!.devices.single()
+            val gate = CompletableDeferred<Unit>()
+            selfService.seamlessActionGate = gate
+            viewModel.session.performSeamlessAction(SeamlessAction.Bind("00:11:22:33:44:66"))
+            viewModel.session.logoutDevice(device)
+            assertEquals(0, selfService.logoutCount)
+
+            gate.complete(Unit)
+            runCurrent()
+
+            assertEquals(1, selfService.logoutCount)
+            assertFalse(viewModel.session.uiState.value.isLoggingOutDevice)
+        }
+
+    @Test
+    fun deviceLogout_applicationClearedCancelsPendingTask() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val viewModel = createOnlineViewModel()
+            val store = ViewModelStore().apply { put("app", viewModel) }
+            val device = viewModel.session.uiState.value.accountOverview!!.devices.single()
+            val gate = CompletableDeferred<Unit>()
+            selfService.logoutGate = gate
+            selfService.logoutResult = DeviceLogoutResult.Success
+            val baseline = network.loginStatusFetchCount
+            viewModel.session.logoutDevice(device)
+            assertTrue(viewModel.session.uiState.value.isLoggingOutDevice)
+
+            store.clear()
+            gate.complete(Unit)
+            advanceUntilIdle()
+
+            assertFalse(viewModel.session.uiState.value.isLoggingOutDevice)
+            assertNull(viewModel.session.uiState.value.deviceLogoutMessage)
+            assertEquals(baseline, network.loginStatusFetchCount)
+        }
+
+    @Test
+    fun startupAutoLogin_disablingThenImmediatelyEnablingConsumesStartupOpportunity() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            val viewModel = createStartupViewModel()
+            viewModel.preferences.setAutoLoginOnStartup(false)
+            viewModel.preferences.setAutoLoginOnStartup(true)
+
+            viewModel.session.onAppForegrounded()
+            advanceUntilIdle()
+
+            assertEquals(0, network.loginCount)
         }
 
     @Test
@@ -1393,9 +1509,9 @@ class AppViewModelTest {
             )
             val viewModel = createViewModel()
 
-            viewModel.refreshAfterDeviceLogout(successfulDeviceCount = 1)
+            viewModel.session.refreshAfterDeviceLogout(successfulDeviceCount = 1)
 
-            advanceTimeBy(AppViewModel.DEVICE_LOGOUT_REFRESH_DELAY_MS - 1L)
+            advanceTimeBy(CampusSessionCoordinator.DEVICE_LOGOUT_REFRESH_DELAY_MS - 1L)
             runCurrent()
             assertEquals(0, network.loginStatusFetchCount)
             assertEquals(0, selfService.overviewLoadCount)
@@ -1437,10 +1553,10 @@ class AppViewModelTest {
             )
             val viewModel = createViewModel(currentTimeMillis = { now })
 
-            assertEquals(LoginResult.Success, viewModel.login())
+            assertEquals(LoginResult.Success, viewModel.session.login())
             assertEquals(0, updates.fetchCount)
 
-            advanceTimeBy(AppViewModel.AUTOMATIC_UPDATE_CHECK_DELAY_MS)
+            advanceTimeBy(UpdateStateHolder.AUTOMATIC_UPDATE_CHECK_DELAY_MS)
             runCurrent()
 
             assertEquals(1, updates.fetchCount)
@@ -1462,7 +1578,7 @@ class AppViewModelTest {
             network.validatedInternet = false
             val viewModel = createViewModel()
 
-            assertEquals(LoginResult.Success, viewModel.login())
+            assertEquals(LoginResult.Success, viewModel.session.login())
             advanceUntilIdle()
 
             assertEquals(0, updates.fetchCount)
@@ -1474,7 +1590,7 @@ class AppViewModelTest {
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
             val now = 100_000_000L
             settings.lastUpdateCheckTimestamp =
-                now - AppViewModel.AUTOMATIC_UPDATE_CHECK_INTERVAL_MS + 1L
+                now - UpdateStateHolder.AUTOMATIC_UPDATE_CHECK_INTERVAL_MS + 1L
             settings.setCredentials("2021001", "secret")
             network.info = CurrentNetworkInfo(
                 wifiName = "bjut_wifi",
@@ -1487,7 +1603,7 @@ class AppViewModelTest {
             network.validatedInternet = true
             val viewModel = createViewModel(currentTimeMillis = { now })
 
-            assertEquals(LoginResult.Success, viewModel.login())
+            assertEquals(LoginResult.Success, viewModel.session.login())
             advanceUntilIdle()
 
             assertEquals(0, updates.fetchCount)
@@ -1516,14 +1632,14 @@ class AppViewModelTest {
             )
             val viewModel = createViewModel()
 
-            assertEquals(LoginResult.Success, viewModel.login())
-            advanceTimeBy(AppViewModel.AUTOMATIC_UPDATE_CHECK_DELAY_MS - 1_000L)
-            assertEquals(LoginResult.Success, viewModel.login())
+            assertEquals(LoginResult.Success, viewModel.session.login())
+            advanceTimeBy(UpdateStateHolder.AUTOMATIC_UPDATE_CHECK_DELAY_MS - 1_000L)
+            assertEquals(LoginResult.Success, viewModel.session.login())
             advanceTimeBy(1_000L)
             runCurrent()
             assertEquals(0, updates.fetchCount)
 
-            advanceTimeBy(AppViewModel.AUTOMATIC_UPDATE_CHECK_DELAY_MS - 1_000L)
+            advanceTimeBy(UpdateStateHolder.AUTOMATIC_UPDATE_CHECK_DELAY_MS - 1_000L)
             runCurrent()
             assertEquals(1, updates.fetchCount)
         }
@@ -1540,9 +1656,9 @@ class AppViewModelTest {
         updates.fetchResult = Result.success(update)
         val viewModel = createViewModel()
 
-        viewModel.checkForUpdates(manual = true)
+        viewModel.update.check(manual = true)
 
-        assertEquals(UpdateState.Available(update), viewModel.updateState.value)
+        assertEquals(UpdateState.Available(update), viewModel.update.state.value)
     }
 
     @Test
@@ -1557,8 +1673,8 @@ class AppViewModelTest {
                 )
             )
             val viewModel = createViewModel()
-            viewModel.checkForUpdates(manual = true)
-            assertEquals(UpdateState.UpToDate("99.0.0"), viewModel.updateState.value)
+            viewModel.update.check(manual = true)
+            assertEquals(UpdateState.UpToDate("99.0.0"), viewModel.update.state.value)
         }
     }
 
@@ -1573,15 +1689,15 @@ class AppViewModelTest {
             isWifi = true, isCellular = false, isConnected = true
         )
         val viewModel = createViewModel()
-        assertEquals(CredentialSaveResult.SAVED, viewModel.selectAccount("bob"))
-        viewModel.login()
+        assertEquals(CredentialSaveResult.SAVED, viewModel.accounts.selectAccount("bob"))
+        viewModel.session.login()
         assertEquals("bob" to "b", network.performedLogin)
-        viewModel.removeAccount("bob")
-        viewModel.login()
+        viewModel.accounts.removeAccount("bob")
+        viewModel.session.login()
         assertEquals("alice" to "a", network.performedLogin)
-        viewModel.removeAccount("alice")
-        assertEquals("", viewModel.selectedAccountUsername.value)
-        assertEquals("", viewModel.password.value)
+        viewModel.accounts.removeAccount("alice")
+        assertEquals("", viewModel.accounts.selectedAccountUsername.value)
+        assertTrue(viewModel.accounts.accounts.value.isEmpty())
     }
 
     @Test
@@ -1591,14 +1707,14 @@ class AppViewModelTest {
 
         assertEquals(
             CredentialSaveResult.ENCRYPTION_UNAVAILABLE,
-            viewModel.saveCredentials("2021001", "secret")
+            viewModel.accounts.saveCredentials("2021001", "secret")
         )
         assertNull(settings.saved)
 
         settings.saveResult = CredentialSaveResult.SAVED
         assertEquals(
             CredentialSaveResult.SAVED,
-            viewModel.saveCredentials("2021001", "secret")
+            viewModel.accounts.saveCredentials("2021001", "secret")
         )
         assertEquals("2021001" to "secret", settings.saved)
     }
@@ -1607,13 +1723,13 @@ class AppViewModelTest {
     fun aboutVersionClick_fifthClickEnablesHttpLog() {
         val viewModel = createViewModel()
 
-        repeat(AppViewModel.HTTP_LOG_UNLOCK_TAP_COUNT - 1) {
-            assertFalse(viewModel.onAboutVersionClicked())
+        repeat(HttpLogStateHolder.HTTP_LOG_UNLOCK_TAP_COUNT - 1) {
+            assertFalse(viewModel.logs.onAboutVersionClicked())
         }
-        assertFalse(viewModel.httpLogEnabled.value)
+        assertFalse(viewModel.logs.httpLogEnabled.value)
 
-        assertTrue(viewModel.onAboutVersionClicked())
-        assertTrue(viewModel.httpLogEnabled.value)
+        assertTrue(viewModel.logs.onAboutVersionClicked())
+        assertTrue(viewModel.logs.httpLogEnabled.value)
         assertTrue(settings.httpLogEnabled.value)
         assertTrue(HttpLogStorage.isEnabled)
     }
@@ -1621,8 +1737,8 @@ class AppViewModelTest {
     @Test
     fun disableHttpLog_disablesStorageAndClearsEntries() {
         val viewModel = createViewModel()
-        repeat(AppViewModel.HTTP_LOG_UNLOCK_TAP_COUNT) {
-            viewModel.onAboutVersionClicked()
+        repeat(HttpLogStateHolder.HTTP_LOG_UNLOCK_TAP_COUNT) {
+            viewModel.logs.onAboutVersionClicked()
         }
         HttpLogStorage.add(
             HttpLogEntry(
@@ -1637,9 +1753,9 @@ class AppViewModelTest {
             )
         )
 
-        viewModel.disableHttpLog()
+        viewModel.logs.disableHttpLog()
 
-        assertFalse(viewModel.httpLogEnabled.value)
+        assertFalse(viewModel.logs.httpLogEnabled.value)
         assertFalse(settings.httpLogEnabled.value)
         assertFalse(HttpLogStorage.isEnabled)
         assertTrue(HttpLogStorage.logs.value.isEmpty())
@@ -1651,9 +1767,9 @@ class AppViewModelTest {
         val viewModel = createViewModel(hasLocationPermission = { granted })
 
         granted = false
-        viewModel.onLocationPermissionChanged()
+        viewModel.session.onLocationPermissionChanged()
 
-        assertFalse(viewModel.uiState.value.hasLocationPermission)
+        assertFalse(viewModel.session.uiState.value.hasLocationPermission)
     }
 }
 
@@ -1805,6 +1921,8 @@ private class FakeSelfServiceGateway : SelfServiceGateway {
     val overviewResults = ArrayDeque<AccountOverviewResult>()
     var overviewLoadCount = 0
     var lastRequestedUsername: String? = null
+    var logoutGate: CompletableDeferred<Unit>? = null
+    var logoutCount = 0
     var logoutResult: DeviceLogoutResult = DeviceLogoutResult.Failure("fail")
     var logoutRequest: Triple<String, String, String>? = null
     var cleared = false
@@ -1821,7 +1939,9 @@ private class FakeSelfServiceGateway : SelfServiceGateway {
         ipAddress: String,
         macAddress: String
     ): DeviceLogoutResult {
+        logoutCount++
         logoutRequest = Triple(sessionId, ipAddress, macAddress)
+        logoutGate?.await()
         return logoutResult
     }
 

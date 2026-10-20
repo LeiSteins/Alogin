@@ -1,7 +1,5 @@
 package top.steins.autologin.ui.screen
 
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -26,24 +24,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.launch
 import top.steins.autologin.R
 import top.steins.autologin.network.WifiScanOutcome
-import top.steins.autologin.network.hasWifiScanPermission
-import top.steins.autologin.network.scanNearbyWifi
-import top.steins.autologin.network.wifiScanPermissionsForRequest
 import top.steins.autologin.ui.theme.AppCardShape
 import top.steins.autologin.ui.theme.ScreenHorizontalPadding
 import top.steins.autologin.ui.theme.appCardElevation
@@ -114,41 +101,11 @@ private fun WifiScanResultRow(
 @Composable
 internal fun WifiScanSheetContent(
     configuredSsids: Set<String>,
+    isScanning: Boolean,
+    scanOutcome: WifiScanOutcome?,
+    onRefresh: () -> Unit,
     onSelectWifi: (String) -> Unit
 ) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var scanOutcome by remember { mutableStateOf<WifiScanOutcome?>(null) }
-    var isScanning by remember { mutableStateOf(true) }
-
-    fun runScan() {
-        scope.launch {
-            isScanning = true
-            scanOutcome = scanNearbyWifi(context)
-            isScanning = false
-        }
-    }
-
-    val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) {
-        runScan()
-    }
-
-    fun refreshScan() {
-        if (!hasWifiScanPermission(context)) {
-            isScanning = false
-            scanOutcome = WifiScanOutcome.PermissionDenied
-            permissionLauncher.launch(wifiScanPermissionsForRequest())
-        } else {
-            runScan()
-        }
-    }
-
-    LaunchedEffect(Unit) {
-        refreshScan()
-    }
-
     Column(
         // 从打开时就保留展开高度，让半屏锚点在扫描和结果切换时保持稳定。
         // 默认停在半屏，手动上拉时沿用 BottomSheet 的拖动和展开动画。
@@ -167,7 +124,7 @@ internal fun WifiScanSheetContent(
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold
             )
-            TextButton(onClick = ::refreshScan, enabled = !isScanning) {
+            TextButton(onClick = onRefresh, enabled = !isScanning) {
                 Text(stringResource(R.string.action_refresh))
             }
         }
@@ -261,14 +218,14 @@ internal fun WifiScanSheetContent(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = (scanOutcome as WifiScanOutcome.Failure).message,
+                        text = scanOutcome.message,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.error
                     )
                 }
             }
             scanOutcome is WifiScanOutcome.Success -> {
-                val success = scanOutcome as WifiScanOutcome.Success
+                val success = scanOutcome
                 if (!success.isFreshResult) {
                     Text(
                         text = stringResource(R.string.wifi_scan_stale),

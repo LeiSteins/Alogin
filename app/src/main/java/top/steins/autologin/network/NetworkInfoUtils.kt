@@ -16,6 +16,7 @@ import android.net.wifi.WifiManager
 import android.os.Build
 import androidx.core.content.ContextCompat
 import androidx.core.location.LocationManagerCompat
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -188,6 +189,8 @@ suspend fun scanNearbyWifi(context: Context): WifiScanOutcome = withContext(Disp
 
     val isFreshResult = try {
         awaitWifiScanResult(context.applicationContext, wifiManager)
+    } catch (error: CancellationException) {
+        throw error
     } catch (error: SecurityException) {
         return@withContext WifiScanOutcome.PermissionDenied
     } catch (error: Exception) {

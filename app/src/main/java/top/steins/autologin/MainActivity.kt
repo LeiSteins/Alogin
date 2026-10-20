@@ -29,11 +29,11 @@ class MainActivity : ComponentActivity() {
                 // ActivityResult 可能在 onResume 前送达，待前台生命周期恢复再继续。
                 lifecycleScope.launch {
                     lifecycle.withResumed {
-                        appViewModel.resumeUpdateInstallation(versionCode)
+                        appViewModel.update.resumeInstallation(versionCode)
                     }
                 }
             } else {
-                appViewModel.showUpdateMessage(R.string.update_install_permission_denied)
+                appViewModel.update.message(R.string.update_install_permission_denied)
             }
         }
     }
@@ -46,10 +46,10 @@ class MainActivity : ComponentActivity() {
         permissionVersionCode = savedInstanceState?.getInt("update_permission_version", -1)?.takeIf { it > 0 }
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.RESUMED) {
-                appViewModel.updateInstallation.collect { update ->
+                appViewModel.update.installation.collect { update ->
                     if (update == null) return@collect
-                    appViewModel.consumeUpdateInstallation()
-                    val file = appViewModel.validatedUpdateDownload(update) ?: return@collect
+                    appViewModel.update.consumeInstallation()
+                    val file = appViewModel.update.validatedDownload(update) ?: return@collect
                     if (!lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) return@collect
                     try {
                         if (updateInstaller.canInstall()) {
@@ -60,19 +60,19 @@ class MainActivity : ComponentActivity() {
                         }
                     } catch (_: android.content.ActivityNotFoundException) {
                         permissionVersionCode = null
-                        appViewModel.showUpdateMessage(R.string.update_installer_unavailable)
+                        appViewModel.update.message(R.string.update_installer_unavailable)
                     } catch (_: SecurityException) {
                         permissionVersionCode = null
-                        appViewModel.showUpdateMessage(R.string.update_install_blocked)
+                        appViewModel.update.message(R.string.update_install_blocked)
                     } catch (_: IllegalArgumentException) {
-                        appViewModel.showUpdateMessage(R.string.update_installer_unavailable)
+                        appViewModel.update.message(R.string.update_installer_unavailable)
                     }
                 }
             }
         }
         enableEdgeToEdge()
         setContent {
-            val appearanceMode by appViewModel.appearanceMode
+            val appearanceMode by appViewModel.preferences.appearanceMode
                 .collectAsStateWithLifecycle()
             val darkTheme = when (appearanceMode) {
                 AppearanceMode.SYSTEM -> isSystemInDarkTheme()
@@ -87,12 +87,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        appViewModel.onAppForegrounded()
-        appViewModel.setUpdateForeground(true)
+        appViewModel.session.onAppForegrounded()
+        appViewModel.update.setForeground(true)
     }
 
     override fun onPause() {
-        appViewModel.setUpdateForeground(false)
+        appViewModel.update.setForeground(false)
         super.onPause()
     }
 

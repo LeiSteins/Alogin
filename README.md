@@ -102,6 +102,7 @@ app/src/main/java/top/steins/autologin/
 ├── data/       # 凭据加密、多账号持久化、本地设置与目标 Wi-Fi 配置
 ├── network/    # 认证、账号服务、网络信息与更新逻辑
 ├── navigation/ # Compose 导航定义
+├── state/      # 功能状态持有者、认证与无感知共享会话协调器
 └── ui/         # Compose 页面、组件与主题
 ```
 

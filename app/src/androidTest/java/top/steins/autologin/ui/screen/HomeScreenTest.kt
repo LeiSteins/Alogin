@@ -5,6 +5,7 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
@@ -20,7 +21,6 @@ import org.junit.Test
 import top.steins.autologin.R
 import top.steins.autologin.network.AccountDevice
 import top.steins.autologin.network.AccountOverview
-import top.steins.autologin.network.DeviceLogoutResult
 import top.steins.autologin.network.SeamlessStatus
 import top.steins.autologin.ui.theme.AloginTheme
 import java.io.File
@@ -42,6 +42,27 @@ class HomeScreenTest {
         remainingMoneyYuan = "20.00",
         devices = emptyList()
     )
+
+    @Test
+    fun returningWhileDeviceLogoutIsPending_keepsDeviceActionsDisabled() {
+        val state = mutableStateOf(
+            HomeState(
+                isOnline = true,
+                overview = overview.copy(devices = listOf(currentDevice)),
+                isDeviceListAvailable = true,
+                isLoggingOutDevice = true
+            )
+        )
+        var logoutCount = 0
+        showHome(state, onLogoutDevice = { logoutCount++ })
+        compose.onAllNodesWithContentDescription(context.getString(R.string.logout_device))
+            .onFirst().assertIsNotEnabled()
+
+        compose.runOnIdle { state.value = state.value.copy(isLoggingOutDevice = false) }
+        compose.onAllNodesWithContentDescription(context.getString(R.string.logout_device))
+            .onFirst().performClick()
+        compose.runOnIdle { assertEquals(1, logoutCount) }
+    }
 
     @Test
     fun confirmingOnline_showsNetworkSummaryAndWaitsForDetailsBeforeShowingAccountCard() {
@@ -144,15 +165,15 @@ class HomeScreenTest {
                 isDeviceListAvailable = true
             )
         )
-        var refreshCount = 0
-        showHome(state, onRefreshAfterDeviceLogout = { refreshCount += it })
+        var logoutCount = 0
+        showHome(state, onLogoutDevice = { logoutCount++ })
         val initialOtherRowTop = compose.onNodeWithText(otherDevice.macAddress)
             .fetchSemanticsNode().positionInRoot.y
         compose.mainClock.autoAdvance = false
         try {
             compose.onAllNodesWithContentDescription(context.getString(R.string.logout_device))
                 .onFirst().performClick()
-            compose.runOnIdle { assertEquals(1, refreshCount) }
+            compose.runOnIdle { assertEquals(1, logoutCount) }
             compose.onNodeWithText(currentDevice.macAddress).assertIsDisplayed()
 
             // 模拟离线核验清空详情、设备可用标记及当前 IP。
@@ -247,7 +268,7 @@ class HomeScreenTest {
     private fun showHome(
         state: MutableState<HomeState>,
         onRetry: () -> Unit = {},
-        onRefreshAfterDeviceLogout: (Int) -> Unit = {}
+        onLogoutDevice: (AccountDevice) -> Unit = {}
     ) {
         compose.setContent {
             AloginTheme(darkTheme = false) {
@@ -267,9 +288,8 @@ class HomeScreenTest {
                     onCheckNetworkStatus = {},
                     onRetryAccountInfo = onRetry,
                     onLogin = {},
-                    onLogoutDevice = { _, _, _ -> DeviceLogoutResult.Success },
-                    onRefreshAfterDeviceLogout = onRefreshAfterDeviceLogout,
-                    onRefreshAfterIndeterminateDeviceLogout = {},
+                    isLoggingOutDevice = state.value.isLoggingOutDevice,
+                    onLogoutDevice = onLogoutDevice,
                     onShowToast = {},
                     onNavigateToAccount = {},
                     onNavigateToSettings = {},
@@ -285,6 +305,7 @@ class HomeScreenTest {
         val overview: AccountOverview? = null,
         val error: String = "",
         val isDeviceListAvailable: Boolean = false,
+        val isLoggingOutDevice: Boolean = false,
         val ipAddress: String = "10.0.0.1"
     )
 }

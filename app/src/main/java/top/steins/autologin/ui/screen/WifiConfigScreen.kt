@@ -71,7 +71,8 @@ fun WifiConfigScreen(
     onAddTargetWifi: (String) -> Unit,
     onRemoveTargetWifi: (String) -> Unit,
     onShowToast: (String) -> Unit,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    scanContent: @Composable (Set<String>, (String) -> Unit) -> Unit
 ) {
     var newSsid by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
@@ -226,9 +227,9 @@ fun WifiConfigScreen(
                     WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)
                 }
             ) {
-                WifiScanSheetContent(
-                    configuredSsids = targetSsids.toSet(),
-                    onSelectWifi = { ssid ->
+                scanContent(
+                    targetSsids.toSet(),
+                    { ssid ->
                         onAddTargetWifi(ssid)
                         showScanSheet = false
                         scope.launch {

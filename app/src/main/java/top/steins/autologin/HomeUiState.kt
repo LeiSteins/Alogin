@@ -9,6 +9,8 @@ data class HomeUiState(
     val isOnline: Boolean = false,
     val isLoggingIn: Boolean = false,
     val loginMessage: String? = null,
+    val isLoggingOutDevice: Boolean = false,
+    val deviceLogoutMessage: String? = null,
     val accountOverview: AccountOverview? = null,
     val seamlessStatus: SeamlessStatus = SeamlessStatus.Unknown,
     val isAccountInfoLoading: Boolean = false,

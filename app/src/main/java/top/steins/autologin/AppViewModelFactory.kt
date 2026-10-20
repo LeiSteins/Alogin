@@ -8,6 +8,7 @@ import top.steins.autologin.network.DefaultCampusNetworkProvider
 import top.steins.autologin.network.DefaultNetworkEnvironment
 import top.steins.autologin.network.SelfServiceRepository
 import top.steins.autologin.network.hasWifiLocationPermission
+import top.steins.autologin.network.scanNearbyWifi
 import top.steins.autologin.network.update.UpdateRepository
 
 /** 集中组装生产依赖，让 AppViewModel 本体保持可脱离 Android 框架测试。 */
@@ -27,7 +28,8 @@ fun appViewModelFactory(application: Application): ViewModelProvider.Factory =
                 selfService = SelfServiceRepository(application, campusNetwork),
                 updates = UpdateRepository(application),
                 network = DefaultNetworkEnvironment(application, campusNetwork),
-                hasLocationPermission = { hasWifiLocationPermission(application) }
+                hasLocationPermission = { hasWifiLocationPermission(application) },
+                scanWifi = { scanNearbyWifi(application) }
             ) as T
         }
     }

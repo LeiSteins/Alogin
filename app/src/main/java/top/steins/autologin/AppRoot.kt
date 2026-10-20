@@ -25,6 +25,7 @@ import top.steins.autologin.ui.route.AboutRoute
 import top.steins.autologin.ui.route.AccountRoute
 import top.steins.autologin.ui.route.AppDialogs
 import top.steins.autologin.ui.route.HomeRoute
+import top.steins.autologin.ui.route.DeviceLogoutMessageEffect
 import top.steins.autologin.ui.route.LocationPermissionEffect
 import top.steins.autologin.ui.route.LoginMessageEffect
 import top.steins.autologin.ui.route.LogRoute
@@ -59,9 +60,10 @@ fun AppRoot(viewModel: AppViewModel) {
         }
     }
 
-    LocationPermissionEffect(viewModel)
-    UpdateMessageEffect(viewModel, toastState)
-    LoginMessageEffect(viewModel, toastState)
+    LocationPermissionEffect(viewModel.session)
+    UpdateMessageEffect(viewModel.update, toastState)
+    LoginMessageEffect(viewModel.session, toastState)
+    DeviceLogoutMessageEffect(viewModel.session, toastState)
 
     Box(modifier = Modifier.fillMaxSize()) {
         NavHost(
@@ -103,7 +105,7 @@ fun AppRoot(viewModel: AppViewModel) {
         ) {
             appComposable(AppDestination.Home, navController) {
                 HomeRoute(
-                    viewModel = viewModel,
+                    stateHolder = viewModel.session,
                     toastState = toastState,
                     onNavigateToAccount = { navigateTo(AppDestination.Account) },
                     onNavigateToSettings = { navigateTo(AppDestination.Settings) },
@@ -113,19 +115,20 @@ fun AppRoot(viewModel: AppViewModel) {
 
             appComposable(AppDestination.Account, navController) { onNavigateBack ->
                 AccountRoute(
-                    viewModel = viewModel,
+                    stateHolder = viewModel.accounts,
                     toastState = toastState,
                     onNavigateBack = onNavigateBack
                 )
             }
 
             appComposable(AppDestination.SeamlessLogin, navController) { onNavigateBack ->
-                SeamlessLoginRoute(viewModel, onNavigateBack)
+                SeamlessLoginRoute(viewModel.session, onNavigateBack)
             }
 
             appComposable(AppDestination.Settings, navController) { onNavigateBack ->
                 SettingsRoute(
-                    viewModel = viewModel,
+                    stateHolder = viewModel.preferences,
+                    logs = viewModel.logs,
                     onNavigateBack = onNavigateBack,
                     onNavigateToLog = { navigateTo(AppDestination.Log) },
                     onNavigateToWifiConfig = { navigateTo(AppDestination.WifiConfig) },
@@ -135,24 +138,26 @@ fun AppRoot(viewModel: AppViewModel) {
             }
 
             appComposable(AppDestination.SoftwareSettings, navController) { onNavigateBack ->
-                SoftwareSettingsRoute(viewModel = viewModel, onNavigateBack = onNavigateBack)
+                SoftwareSettingsRoute(stateHolder = viewModel.preferences, onNavigateBack = onNavigateBack)
             }
 
             appComposable(AppDestination.About, navController) { onNavigateBack ->
                 AboutRoute(
-                    viewModel = viewModel,
+                    stateHolder = viewModel.update,
+                    logs = viewModel.logs,
                     toastState = toastState,
                     onNavigateBack = onNavigateBack
                 )
             }
 
             appComposable(AppDestination.Log, navController) { onNavigateBack ->
-                LogRoute(viewModel = viewModel, onNavigateBack = onNavigateBack)
+                LogRoute(stateHolder = viewModel.logs, onNavigateBack = onNavigateBack)
             }
 
             appComposable(AppDestination.WifiConfig, navController) { onNavigateBack ->
                 WifiConfigRoute(
-                    viewModel = viewModel,
+                    stateHolder = viewModel.preferences,
+                    scan = viewModel.wifiScan,
                     toastState = toastState,
                     onNavigateBack = onNavigateBack
                 )
@@ -166,7 +171,8 @@ fun AppRoot(viewModel: AppViewModel) {
     }
 
     AppDialogs(
-        viewModel = viewModel,
+        updates = viewModel.update,
+        accounts = viewModel.accounts,
         onNavigateToAccount = { navigateTo(AppDestination.Account) }
     )
 }

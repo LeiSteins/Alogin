@@ -39,8 +39,8 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import top.steins.autologin.R
+import top.steins.autologin.network.AccountDevice
 import top.steins.autologin.network.AccountOverview
-import top.steins.autologin.network.DeviceLogoutResult
 import top.steins.autologin.network.SeamlessStatus
 import top.steins.autologin.ui.component.ScaleFadeBox
 import top.steins.autologin.ui.theme.ScreenHorizontalPadding
@@ -101,9 +101,8 @@ fun HomeScreen(
     onCheckNetworkStatus: () -> Unit,
     onRetryAccountInfo: () -> Unit,
     onLogin: () -> Unit,
-    onLogoutDevice: suspend (String, String, String) -> DeviceLogoutResult,
-    onRefreshAfterDeviceLogout: (Int) -> Unit,
-    onRefreshAfterIndeterminateDeviceLogout: () -> Unit,
+    isLoggingOutDevice: Boolean,
+    onLogoutDevice: (AccountDevice) -> Unit,
     onShowToast: (String) -> Unit,
     onNavigateToAccount: () -> Unit,
     onNavigateToSettings: () -> Unit,
@@ -114,7 +113,6 @@ fun HomeScreen(
     val hapticFeedback = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
 
-    var isLoggingOutDevice by remember { mutableStateOf(false) }
     val currentOnlineContent = HomeOnlineContent(
         accountOverview, accountInfoError, isDeviceListAvailable, wifiName, ipAddress, seamlessStatus
     )
@@ -355,39 +353,7 @@ fun HomeScreen(
                                     showEmptyState = isOnline,
                                     onLogoutDevice = { device ->
                                         hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
-                                        isLoggingOutDevice = true
-                                        scope.launch {
-                                            try {
-                                                when (
-                                                    val result = onLogoutDevice(
-                                                        device.sessionId,
-                                                        device.ipAddress,
-                                                        device.macAddress
-                                                    )
-                                                ) {
-                                                    DeviceLogoutResult.Success -> {
-                                                        onShowToast(
-                                                            resources.getString(
-                                                                R.string.logout_device_success,
-                                                                device.macAddress
-                                                            )
-                                                        )
-                                                        onRefreshAfterDeviceLogout(1)
-                                                    }
-
-                                                    is DeviceLogoutResult.Failure -> {
-                                                        onShowToast(result.message)
-                                                    }
-
-                                                    is DeviceLogoutResult.Indeterminate -> {
-                                                        onShowToast(result.message)
-                                                        onRefreshAfterIndeterminateDeviceLogout()
-                                                    }
-                                                }
-                                            } finally {
-                                                isLoggingOutDevice = false
-                                            }
-                                        }
+                                        onLogoutDevice(device)
                                     }
                                 )
                             }

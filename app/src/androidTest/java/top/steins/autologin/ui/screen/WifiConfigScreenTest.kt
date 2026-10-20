@@ -1,5 +1,7 @@
 package top.steins.autologin.ui.screen
 
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -22,6 +24,39 @@ class WifiConfigScreenTest {
     val compose = createComposeRule()
 
     @Test
+    fun selectingWifiFromInjectedScanPanel_addsNetworkAndClosesPanel() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val added = mutableListOf<String>()
+        var configured = emptySet<String>()
+        compose.setContent {
+            AloginTheme(darkTheme = false) {
+                WifiConfigScreen(
+                    targetSsids = listOf("Campus-A"),
+                    onAddTargetWifi = added::add,
+                    onRemoveTargetWifi = {},
+                    onShowToast = {},
+                    onNavigateBack = {},
+                    scanContent = { ssids, onSelectWifi ->
+                        configured = ssids
+                        TextButton(onClick = { onSelectWifi("Campus-B") }) {
+                            Text("Campus-B")
+                        }
+                    }
+                )
+            }
+        }
+
+        compose.onNodeWithText(context.getString(R.string.wifi_scan_button)).performClick()
+        compose.onNodeWithText("Campus-B").assertIsDisplayed().performClick()
+
+        compose.runOnIdle {
+            assertEquals(setOf("Campus-A"), configured)
+            assertEquals(listOf("Campus-B"), added)
+        }
+        compose.onNodeWithText("Campus-B").assertDoesNotExist()
+    }
+
+    @Test
     fun openingPage_displaysExistingWifisWithoutAdvancingAnimationClock() {
         compose.mainClock.autoAdvance = false
         try {
@@ -32,7 +67,8 @@ class WifiConfigScreenTest {
                         onAddTargetWifi = {},
                         onRemoveTargetWifi = {},
                         onShowToast = {},
-                        onNavigateBack = {}
+                        onNavigateBack = {},
+                        scanContent = { _, _ -> }
                     )
                 }
             }
@@ -65,7 +101,8 @@ class WifiConfigScreenTest {
                         wifis.value = wifis.value - ssid
                     },
                     onShowToast = {},
-                    onNavigateBack = {}
+                    onNavigateBack = {},
+                    scanContent = { _, _ -> }
                 )
             }
         }
