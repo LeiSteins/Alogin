@@ -6,10 +6,10 @@ import top.steins.autologin.domain.model.WifiScanOutcome
 import top.steins.autologin.domain.port.AccountStore
 import top.steins.autologin.domain.port.AppPreferences
 import top.steins.autologin.domain.port.HttpLogPreferences
+import top.steins.autologin.domain.port.HttpLogStore
 import top.steins.autologin.domain.port.UpdateCheckStore
 import top.steins.autologin.domain.port.UpdateGateway
 import top.steins.autologin.domain.port.WifiConfigStore
-import top.steins.autologin.network.HttpLogStore
 import top.steins.autologin.network.NetworkEnvironment
 import top.steins.autologin.network.SelfServiceGateway
 import top.steins.autologin.network.logAccountInfoRefresh
@@ -65,6 +65,7 @@ class AppViewModel(
         onLoginStarted = update::cancelForLogin,
         onLoginSucceeded = update::scheduleAutomaticCheck
     )
+    val seamless = session.seamless
     val preferences = SettingsStateHolder(wifiConfig, appPreferences, session::cancelStartupAutoLogin)
     val wifiScan = WifiScanStateHolder(viewModelScope, scanWifi, strings)
 

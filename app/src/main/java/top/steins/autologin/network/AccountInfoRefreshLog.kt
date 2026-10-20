@@ -1,18 +1,8 @@
 package top.steins.autologin.network
 
-import kotlinx.coroutines.flow.StateFlow
-
-/** 网络请求只接收写入能力；开关和日志管理由状态持有者负责。 */
-interface HttpLogSink {
-    val isEnabled: Boolean
-    fun add(entry: HttpLogEntry)
-}
-
-interface HttpLogStore : HttpLogSink {
-    val logs: StateFlow<List<HttpLogEntry>>
-    fun setEnabled(enabled: Boolean)
-    fun clear()
-}
+import top.steins.autologin.domain.model.HttpLogEntry
+import top.steins.autologin.domain.model.HttpLogEntryType
+import top.steins.autologin.domain.port.HttpLogSink
 
 fun HttpLogSink.logAccountInfoRefresh(reason: String) {
     if (!isEnabled) return

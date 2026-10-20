@@ -100,11 +100,12 @@ Debug APK 的默认输出位置为 `app/build/outputs/apk/debug/app-debug.apk`�
 ```text
 app/src/main/java/top/steins/autologin/
 ├── data/       # 凭据加密、多账号持久化、本地设置与目标 Wi-Fi 配置
-├── domain/     # 不依赖 Android 的共享业务模型（model）与能力契约（port）
+├── domain/     # 不依赖 Android 的业务模型（model）、能力契约（port）与规则（rule）
 ├── network/    # 认证、账号服务、网络信息与更新逻辑
 ├── navigation/ # Compose 导航定义
-├── state/      # 功能展示状态、会话协调器、登录策略与刷新调度
-└── ui/         # Compose 页面、组件与主题
+├── platform/   # Android 权限适配
+├── state/      # 功能状态、会话协调、数据加载、操作执行与状态转换
+└── ui/         # Compose 页面、组件、主题与展示格式化
 ```
 
 JVM 测试位于 `app/src/test`，设备测试位于 `app/src/androidTest`，发布脚本及其测试位于 `scripts`。
@@ -112,6 +113,9 @@ JVM 测试位于 `app/src/test`，设备测试位于 `app/src/androidTest`，发
 功能层按用途接收网络观察、校园网认证、账号会话与无感知服务接口，底层共享连接和自助服务会话；
 `AppViewModel` 负责组装功能并统一释放网络资源。HTTP 日志由工厂创建同一个存储实例，
 分别注入网络请求写入接口与日志管理接口，会话协调器通过回调记录刷新事件。
+日志模型与契约放在领域层，MAC 校验和版本比较为纯 Kotlin 规则，展示格式化归 UI 层。
+会话协调器统一持有任务、会话锁和主页状态写入权；刷新加载器返回进度与结果，状态转换函数只计算新状态，
+设备下线执行器负责准入和提交前校验。无感知页面通过独立功能入口读取状态、当前 IP 并提交操作。
 
 门户确认的认证身份独立于主页账号概览，概览加载失败不会阻断无感知信息读取。
 `SelfServiceSession` 统一管理自助服务身份、Cookie 生命周期与请求串行化，

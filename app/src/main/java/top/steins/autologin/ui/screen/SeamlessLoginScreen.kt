@@ -36,7 +36,7 @@ import top.steins.autologin.SeamlessUiState
 import top.steins.autologin.domain.model.SEAMLESS_DEVICE_LIMIT
 import top.steins.autologin.domain.model.SeamlessAction
 import top.steins.autologin.domain.model.SeamlessStatus
-import top.steins.autologin.network.SeamlessParsing
+import top.steins.autologin.domain.rule.canonicalMac
 import top.steins.autologin.ui.component.DeviceListCardContent
 import top.steins.autologin.ui.component.DeviceListEntry
 import top.steins.autologin.ui.component.NavigationTopBar
@@ -193,7 +193,7 @@ fun SeamlessLoginScreen(
         },
         confirmButton = {
             TextButton(enabled = state.canManage && list != null, onClick = {
-                val mac = SeamlessParsing.canonicalMac(macInput)
+                val mac = canonicalMac(macInput)
                 if (mac == null) invalidMac = true
                 else if (list != null && list.total >= SEAMLESS_DEVICE_LIMIT) {
                     pendingAction = SeamlessAction.Bind(mac, allowReplacement = true)

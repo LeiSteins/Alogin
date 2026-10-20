@@ -1,4 +1,4 @@
-package top.steins.autologin.network.update
+package top.steins.autologin.domain.rule
 
 /**
  * 用于更新检查的语义版本号，仅接受 MAJOR.MINOR.PATCH[-prerelease][+build]。

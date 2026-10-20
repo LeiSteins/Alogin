@@ -2,16 +2,18 @@ package top.steins.autologin.network
 
 import android.content.Context
 import androidx.annotation.StringRes
-import okhttp3.Interceptor
-import okhttp3.HttpUrl
-import okhttp3.Request
-import okhttp3.Response
-import okio.Buffer
-import top.steins.autologin.R
 import java.io.IOException
 import java.nio.charset.Charset
 import java.nio.charset.StandardCharsets
 import java.util.Locale
+import okhttp3.HttpUrl
+import okhttp3.Interceptor
+import okhttp3.Request
+import okhttp3.Response
+import okio.Buffer
+import top.steins.autologin.R
+import top.steins.autologin.domain.model.HttpLogEntry
+import top.steins.autologin.domain.port.HttpLogSink
 
 /** 日志文案解析器，解耦 Android Resources，便于 JVM 单元测试注入假实现。 */
 fun interface HttpLogMessageProvider {

@@ -17,9 +17,9 @@ import androidx.compose.ui.unit.dp
 import java.util.Locale
 import top.steins.autologin.R
 import top.steins.autologin.domain.model.AccountDevice
-import top.steins.autologin.network.formatTrafficMegabytes
 import top.steins.autologin.ui.component.DeviceListCardContent
 import top.steins.autologin.ui.component.DeviceListEntry
+import top.steins.autologin.ui.format.formatTrafficMegabytes
 
 @Composable
 internal fun DeviceListCard(

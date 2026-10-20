@@ -26,6 +26,8 @@ import top.steins.autologin.domain.model.SeamlessActionResult
 import top.steins.autologin.domain.model.SeamlessInfo
 import top.steins.autologin.domain.model.SeamlessLoadResult
 import top.steins.autologin.domain.model.SeamlessStatus
+import top.steins.autologin.domain.port.HttpLogSink
+import top.steins.autologin.domain.rule.canonicalMac
 
 /**
  * 通过校园网关的单点登录进入自助服务系统。

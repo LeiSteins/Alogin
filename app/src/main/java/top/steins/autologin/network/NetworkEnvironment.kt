@@ -11,6 +11,7 @@ import top.steins.autologin.domain.model.LoginResult
 import top.steins.autologin.domain.model.LoginStatus
 import top.steins.autologin.domain.model.WifiLoginMethod
 import top.steins.autologin.domain.port.CampusAuthentication
+import top.steins.autologin.domain.port.HttpLogSink
 import top.steins.autologin.domain.port.InternetConnectivity
 import top.steins.autologin.domain.port.NetworkMonitor
 

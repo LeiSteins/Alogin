@@ -8,8 +8,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import top.steins.autologin.network.hasWifiScanPermission
-import top.steins.autologin.network.wifiScanPermissionsForRequest
+import top.steins.autologin.platform.hasWifiScanPermission
+import top.steins.autologin.platform.wifiScanPermissionsForRequest
 import top.steins.autologin.state.WifiScanStateHolder
 import top.steins.autologin.ui.screen.WifiScanSheetContent
 

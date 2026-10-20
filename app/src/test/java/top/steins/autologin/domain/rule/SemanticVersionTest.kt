@@ -1,4 +1,4 @@
-package top.steins.autologin.network.update
+package top.steins.autologin.domain.rule
 
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull

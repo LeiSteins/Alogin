@@ -24,16 +24,16 @@ import top.steins.autologin.ui.component.rememberCapsuleToastState
 import top.steins.autologin.ui.route.AboutRoute
 import top.steins.autologin.ui.route.AccountRoute
 import top.steins.autologin.ui.route.AppDialogs
-import top.steins.autologin.ui.route.HomeRoute
 import top.steins.autologin.ui.route.DeviceLogoutMessageEffect
+import top.steins.autologin.ui.route.HomeRoute
 import top.steins.autologin.ui.route.LocationPermissionEffect
-import top.steins.autologin.ui.route.LoginMessageEffect
 import top.steins.autologin.ui.route.LogRoute
-import top.steins.autologin.ui.route.SoftwareSettingsRoute
+import top.steins.autologin.ui.route.LoginMessageEffect
+import top.steins.autologin.ui.route.SeamlessLoginRoute
 import top.steins.autologin.ui.route.SettingsRoute
+import top.steins.autologin.ui.route.SoftwareSettingsRoute
 import top.steins.autologin.ui.route.UpdateMessageEffect
 import top.steins.autologin.ui.route.WifiConfigRoute
-import top.steins.autologin.ui.route.SeamlessLoginRoute
 
 private val NavigationAnimationSpec = spring<IntOffset>(
     dampingRatio = Spring.DampingRatioNoBouncy,
@@ -122,7 +122,7 @@ fun AppRoot(viewModel: AppViewModel) {
             }
 
             appComposable(AppDestination.SeamlessLogin, navController) { onNavigateBack ->
-                SeamlessLoginRoute(viewModel.session, onNavigateBack)
+                SeamlessLoginRoute(viewModel.seamless, onNavigateBack)
             }
 
             appComposable(AppDestination.Settings, navController) { onNavigateBack ->

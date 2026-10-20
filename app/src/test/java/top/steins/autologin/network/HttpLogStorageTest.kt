@@ -4,6 +4,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Before
 import org.junit.Test
+import top.steins.autologin.domain.model.HttpLogEntry
+import top.steins.autologin.domain.model.HttpLogEntryType
 
 class HttpLogStorageTest {
     private val logStore = HttpLogStorage()

@@ -7,6 +7,7 @@ import top.steins.autologin.domain.model.BoundDevice
 import top.steins.autologin.domain.model.BoundDeviceList
 import top.steins.autologin.domain.model.SeamlessActionResult
 import top.steins.autologin.domain.model.SeamlessStatus
+import top.steins.autologin.domain.rule.canonicalMac
 
 /** 只解析页面数据，不执行服务器返回的 HTML 或 JavaScript。 */
 internal object SeamlessParsing {
@@ -50,12 +51,6 @@ internal object SeamlessParsing {
         } catch (_: JSONException) {
             null
         }
-    }
-
-    fun canonicalMac(value: String): String? {
-        val trimmed = value.trim()
-        if (!trimmed.matches(Regex("(?:[a-fA-F0-9]{12}|(?:[a-fA-F0-9]{2}:){5}[a-fA-F0-9]{2}|(?:[a-fA-F0-9]{2}-){5}[a-fA-F0-9]{2})"))) return null
-        return trimmed.replace(":", "").replace("-", "").uppercase(java.util.Locale.ROOT)
     }
 
     fun parseUnbindToken(page: String): String? = Regex(

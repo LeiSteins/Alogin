@@ -27,8 +27,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import top.steins.autologin.R
-import top.steins.autologin.network.HttpLogEntry
-import top.steins.autologin.network.HttpLogEntryType
+import top.steins.autologin.domain.model.HttpLogEntry
+import top.steins.autologin.domain.model.HttpLogEntryType
 import top.steins.autologin.ui.component.NavigationTopBar
 import top.steins.autologin.ui.theme.ScreenHorizontalPadding
 

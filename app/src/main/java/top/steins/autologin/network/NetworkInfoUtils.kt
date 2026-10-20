@@ -1,12 +1,10 @@
 package top.steins.autologin.network
 
-import android.Manifest
 import android.annotation.SuppressLint
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.pm.PackageManager
 import android.location.LocationManager
 import android.net.ConnectivityManager
 import android.net.Network
@@ -17,7 +15,6 @@ import android.os.Build
 import androidx.core.content.ContextCompat
 import androidx.core.location.LocationManagerCompat
 import java.net.Inet4Address
-import java.util.Locale
 import kotlin.coroutines.resume
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -28,6 +25,8 @@ import top.steins.autologin.R
 import top.steins.autologin.domain.model.CurrentNetworkInfo
 import top.steins.autologin.domain.model.WifiScanOutcome
 import top.steins.autologin.domain.model.WifiScanResult
+import top.steins.autologin.platform.hasWifiLocationPermission
+import top.steins.autologin.platform.hasWifiScanPermission
 
 private fun disconnectedNetworkInfo(context: Context) = CurrentNetworkInfo(
     wifiName = context.getString(R.string.network_not_connected),
@@ -36,32 +35,6 @@ private fun disconnectedNetworkInfo(context: Context) = CurrentNetworkInfo(
     isCellular = false,
     isConnected = false
 )
-
-fun formatTrafficMegabytes(trafficMegabytes: String): String {
-    val value = trafficMegabytes.trim()
-    val mb = value.toDoubleOrNull()
-        ?: return if (value.contains("MB", ignoreCase = true)) value else "$value MB"
-    return when {
-        mb >= 1024 -> String.format(Locale.getDefault(), "%.1f GB", mb / 1024.0)
-        else -> String.format(Locale.getDefault(), "%.1f MB", mb)
-    }
-}
-
-fun hasWifiLocationPermission(context: Context): Boolean =
-    ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
-            PackageManager.PERMISSION_GRANTED
-
-/** WifiManager.startScan() 与 scanResults 在 Android 13+ 上仍要求精确定位权限。 */
-fun hasWifiScanPermission(context: Context): Boolean = hasWifiLocationPermission(context)
-
-/**
- * WifiManager.startScan() 在所有受支持的系统版本上都需要精确定位权限。
- */
-fun wifiScanPermissionsForRequest(): Array<String> =
-    arrayOf(
-        Manifest.permission.ACCESS_COARSE_LOCATION,
-        Manifest.permission.ACCESS_FINE_LOCATION
-    )
 
 /**
  * 优先读取指定的非 VPN 物理 Wi-Fi，避免把 TUN/Fake-IP 虚拟网卡地址当作校园网 IP。

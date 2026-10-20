@@ -11,6 +11,7 @@ import top.steins.autologin.domain.model.SEAMLESS_DEVICE_LIMIT
 import top.steins.autologin.domain.model.SeamlessAction
 import top.steins.autologin.domain.model.SeamlessActionResult
 import top.steins.autologin.domain.model.SeamlessStatus
+import top.steins.autologin.domain.rule.canonicalMac
 
 /** 在调用方持有自助服务会话锁期间执行；HTTP 传输可替换，便于验证真实请求顺序。 */
 internal class SeamlessService(
@@ -40,10 +41,10 @@ internal class SeamlessService(
                         is SeamlessAction.Unbind -> action.macAddress
                         else -> error("Unexpected action")
                     }
-                    val mac = SeamlessParsing.canonicalMac(input)
+                    val mac = canonicalMac(input)
                         ?: return SeamlessActionResult.Failure(message(R.string.seamless_invalid_mac))
                     val before = readDevices()
-                    val exists = before.devices.any { SeamlessParsing.canonicalMac(it.macAddress) == mac }
+                    val exists = before.devices.any { canonicalMac(it.macAddress) == mac }
                     if (action is SeamlessAction.Bind && exists) {
                         return SeamlessActionResult.Failure(message(R.string.seamless_duplicate_mac))
                     }
@@ -76,7 +77,7 @@ internal class SeamlessService(
                         execute(seamlessRequest("service/unbindmac").url(url).build())
                     }
                     val after = readDevices()
-                    val nowExists = after.devices.any { SeamlessParsing.canonicalMac(it.macAddress) == mac }
+                    val nowExists = after.devices.any { canonicalMac(it.macAddress) == mac }
                     if (nowExists == (action is SeamlessAction.Bind)) SeamlessActionResult.Success
                     else SeamlessActionResult.Indeterminate(message(R.string.seamless_indeterminate))
                 }

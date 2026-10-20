@@ -22,7 +22,7 @@ import top.steins.autologin.domain.model.UpdateInfo
 import top.steins.autologin.domain.model.UpdateTransfer
 import top.steins.autologin.domain.port.UpdateCheckStore
 import top.steins.autologin.domain.port.UpdateGateway
-import top.steins.autologin.network.update.SemanticVersion
+import top.steins.autologin.domain.rule.SemanticVersion
 
 /** 独立管理更新检查、节流和下载消息，避免这些状态挤入网络认证协调器。 */
 class UpdateStateHolder(

@@ -16,6 +16,7 @@ import top.steins.autologin.R
 import top.steins.autologin.domain.model.LoginResult
 import top.steins.autologin.domain.model.LoginStatus
 import top.steins.autologin.domain.model.WifiLoginMethod
+import top.steins.autologin.domain.port.HttpLogSink
 
 internal fun createLoginClient(
     context: Context,

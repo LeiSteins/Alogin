@@ -37,6 +37,8 @@ import top.steins.autologin.domain.model.CampusNetworkChange
 import top.steins.autologin.domain.model.CredentialSaveResult
 import top.steins.autologin.domain.model.CurrentNetworkInfo
 import top.steins.autologin.domain.model.DeviceLogoutResult
+import top.steins.autologin.domain.model.HttpLogEntry
+import top.steins.autologin.domain.model.HttpLogEntryType
 import top.steins.autologin.domain.model.LoginResult
 import top.steins.autologin.domain.model.LoginStatus
 import top.steins.autologin.domain.model.SavedAccount
@@ -58,8 +60,6 @@ import top.steins.autologin.domain.port.HttpLogPreferences
 import top.steins.autologin.domain.port.UpdateCheckStore
 import top.steins.autologin.domain.port.UpdateGateway
 import top.steins.autologin.domain.port.WifiConfigStore
-import top.steins.autologin.network.HttpLogEntry
-import top.steins.autologin.network.HttpLogEntryType
 import top.steins.autologin.network.HttpLogStorage
 import top.steins.autologin.network.NetworkEnvironment
 import top.steins.autologin.network.SelfServiceGateway
@@ -139,6 +139,19 @@ class AppViewModelTest {
     }
 
     @Test
+    fun seamlessFeature_exposesCurrentIpWithoutHomeState() = runTest {
+        val viewModel = createOnlineViewModel()
+        advanceUntilIdle()
+        assertEquals("10.1.2.3", viewModel.seamless.localIpAddress.value)
+
+        network.info = network.info.copy(ipAddress = "10.1.2.99")
+        viewModel.seamless.refreshSession()
+        advanceUntilIdle()
+
+        assertEquals("10.1.2.99", viewModel.seamless.localIpAddress.value)
+    }
+
+    @Test
     fun seamlessQuery_initialOverviewFailureStillUsesAuthenticatedAccount() = runTest {
         network.info = CurrentNetworkInfo("bjut_wifi", "10.1.2.3", true, false, true)
         network.loginStatus = LoginStatus(isLoggedIn = true, uid = "2021001")
@@ -147,7 +160,7 @@ class AppViewModelTest {
 
         viewModel.session.refreshStatus()
         advanceUntilIdle()
-        viewModel.session.refreshSeamlessInfo()
+        viewModel.seamless.refresh()
         advanceUntilIdle()
 
         assertTrue(viewModel.session.uiState.value.isOnline)
@@ -169,7 +182,7 @@ class AppViewModelTest {
 
         viewModel.session.refreshStatus()
         advanceUntilIdle()
-        viewModel.session.refreshSeamlessInfo()
+        viewModel.seamless.refresh()
         advanceUntilIdle()
 
         assertNull(viewModel.session.uiState.value.accountOverview)
@@ -189,11 +202,11 @@ class AppViewModelTest {
         advanceUntilIdle()
         val previousLoads = selfService.seamlessLoadCount
 
-        viewModel.session.refreshSeamlessInfo()
+        viewModel.seamless.refresh()
         advanceUntilIdle()
 
         assertEquals(previousLoads, selfService.seamlessLoadCount)
-        assertNull(viewModel.session.seamlessState.value.info)
+        assertNull(viewModel.seamless.state.value.info)
         assertFalse(viewModel.session.uiState.value.isOnline)
     }
 
@@ -203,7 +216,7 @@ class AppViewModelTest {
         val viewModel = createOnlineViewModel()
         advanceUntilIdle()
         assertEquals("2021001", selfService.seamlessRequestedAccount)
-        assertEquals(SeamlessStatus.Enabled, viewModel.session.seamlessState.value.info?.status)
+        assertEquals(SeamlessStatus.Enabled, viewModel.seamless.state.value.info?.status)
     }
 
     @Test
@@ -213,8 +226,8 @@ class AppViewModelTest {
         advanceUntilIdle()
         assertTrue(viewModel.session.uiState.value.isOnline)
         assertEquals("2021001", viewModel.session.uiState.value.accountOverview?.username)
-        assertEquals("list unavailable", viewModel.session.seamlessState.value.error)
-        assertFalse(viewModel.session.seamlessState.value.canManage)
+        assertEquals("list unavailable", viewModel.seamless.state.value.error)
+        assertFalse(viewModel.seamless.state.value.canManage)
         assertEquals(SeamlessStatus.Unknown, viewModel.session.uiState.value.seamlessStatus)
     }
 
@@ -222,50 +235,50 @@ class AppViewModelTest {
     fun seamlessQuery_reentryKeepsPreviousStateUntilNewDataArrives() = runTest {
         val viewModel = createOnlineViewModel()
         advanceUntilIdle()
-        val previous = viewModel.session.seamlessState.value
+        val previous = viewModel.seamless.state.value
         val previousLoads = selfService.seamlessLoadCount
         val gate = CompletableDeferred<Unit>()
         selfService.seamlessLoadGate = gate
         val nextInfo = SeamlessInfo("2021001", 2, SeamlessStatus.Disabled)
         selfService.seamlessLoadResult = SeamlessLoadResult.Success(nextInfo)
 
-        viewModel.session.refreshSeamlessInfo()
+        viewModel.seamless.refresh()
         runCurrent()
-        assertEquals(previous.copy(isLoading = true), viewModel.session.seamlessState.value)
-        assertFalse(viewModel.session.seamlessState.value.canManage)
+        assertEquals(previous.copy(isLoading = true), viewModel.seamless.state.value)
+        assertFalse(viewModel.seamless.state.value.canManage)
         assertEquals(previousLoads + 1, selfService.seamlessLoadCount)
 
         gate.complete(Unit)
         advanceUntilIdle()
-        assertEquals(nextInfo, viewModel.session.seamlessState.value.info)
-        assertFalse(viewModel.session.seamlessState.value.isLoading)
-        assertTrue(viewModel.session.seamlessState.value.canManage)
+        assertEquals(nextInfo, viewModel.seamless.state.value.info)
+        assertFalse(viewModel.seamless.state.value.isLoading)
+        assertTrue(viewModel.seamless.state.value.canManage)
     }
 
     @Test
     fun seamlessQuery_failureKeepsPreviousDataAndDisablesWritesUntilRecovery() = runTest {
         val viewModel = createOnlineViewModel()
         advanceUntilIdle()
-        val previousInfo = viewModel.session.seamlessState.value.info
+        val previousInfo = viewModel.seamless.state.value.info
         selfService.seamlessLoadResult = SeamlessLoadResult.Failure("list unavailable")
 
-        viewModel.session.refreshSeamlessInfo()
+        viewModel.seamless.refresh()
         advanceUntilIdle()
-        assertEquals(previousInfo, viewModel.session.seamlessState.value.info)
-        assertEquals("list unavailable", viewModel.session.seamlessState.value.error)
-        assertFalse(viewModel.session.seamlessState.value.canManage)
+        assertEquals(previousInfo, viewModel.seamless.state.value.info)
+        assertEquals("list unavailable", viewModel.seamless.state.value.error)
+        assertFalse(viewModel.seamless.state.value.canManage)
 
         val gate = CompletableDeferred<Unit>()
         selfService.seamlessLoadGate = gate
         selfService.seamlessLoadResult = SeamlessLoadResult.Success(previousInfo!!)
-        viewModel.session.refreshSeamlessInfo()
+        viewModel.seamless.refresh()
         runCurrent()
-        assertEquals(previousInfo, viewModel.session.seamlessState.value.info)
-        assertEquals("list unavailable", viewModel.session.seamlessState.value.error)
+        assertEquals(previousInfo, viewModel.seamless.state.value.info)
+        assertEquals("list unavailable", viewModel.seamless.state.value.error)
         gate.complete(Unit)
         advanceUntilIdle()
-        assertEquals("", viewModel.session.seamlessState.value.error)
-        assertTrue(viewModel.session.seamlessState.value.canManage)
+        assertEquals("", viewModel.seamless.state.value.error)
+        assertTrue(viewModel.seamless.state.value.canManage)
     }
 
     @Test
@@ -273,7 +286,7 @@ class AppViewModelTest {
         val viewModel = createOnlineViewModel()
         advanceUntilIdle()
         assertEquals(SeamlessStatus.Enabled, viewModel.session.uiState.value.seamlessStatus)
-        val previousInfo = viewModel.session.seamlessState.value.info
+        val previousInfo = viewModel.seamless.state.value.info
         val overviewGate = CompletableDeferred<Unit>()
         val statusGate = CompletableDeferred<Unit>()
         selfService.overviewGate = overviewGate
@@ -283,18 +296,18 @@ class AppViewModelTest {
         viewModel.session.refreshAccountInfo()
         runCurrent()
         assertEquals(SeamlessStatus.Enabled, viewModel.session.uiState.value.seamlessStatus)
-        assertEquals(previousInfo, viewModel.session.seamlessState.value.info)
-        assertTrue(viewModel.session.seamlessState.value.isLoading)
+        assertEquals(previousInfo, viewModel.seamless.state.value.info)
+        assertTrue(viewModel.seamless.state.value.isLoading)
         overviewGate.complete(Unit)
         runCurrent()
-        assertTrue(viewModel.session.seamlessState.value.isLoading)
-        assertEquals(previousInfo, viewModel.session.seamlessState.value.info)
+        assertTrue(viewModel.seamless.state.value.isLoading)
+        assertEquals(previousInfo, viewModel.seamless.state.value.info)
         assertEquals(SeamlessStatus.Enabled, viewModel.session.uiState.value.seamlessStatus)
 
         statusGate.complete(Unit)
         advanceUntilIdle()
         assertEquals(SeamlessStatus.Disabled, viewModel.session.uiState.value.seamlessStatus)
-        assertEquals(SeamlessStatus.Disabled, viewModel.session.seamlessState.value.info?.status)
+        assertEquals(SeamlessStatus.Disabled, viewModel.seamless.state.value.info?.status)
     }
 
     @Test
@@ -335,7 +348,7 @@ class AppViewModelTest {
         viewModel.session.refreshAccountInfo()
         runCurrent()
         assertEquals(SeamlessStatus.Unknown, viewModel.session.uiState.value.seamlessStatus)
-        assertNull(viewModel.session.seamlessState.value.info)
+        assertNull(viewModel.seamless.state.value.info)
         gate.complete(Unit)
         advanceUntilIdle()
         assertEquals("another-account", viewModel.session.uiState.value.accountOverview?.username)
@@ -350,14 +363,14 @@ class AppViewModelTest {
         val gate = CompletableDeferred<Unit>()
         selfService.seamlessActionGate = gate
         val action = SeamlessAction.Bind("AABBCC112233", true)
-        viewModel.session.performSeamlessAction(action)
+        viewModel.seamless.perform(action)
         runCurrent()
-        viewModel.session.performSeamlessAction(action)
-        assertTrue(viewModel.session.seamlessState.value.isSubmitting)
+        viewModel.seamless.perform(action)
+        assertTrue(viewModel.seamless.state.value.isSubmitting)
         assertEquals(1, selfService.seamlessActionCount)
         gate.complete(Unit)
         advanceUntilIdle()
-        assertFalse(viewModel.session.seamlessState.value.isSubmitting)
+        assertFalse(viewModel.seamless.state.value.isSubmitting)
         assertEquals(previousLoads + 1, selfService.seamlessLoadCount)
     }
 
@@ -366,10 +379,10 @@ class AppViewModelTest {
         val viewModel = createOnlineViewModel()
         advanceUntilIdle()
         network.loginStatus = LoginStatus(isLoggedIn = true, uid = "another-account")
-        viewModel.session.performSeamlessAction(SeamlessAction.Toggle(SeamlessStatus.Enabled))
+        viewModel.seamless.perform(SeamlessAction.Toggle(SeamlessStatus.Enabled))
         advanceUntilIdle()
         assertEquals(0, selfService.seamlessActionCount)
-        assertNull(viewModel.session.seamlessState.value.info)
+        assertNull(viewModel.seamless.state.value.info)
         assertEquals(SeamlessStatus.Unknown, viewModel.session.uiState.value.seamlessStatus)
     }
 
@@ -378,12 +391,12 @@ class AppViewModelTest {
         val viewModel = createOnlineViewModel()
         advanceUntilIdle()
         selfService.onSeamlessAction = { network.loginStatus = LoginStatus(isLoggedIn = false) }
-        viewModel.session.performSeamlessAction(SeamlessAction.Toggle(SeamlessStatus.Enabled))
+        viewModel.seamless.perform(SeamlessAction.Toggle(SeamlessStatus.Enabled))
         advanceUntilIdle()
         assertEquals(1, selfService.seamlessActionCount)
         assertFalse(viewModel.session.uiState.value.isOnline)
         assertNull(viewModel.session.uiState.value.accountOverview)
-        assertNull(viewModel.session.seamlessState.value.info)
+        assertNull(viewModel.seamless.state.value.info)
         assertEquals(SeamlessStatus.Unknown, viewModel.session.uiState.value.seamlessStatus)
     }
 
@@ -393,15 +406,15 @@ class AppViewModelTest {
         advanceUntilIdle()
         val gate = CompletableDeferred<Unit>()
         selfService.seamlessLoadGate = gate
-        viewModel.session.refreshSeamlessInfo()
+        viewModel.seamless.refresh()
         runCurrent()
         network.info = network.info.copy(wifiName = "other-wifi")
         viewModel.session.refreshStatus()
         runCurrent()
         gate.complete(Unit)
         advanceUntilIdle()
-        assertNull(viewModel.session.seamlessState.value.info)
-        assertFalse(viewModel.session.seamlessState.value.canManage)
+        assertNull(viewModel.seamless.state.value.info)
+        assertFalse(viewModel.seamless.state.value.canManage)
         assertEquals(SeamlessStatus.Unknown, viewModel.session.uiState.value.seamlessStatus)
     }
 
@@ -1494,7 +1507,7 @@ class AppViewModelTest {
             val device = viewModel.session.uiState.value.accountOverview!!.devices.single()
             val gate = CompletableDeferred<Unit>()
             selfService.seamlessLoadGate = gate
-            viewModel.session.refreshSeamlessInfo()
+            viewModel.seamless.refresh()
             viewModel.session.logoutDevice(device)
             assertEquals(0, selfService.logoutCount)
             assertTrue(viewModel.session.uiState.value.isLoggingOutDevice)
@@ -1514,7 +1527,7 @@ class AppViewModelTest {
             val device = viewModel.session.uiState.value.accountOverview!!.devices.single()
             val gate = CompletableDeferred<Unit>()
             selfService.seamlessActionGate = gate
-            viewModel.session.performSeamlessAction(SeamlessAction.Bind("00:11:22:33:44:66"))
+            viewModel.seamless.perform(SeamlessAction.Bind("00:11:22:33:44:66"))
             viewModel.session.logoutDevice(device)
             assertEquals(0, selfService.logoutCount)
 

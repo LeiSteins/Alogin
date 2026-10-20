@@ -13,6 +13,7 @@ import org.json.JSONObject
 import top.steins.autologin.domain.model.UpdateInfo
 import top.steins.autologin.domain.model.UpdateTransfer
 import top.steins.autologin.domain.port.UpdateGateway
+import top.steins.autologin.domain.rule.SemanticVersion
 import top.steins.autologin.network.executeCancellable
 
 private const val UPDATE_BASE_URL = "https://aloginupdate.steins.top/"

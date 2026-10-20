@@ -13,6 +13,7 @@ import androidx.lifecycle.compose.currentStateAsState
 import top.steins.autologin.state.AccountStateHolder
 import top.steins.autologin.state.CampusSessionCoordinator
 import top.steins.autologin.state.HttpLogStateHolder
+import top.steins.autologin.state.SeamlessFeature
 import top.steins.autologin.state.SettingsStateHolder
 import top.steins.autologin.state.UpdateState
 import top.steins.autologin.state.UpdateStateHolder
@@ -69,15 +70,19 @@ fun HomeRoute(
 }
 
 @Composable
-fun SeamlessLoginRoute(stateHolder: CampusSessionCoordinator, onNavigateBack: () -> Unit) {
-    val state by stateHolder.seamlessState.collectAsStateWithLifecycle()
-    val uiState by stateHolder.uiState.collectAsStateWithLifecycle()
-    LaunchedEffect(Unit) {
-        stateHolder.refreshSeamlessInfo()
+fun SeamlessLoginRoute(feature: SeamlessFeature, onNavigateBack: () -> Unit) {
+    val state by feature.state.collectAsStateWithLifecycle()
+    val localIpAddress by feature.localIpAddress.collectAsStateWithLifecycle()
+    LaunchedEffect(feature) {
+        feature.refresh()
     }
-    SeamlessLoginScreen(state,
-        stateHolder::refreshAccountInfo, stateHolder::performSeamlessAction, onNavigateBack,
-        localIpAddress = uiState.ipAddress)
+    SeamlessLoginScreen(
+        state = state,
+        onRefresh = feature::refreshSession,
+        onAction = feature::perform,
+        onNavigateBack = onNavigateBack,
+        localIpAddress = localIpAddress
+    )
 }
 
 @Composable

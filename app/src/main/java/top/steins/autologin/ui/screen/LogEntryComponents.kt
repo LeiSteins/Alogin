@@ -27,8 +27,8 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import top.steins.autologin.R
-import top.steins.autologin.network.HttpLogEntry
-import top.steins.autologin.network.HttpLogEntryType
+import top.steins.autologin.domain.model.HttpLogEntry
+import top.steins.autologin.domain.model.HttpLogEntryType
 import top.steins.autologin.ui.theme.AppCardShape
 import top.steins.autologin.ui.theme.appCardElevation
 

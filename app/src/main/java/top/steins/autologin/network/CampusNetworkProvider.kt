@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.withTimeoutOrNull
 import top.steins.autologin.domain.model.CampusNetworkChange
 import top.steins.autologin.domain.model.CurrentNetworkInfo
+import top.steins.autologin.platform.hasWifiLocationPermission
 
 internal data class CampusRoute(
     val network: Network,

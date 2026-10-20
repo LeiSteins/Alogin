@@ -38,16 +38,6 @@ class SeamlessParsingTest {
     }
 
     @Test
-    fun macInput_normalizesSupportedSeparatorsWithoutSilentlyDiscardingOtherCharacters() {
-        for (mac in listOf("aabbcc112233", "aa:bb:cc:11:22:33", "aa-bb-cc-11-22-33")) {
-            assertEquals("AABBCC112233", SeamlessParsing.canonicalMac(mac))
-        }
-        for (mac in listOf("aa!bb!cc!11!22!33", "aa:bb-cc:11:22:33", "aabbcc11223g", "aabbcc")) {
-            assertNull(SeamlessParsing.canonicalMac(mac))
-        }
-    }
-
-    @Test
     fun unbindToken_readsCurrentPageScriptRatherThanUnrelatedRefreshToken() {
         val page = """csrftoken: 'refresh-token'; window.location.href = '/Self/service/unbindmac?mac=' + mac + "&ajaxCsrfToken=" + 'action-token';"""
         assertEquals("action-token", SeamlessParsing.parseUnbindToken(page))
