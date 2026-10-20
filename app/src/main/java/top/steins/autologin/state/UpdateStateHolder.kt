@@ -16,7 +16,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import top.steins.autologin.AppStrings
 import top.steins.autologin.R
-import top.steins.autologin.data.SettingsGateway
+import top.steins.autologin.data.UpdateCheckStore
 import top.steins.autologin.network.update.SemanticVersion
 import top.steins.autologin.network.update.UpdateDownloadState
 import top.steins.autologin.network.update.UpdateDownloadFailure
@@ -29,7 +29,7 @@ import top.steins.autologin.network.update.UpdateState
 class UpdateStateHolder(
     private val scope: CoroutineScope,
     private val strings: AppStrings,
-    private val settings: SettingsGateway,
+    private val checkStore: UpdateCheckStore,
     private val updates: UpdateGateway,
     private val hasValidatedInternet: () -> Boolean,
     private val currentVersion: String,
@@ -147,8 +147,8 @@ class UpdateStateHolder(
             if (!hasValidatedInternet() || hasDownload()) return@launch
 
             val now = currentTimeMillis()
-            val lastCheckAt = settings.getLastUpdateCheckAt()
-            val retryAt = settings.getUpdateCheckRetryAt()
+            val lastCheckAt = checkStore.getLastUpdateCheckAt()
+            val retryAt = checkStore.getUpdateCheckRetryAt()
             val isDue = if (retryAt > 0L) {
                 // 时钟回拨超过最大退避窗口时允许重新检查。
                 now >= retryAt || retryAt - now > MAXIMUM_CHECK_RETRY_DELAY_MS
@@ -204,8 +204,8 @@ class UpdateStateHolder(
         val checkedAt = currentTimeMillis()
         try {
             val update = updates.fetchLatestUpdate(currentVersion)
-            settings.setLastUpdateCheckAt(checkedAt)
-            settings.setUpdateCheckRetryAt(0L)
+            checkStore.setLastUpdateCheckAt(checkedAt)
+            checkStore.setUpdateCheckRetryAt(0L)
             failedCheckCount = 0
             val result = if (SemanticVersion.isNewer(update.version, currentVersion) &&
                 update.versionCode > currentVersionCode
@@ -232,7 +232,7 @@ class UpdateStateHolder(
             val retryDelay = (INITIAL_CHECK_RETRY_DELAY_MS * (1L shl failedCheckCount.coerceAtMost(4)))
                 .coerceAtMost(MAXIMUM_CHECK_RETRY_DELAY_MS)
             failedCheckCount = (failedCheckCount + 1).coerceAtMost(4)
-            settings.setUpdateCheckRetryAt(currentTimeMillis() + retryDelay)
+            checkStore.setUpdateCheckRetryAt(currentTimeMillis() + retryDelay)
             _state.value = UpdateState.Error(
                 error.message ?: strings.get(R.string.update_check_failed)
             )

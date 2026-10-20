@@ -32,7 +32,11 @@ import org.junit.rules.TestWatcher
 import org.junit.runner.Description
 import top.steins.autologin.data.AppearanceMode
 import top.steins.autologin.data.CredentialSaveResult
-import top.steins.autologin.data.SettingsGateway
+import top.steins.autologin.data.AccountStore
+import top.steins.autologin.data.AppPreferences
+import top.steins.autologin.data.HttpLogPreferences
+import top.steins.autologin.data.UpdateCheckStore
+import top.steins.autologin.data.WifiConfigStore
 import top.steins.autologin.data.TargetWifiConfigChange
 import top.steins.autologin.data.WifiLoginMethod
 import top.steins.autologin.network.AccountDevice
@@ -82,7 +86,7 @@ class AppViewModelTest {
     @get:Rule
     val mainDispatcherRule = MainDispatcherRule()
 
-    private val settings = FakeSettingsGateway()
+    private val settings = FakeSettingsStore()
     private val selfService = FakeSelfServiceGateway()
     private val updates = FakeUpdateGateway()
     private val network = FakeNetworkEnvironment()
@@ -98,7 +102,11 @@ class AppViewModelTest {
         currentTimeMillis: () -> Long = { 1_000_000L }
     ): AppViewModel = AppViewModel(
         strings = AppStrings { resId, _ -> "msg:$resId" },
-        settings = settings,
+        accountStore = settings,
+        wifiConfig = settings,
+        appPreferences = settings,
+        logPreferences = settings,
+        updateCheckStore = settings,
         selfService = selfService,
         updates = updates,
         network = network,
@@ -1773,7 +1781,7 @@ class AppViewModelTest {
     }
 }
 
-private class FakeSettingsGateway : SettingsGateway {
+private class FakeSettingsStore : AccountStore, WifiConfigStore, AppPreferences, HttpLogPreferences, UpdateCheckStore {
     private val wifiLoginMethods = mutableMapOf<String, WifiLoginMethod>()
 
     override fun getWifiLoginMethod(ssid: String): WifiLoginMethod? = wifiLoginMethods[ssid]

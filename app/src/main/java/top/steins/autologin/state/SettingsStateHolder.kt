@@ -1,25 +1,27 @@
 package top.steins.autologin.state
 
 import top.steins.autologin.data.AppearanceMode
-import top.steins.autologin.data.SettingsGateway
+import top.steins.autologin.data.AppPreferences
+import top.steins.autologin.data.WifiConfigStore
 
 /** 软件设置与目标 Wi-Fi 配置；跨功能通知由应用容器连接。 */
 class SettingsStateHolder(
-    private val settings: SettingsGateway,
+    private val wifiConfig: WifiConfigStore,
+    private val preferences: AppPreferences,
     private val onAutoLoginDisabled: () -> Unit
 ) {
-    val targetSsids = settings.targetSsids
-    val appearanceMode = settings.appearanceMode
-    val autoLoginOnStartup = settings.autoLoginOnStartup
+    val targetSsids = wifiConfig.targetSsids
+    val appearanceMode = preferences.appearanceMode
+    val autoLoginOnStartup = preferences.autoLoginOnStartup
 
-    fun addTargetWifi(ssid: String) = settings.addTargetWifi(ssid)
+    fun addTargetWifi(ssid: String) = wifiConfig.addTargetWifi(ssid)
 
-    fun removeTargetWifi(ssid: String) = settings.removeTargetWifi(ssid)
+    fun removeTargetWifi(ssid: String) = wifiConfig.removeTargetWifi(ssid)
 
-    fun saveAppearanceMode(mode: AppearanceMode) = settings.saveAppearanceMode(mode)
+    fun saveAppearanceMode(mode: AppearanceMode) = preferences.saveAppearanceMode(mode)
 
     fun setAutoLoginOnStartup(enabled: Boolean) {
-        settings.setAutoLoginOnStartup(enabled)
+        preferences.setAutoLoginOnStartup(enabled)
         if (!enabled) onAutoLoginDisabled()
     }
 }

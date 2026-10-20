@@ -1,11 +1,11 @@
 package top.steins.autologin.state
 
-import top.steins.autologin.data.SettingsGateway
+import top.steins.autologin.data.HttpLogPreferences
 import top.steins.autologin.network.HttpLogStorage
 
 /** 集中管理日志入口解锁与开关，页面不参与认证状态管理。 */
-class HttpLogStateHolder(private val settings: SettingsGateway) {
-    val httpLogEnabled = settings.httpLogEnabled
+class HttpLogStateHolder(private val preferences: HttpLogPreferences) {
+    val httpLogEnabled = preferences.httpLogEnabled
     val httpLogs = HttpLogStorage.logs
     private var versionTapCount = 0
 
@@ -18,14 +18,14 @@ class HttpLogStateHolder(private val settings: SettingsGateway) {
         if (httpLogEnabled.value) return false
         versionTapCount += 1
         if (versionTapCount < HTTP_LOG_UNLOCK_TAP_COUNT) return false
-        settings.setHttpLogEnabled(true)
+        preferences.setHttpLogEnabled(true)
         HttpLogStorage.setEnabled(true)
         versionTapCount = 0
         return true
     }
 
     fun disableHttpLog() {
-        settings.setHttpLogEnabled(false)
+        preferences.setHttpLogEnabled(false)
         HttpLogStorage.setEnabled(false)
         versionTapCount = 0
     }

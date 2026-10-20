@@ -20,11 +20,16 @@ fun appViewModelFactory(application: Application): ViewModelProvider.Factory =
                 "Unexpected ViewModel class: ${modelClass.name}"
             }
             val campusNetwork = DefaultCampusNetworkProvider(application)
+            val settings = SettingsRepository(application)
             return AppViewModel(
                 strings = AppStrings { resId, args ->
                     application.getString(resId, *args)
                 },
-                settings = SettingsRepository(application),
+                accountStore = settings,
+                wifiConfig = settings,
+                appPreferences = settings,
+                logPreferences = settings,
+                updateCheckStore = settings,
                 selfService = SelfServiceRepository(application, campusNetwork),
                 updates = UpdateRepository(application),
                 network = DefaultNetworkEnvironment(application, campusNetwork),

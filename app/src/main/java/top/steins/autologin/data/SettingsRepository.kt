@@ -13,86 +13,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-enum class TargetWifiConfigChangeType {
-    ADDED,
-    REMOVED
-}
-
-data class TargetWifiConfigChange(
-    val type: TargetWifiConfigChangeType,
-    val ssid: String
-)
-
-enum class AppearanceMode {
-    SYSTEM,
-    LIGHT,
-    DARK
-}
-
-/**
- * 凭据保存结果。Keystore 和本地加密路径都不可用时不落盘。
- */
-enum class CredentialSaveResult {
-    SAVED,
-    ENCRYPTION_UNAVAILABLE,
-    STORAGE_UNAVAILABLE,
-    INVALID_INPUT
-}
-
-/**
- * 设置数据的读取与写入入口，屏蔽 SharedPreferences / Keystore 细节，
- * 使 ViewModel 与界面层不直接依赖存储实现，也便于单元测试注入替身。
- */
-interface SettingsGateway {
-    /** 在后台完成凭据读取与迁移；认证前必须等待初始化。 */
-    suspend fun initialize() = Unit
-
-    val targetSsids: StateFlow<List<String>>
-    val targetWifiConfigChanges: SharedFlow<TargetWifiConfigChange>
-    val accounts: StateFlow<List<SavedAccount>>
-    val selectedAccountUsername: StateFlow<String>
-    val password: StateFlow<String>
-    val appearanceMode: StateFlow<AppearanceMode>
-    val autoLoginOnStartup: StateFlow<Boolean>
-    val httpLogEnabled: StateFlow<Boolean>
-    val credentialResetPending: StateFlow<Boolean>
-
-    fun addAutoDetectedTargetWifi(ssid: String): Boolean
-
-    fun addTargetWifi(ssid: String)
-
-    fun removeTargetWifi(ssid: String)
-
-    fun getWifiLoginMethod(ssid: String): WifiLoginMethod?
-
-    fun saveWifiLoginMethod(ssid: String, method: WifiLoginMethod)
-
-    suspend fun saveCredentials(username: String, password: String): CredentialSaveResult
-
-    suspend fun selectAccount(username: String): CredentialSaveResult
-
-    suspend fun removeAccount(username: String): CredentialSaveResult
-
-    suspend fun readActiveAccount(): SavedAccount?
-
-    fun saveAppearanceMode(mode: AppearanceMode)
-
-    fun setAutoLoginOnStartup(enabled: Boolean)
-
-    fun setHttpLogEnabled(enabled: Boolean)
-
-    fun getLastUpdateCheckAt(): Long
-
-    fun setLastUpdateCheckAt(timestampMillis: Long)
-
-    fun getUpdateCheckRetryAt(): Long
-
-    fun setUpdateCheckRetryAt(timestampMillis: Long)
-
-    fun acknowledgeCredentialReset()
-}
-
-class SettingsRepository(context: Context) : SettingsGateway {
+class SettingsRepository(context: Context) :
+    AccountStore, WifiConfigStore, AppPreferences, HttpLogPreferences, UpdateCheckStore {
 
     private val appContext = context.applicationContext
     private val prefs: SharedPreferences = appContext.getSharedPreferences(

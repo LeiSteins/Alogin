@@ -22,7 +22,9 @@ import top.steins.autologin.AppStrings
 import top.steins.autologin.HomeUiState
 import top.steins.autologin.R
 import top.steins.autologin.RefreshAttemptOutcome
-import top.steins.autologin.data.SettingsGateway
+import top.steins.autologin.data.AccountStore
+import top.steins.autologin.data.AppPreferences
+import top.steins.autologin.data.WifiConfigStore
 import top.steins.autologin.data.WifiLoginMethod
 import top.steins.autologin.network.AccountDevice
 import top.steins.autologin.network.AccountOverviewResult
@@ -43,7 +45,9 @@ import top.steins.autologin.network.SelfServiceGateway
 class CampusSessionCoordinator(
     private val scope: CoroutineScope,
     private val strings: AppStrings,
-    private val settings: SettingsGateway,
+    private val accounts: AccountStore,
+    private val wifiConfig: WifiConfigStore,
+    preferences: AppPreferences,
     private val selfService: SelfServiceGateway,
     private val network: NetworkEnvironment,
     private val hasLocationPermission: () -> Boolean,
@@ -51,13 +55,13 @@ class CampusSessionCoordinator(
     private val onLoginSucceeded: () -> Unit = {}
 ) : AutoCloseable {
 
-    val targetSsids = settings.targetSsids
-    private val selectedAccountUsername = settings.selectedAccountUsername
-    private val password = settings.password
-    private val autoLoginOnStartup = settings.autoLoginOnStartup
+    val targetSsids = wifiConfig.targetSsids
+    private val selectedAccountUsername = accounts.selectedAccountUsername
+    private val password = accounts.password
+    private val autoLoginOnStartup = preferences.autoLoginOnStartup
 
     private val accountOperationMutex = Mutex()
-    private val settingsReady = scope.async { settings.initialize() }
+    private val accountsReady = scope.async { accounts.initialize() }
     private var loginJob: Deferred<LoginResult>? = null
 
     private val _uiState = MutableStateFlow(
@@ -68,13 +72,43 @@ class CampusSessionCoordinator(
         )
     )
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
+    private var refreshGeneration = 0L
+    private val seamlessSession = object : SeamlessSessionAccess {
+        override fun snapshot(): CampusSessionSnapshot {
+            val state = _uiState.value
+            return CampusSessionSnapshot(
+                version = refreshGeneration,
+                username = state.accountOverview?.username.orEmpty(),
+                wifiName = state.wifiName,
+                ipAddress = state.ipAddress,
+                isOnline = state.isOnline,
+                isRefreshing = state.isAccountInfoLoading
+            )
+        }
+
+        override fun isCurrent(expected: CampusSessionSnapshot): Boolean = expected == snapshot()
+
+        override suspend fun withSession(
+            expected: CampusSessionSnapshot,
+            operation: suspend () -> Unit
+        ) {
+            accountOperationMutex.withLock {
+                if (isCurrent(expected)) operation()
+            }
+        }
+
+        override fun reportStatus(expected: CampusSessionSnapshot, status: SeamlessStatus) {
+            if (isCurrent(expected) && expected.isOnline && expected.username.isNotBlank()) {
+                _uiState.update { it.copy(seamlessStatus = status) }
+            }
+        }
+    }
     private val seamless = SeamlessCoordinator(
         scope = scope,
         strings = strings,
         selfService = selfService,
         network = network,
-        accountOperationMutex = accountOperationMutex,
-        homeState = _uiState,
+        session = seamlessSession,
         preferredWifiLoginMethod = ::preferredWifiLoginMethod,
         refreshNetworkStatus = { refreshStatus() }
     )
@@ -86,7 +120,6 @@ class CampusSessionCoordinator(
 
     private var refreshJob: Job? = null
     private var networkRefreshDebounceJob: Job? = null
-    private var refreshGeneration = 0L
     // 只读取启动时的开关；本次运行中开启设置不会立即触发登录。
     private var startupAutoLoginPending = autoLoginOnStartup.value
 
@@ -95,7 +128,7 @@ class CampusSessionCoordinator(
             .conflate()
             .collectInSession { change -> scheduleNetworkRefresh(change) }
 
-        settings.targetWifiConfigChanges.collectInSession { change ->
+        wifiConfig.targetWifiConfigChanges.collectInSession { change ->
             startRefresh(
                 trigger = AccountInfoRefreshTrigger.TargetWifiConfigurationChanged(change),
                 clearSession = false,
@@ -213,7 +246,7 @@ class CampusSessionCoordinator(
         refreshJob?.cancel()
         refreshJob = scope.launch {
             try {
-                settingsReady.await()
+                accountsReady.await()
                 if (initialDelayMs > 0) delay(initialDelayMs)
                 repeat(attempts) { attempt ->
                     HttpLogStorage.logAccountInfoRefresh(
@@ -267,7 +300,7 @@ class CampusSessionCoordinator(
         _uiState.update { it.copy(isLoggingIn = true, loginMessage = null) }
         return scope.async {
             try {
-                settingsReady.await()
+                accountsReady.await()
                 cancelPendingRefreshForLogin()
                 _uiState.update { it.copy(isAccountInfoLoading = false) }
                 val result = accountOperationMutex.withLock { loginOnCurrentNetwork() }
@@ -298,10 +331,10 @@ class CampusSessionCoordinator(
             canReadWifiName = _uiState.value.hasLocationPermission
         )
         if (networkInfo.isWifi) {
-            settings.addAutoDetectedTargetWifi(networkInfo.wifiName)
+            wifiConfig.addAutoDetectedTargetWifi(networkInfo.wifiName)
         }
         // 后台保存/切换账号时，读取同一份快照，避免把不同账号的用户名和密码拼在一起。
-        val account = settings.readActiveAccount()
+        val account = accounts.readActiveAccount()
         val username = account?.username.orEmpty()
         val password = account?.password.orEmpty()
         return when {
@@ -309,7 +342,7 @@ class CampusSessionCoordinator(
                 LoginResult.Failure(strings.get(R.string.login_no_credentials))
             networkInfo.isCellular ->
                 LoginResult.Failure(strings.get(R.string.login_cellular_blocked))
-            !networkInfo.isWifi || networkInfo.wifiName !in settings.targetSsids.value ->
+            !networkInfo.isWifi || networkInfo.wifiName !in wifiConfig.targetSsids.value ->
                 LoginResult.Failure(strings.get(R.string.login_wrong_network))
             else -> network.performLogin(
                 username,
@@ -320,7 +353,7 @@ class CampusSessionCoordinator(
     }
 
     private fun preferredWifiLoginMethod(ssid: String): WifiLoginMethod? =
-        settings.getWifiLoginMethod(ssid)
+        wifiConfig.getWifiLoginMethod(ssid)
             ?: WifiLoginMethod.WLGN.takeIf { ssid == "bjut_wifi" }
 
     private suspend fun tryStartupAutoLogin(generation: Long): RefreshAttemptOutcome {
@@ -439,10 +472,10 @@ class CampusSessionCoordinator(
             seamless.invalidate()
         }
         if (networkInfo.isWifi) {
-            settings.addAutoDetectedTargetWifi(networkInfo.wifiName)
+            wifiConfig.addAutoDetectedTargetWifi(networkInfo.wifiName)
         }
         val isTargetWifi = networkInfo.isWifi &&
-                networkInfo.wifiName in settings.targetSsids.value
+                networkInfo.wifiName in wifiConfig.targetSsids.value
 
         if (!isTargetWifi) {
             // 初次权限弹窗期间可能读不到 SSID，保留机会直到权限结果返回。
@@ -485,7 +518,7 @@ class CampusSessionCoordinator(
             if (current.isWifi && current.wifiName == networkInfo.wifiName &&
                 current.ipAddress == networkInfo.ipAddress
             ) {
-                settings.saveWifiLoginMethod(networkInfo.wifiName, status.verifiedMethod)
+                wifiConfig.saveWifiLoginMethod(networkInfo.wifiName, status.verifiedMethod)
             }
         }
         if (!status.isLoggedIn) {

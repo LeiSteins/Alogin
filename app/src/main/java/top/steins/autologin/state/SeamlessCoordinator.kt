@@ -8,10 +8,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import top.steins.autologin.AppStrings
-import top.steins.autologin.HomeUiState
 import top.steins.autologin.R
 import top.steins.autologin.SeamlessUiState
 import top.steins.autologin.data.WifiLoginMethod
@@ -22,14 +19,13 @@ import top.steins.autologin.network.SeamlessActionResult
 import top.steins.autologin.network.SeamlessLoadResult
 import top.steins.autologin.network.SeamlessStatus
 
-/** 与认证协调器共享会话、锁和主页状态，统一拦截过期结果。 */
+/** 通过只读快照使用会话并上报结果；主页写入和操作串行化由会话协调器负责。 */
 internal class SeamlessCoordinator(
     private val scope: CoroutineScope,
     private val strings: AppStrings,
     private val selfService: SelfServiceGateway,
     private val network: NetworkEnvironment,
-    private val accountOperationMutex: Mutex,
-    private val homeState: MutableStateFlow<HomeUiState>,
+    private val session: SeamlessSessionAccess,
     private val preferredWifiLoginMethod: (String) -> WifiLoginMethod?,
     private val refreshNetworkStatus: () -> Unit
 ) {
@@ -57,9 +53,9 @@ internal class SeamlessCoordinator(
 
     fun refresh() {
         if (seamlessMutationJob?.isActive == true || seamlessLoadJob?.isActive == true) return
-        if (homeState.value.isAccountInfoLoading) return
-        val account = homeState.value.accountOverview?.username
-        if (!homeState.value.isOnline || account.isNullOrBlank()) {
+        val snapshot = session.snapshot()
+        if (snapshot.isRefreshing) return
+        if (!snapshot.isOnline || snapshot.username.isBlank()) {
             _seamlessState.value = SeamlessUiState(error = strings.get(R.string.seamless_requires_login))
             return
         }
@@ -67,8 +63,8 @@ internal class SeamlessCoordinator(
         _seamlessState.update { it.copy(isLoading = true) }
         seamlessLoadJob = scope.launch {
             try {
-                accountOperationMutex.withLock {
-                    if (epoch == seamlessEpoch) loadSeamlessLocked(account, epoch)
+                session.withSession(snapshot) {
+                    if (epoch == seamlessEpoch) loadSeamlessLocked(snapshot, epoch)
                 }
             } finally {
                 if (epoch == seamlessEpoch) _seamlessState.update { it.copy(isLoading = false) }
@@ -76,18 +72,14 @@ internal class SeamlessCoordinator(
         }
     }
 
-    private suspend fun loadSeamlessLocked(account: String, epoch: Long) {
-        val result = selfService.loadSeamlessInfo(account)
-        if (epoch != seamlessEpoch) return
+    private suspend fun loadSeamlessLocked(snapshot: CampusSessionSnapshot, epoch: Long) {
+        val result = selfService.loadSeamlessInfo(snapshot.username)
+        if (epoch != seamlessEpoch || !session.isCurrent(snapshot)) return
         if (result is SeamlessLoadResult.Success && result.info.status != SeamlessStatus.Unknown &&
-            result.info.username.substringBefore("@").trim() == account.substringBefore("@").trim()
+            result.info.username.substringBefore("@").trim() == snapshot.username.substringBefore("@").trim()
         ) {
             // 主页只保存服务端已确认的状态；刷新和失败不能覆盖上次有效结果。
-            homeState.update {
-                if (it.isOnline && it.accountOverview?.username?.substringBefore("@")?.trim() == account.substringBefore("@").trim()) {
-                    it.copy(seamlessStatus = result.info.status)
-                } else it
-            }
+            session.reportStatus(snapshot, result.info.status)
         }
         _seamlessState.update {
             when (result) {
@@ -101,25 +93,26 @@ internal class SeamlessCoordinator(
         val state = _seamlessState.value
         val info = state.info ?: return
         if (!state.canManage || seamlessMutationJob?.isActive == true) return
+        val snapshot = session.snapshot()
         val epoch = seamlessEpoch
         _seamlessState.update { it.copy(isSubmitting = true, operationMessage = "") }
         // 操作由 ViewModel 持有；退出页面不会中断已经提交的请求。
         seamlessMutationJob = scope.launch {
             var refreshNetwork = false
             try {
-                accountOperationMutex.withLock {
-                    if (epoch != seamlessEpoch) return@withLock
+                session.withSession(snapshot) {
+                    if (epoch != seamlessEpoch) return@withSession
                     val authenticated = network.fetchLoginStatus(
-                        preferredMethod = preferredWifiLoginMethod(homeState.value.wifiName)
+                        preferredMethod = preferredWifiLoginMethod(snapshot.wifiName)
                     )
-                    if (epoch != seamlessEpoch) return@withLock
+                    if (epoch != seamlessEpoch || !session.isCurrent(snapshot)) return@withSession
                     if (!authenticated.isLoggedIn || authenticated.uid.substringBefore("@").trim() != info.username.substringBefore("@").trim()) {
-                        homeState.update { it.copy(seamlessStatus = SeamlessStatus.Unknown) }
+                        session.reportStatus(snapshot, SeamlessStatus.Unknown)
                         _seamlessState.update { it.copy(info = null, error = strings.get(R.string.seamless_session_expired)) }
-                        return@withLock
+                        return@withSession
                     }
                     val result = selfService.performSeamlessAction(info, action)
-                    if (epoch != seamlessEpoch) return@withLock
+                    if (epoch != seamlessEpoch || !session.isCurrent(snapshot)) return@withSession
                     refreshNetwork = action !is SeamlessAction.Bind && result !is SeamlessActionResult.Failure
                     val message = when (result) {
                         SeamlessActionResult.Success -> strings.get(R.string.seamless_operation_success)
@@ -127,7 +120,7 @@ internal class SeamlessCoordinator(
                         is SeamlessActionResult.Indeterminate -> result.message
                     }
                     _seamlessState.update { it.copy(operationMessage = message) }
-                    loadSeamlessLocked(info.username, epoch)
+                    loadSeamlessLocked(snapshot, epoch)
                 }
             } catch (error: CancellationException) {
                 throw error
