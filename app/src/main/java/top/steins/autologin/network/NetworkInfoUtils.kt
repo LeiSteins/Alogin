@@ -62,8 +62,8 @@ sealed interface WifiScanOutcome {
     data class Failure(val message: String) : WifiScanOutcome
 }
 
-fun formatFlowMb(flowMb: String): String {
-    val value = flowMb.trim()
+fun formatTrafficMegabytes(trafficMegabytes: String): String {
+    val value = trafficMegabytes.trim()
     val mb = value.toDoubleOrNull()
         ?: return if (value.contains("MB", ignoreCase = true)) value else "$value MB"
     return when {

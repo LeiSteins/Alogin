@@ -28,7 +28,7 @@ class WifiConfigScreenTest {
             compose.setContent {
                 AloginTheme(darkTheme = false) {
                     WifiConfigScreen(
-                        targetWifis = listOf("Campus-A", "Campus-B"),
+                        targetSsids = listOf("Campus-A", "Campus-B"),
                         onAddTargetWifi = {},
                         onRemoveTargetWifi = {},
                         onShowToast = {},
@@ -58,7 +58,7 @@ class WifiConfigScreenTest {
         compose.setContent {
             AloginTheme(darkTheme = false) {
                 WifiConfigScreen(
-                    targetWifis = wifis.value,
+                    targetSsids = wifis.value,
                     onAddTargetWifi = {},
                     onRemoveTargetWifi = { ssid ->
                         removed.add(ssid)

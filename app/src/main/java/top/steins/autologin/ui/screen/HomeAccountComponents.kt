@@ -109,9 +109,9 @@ internal fun AccountInfoCard(
                             username = currentOverview.username,
                             remainingMoneyYuan = currentOverview.remainingMoneyYuan
                         )
-                        FlowUsageSection(
-                            usedFlowMb = currentOverview.usedFlowMb,
-                            remainingFlowMb = currentOverview.remainingFlowMb
+                        TrafficUsageSection(
+                            usedTrafficMegabytes = currentOverview.usedTrafficMegabytes,
+                            remainingTrafficMegabytes = currentOverview.remainingTrafficMegabytes
                         )
                     }
 
@@ -168,8 +168,8 @@ internal fun AccountInfoCard(
 }
 
 @Composable
-private fun FlowUsageSection(usedFlowMb: String, remainingFlowMb: String) {
-    val usageFraction = calculateFlowUsageFraction(usedFlowMb, remainingFlowMb)
+private fun TrafficUsageSection(usedTrafficMegabytes: String, remainingTrafficMegabytes: String) {
+    val usageFraction = calculateTrafficUsageFraction(usedTrafficMegabytes, remainingTrafficMegabytes)
 
     Spacer(modifier = Modifier.height(12.dp))
     Row(
@@ -203,12 +203,12 @@ private fun FlowUsageSection(usedFlowMb: String, remainingFlowMb: String) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
-            text = stringResource(R.string.home_flow_used, usedFlowMb.toDisplayFlow()),
+            text = stringResource(R.string.home_flow_used, usedTrafficMegabytes.toDisplayTraffic()),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Text(
-            text = stringResource(R.string.home_flow_remaining, remainingFlowMb.toDisplayFlow()),
+            text = stringResource(R.string.home_flow_remaining, remainingTrafficMegabytes.toDisplayTraffic()),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

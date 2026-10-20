@@ -24,7 +24,7 @@ import top.steins.autologin.data.CredentialSaveResult
 import top.steins.autologin.data.SettingsGateway
 import top.steins.autologin.data.WifiLoginMethod
 import top.steins.autologin.network.AccountOverviewResult
-import top.steins.autologin.network.DefaultNetworkChange
+import top.steins.autologin.network.CampusNetworkChange
 import top.steins.autologin.network.DeviceLogoutResult
 import top.steins.autologin.network.HttpLogEntry
 import top.steins.autologin.network.HttpLogStorage
@@ -54,9 +54,9 @@ class AppViewModel(
 ) : ViewModel() {
 
     val accounts = settings.accounts
-    val username: StateFlow<String> = settings.username
+    val selectedAccountUsername: StateFlow<String> = settings.selectedAccountUsername
     val password: StateFlow<String> = settings.password
-    val targetWifis: StateFlow<List<String>> = settings.targetWifis
+    val targetSsids: StateFlow<List<String>> = settings.targetSsids
     val appearanceMode: StateFlow<AppearanceMode> = settings.appearanceMode
     val autoLoginOnStartup: StateFlow<Boolean> = settings.autoLoginOnStartup
     val httpLogEnabled: StateFlow<Boolean> = settings.httpLogEnabled
@@ -68,13 +68,13 @@ class AppViewModel(
     private var loginJob: Deferred<LoginResult>? = null
 
     private val _uiState = MutableStateFlow(
-        AppUiState(
+        HomeUiState(
             wifiName = strings.get(R.string.loading),
             ipAddress = strings.get(R.string.loading),
             hasLocationPermission = hasLocationPermission()
         )
     )
-    val uiState: StateFlow<AppUiState> = _uiState.asStateFlow()
+    val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
     private val _seamlessState = MutableStateFlow(SeamlessUiState())
     val seamlessState: StateFlow<SeamlessUiState> = _seamlessState.asStateFlow()
     private var seamlessEpoch = 0L
@@ -215,7 +215,7 @@ class AppViewModel(
     init {
         HttpLogStorage.setEnabled(httpLogEnabled.value)
 
-        network.observeDefaultNetworkChanges()
+        network.observeCampusNetworkChanges()
             .conflate()
             .collectInViewModel { change -> scheduleNetworkRefresh(change) }
 
@@ -351,12 +351,12 @@ class AppViewModel(
 
     fun downloadAvailableUpdate() = updateCoordinator.downloadAvailable()
 
-    private fun scheduleNetworkRefresh(change: DefaultNetworkChange) {
+    private fun scheduleNetworkRefresh(change: CampusNetworkChange) {
         networkRefreshDebounceJob?.cancel()
         networkRefreshDebounceJob = viewModelScope.launch {
             delay(NETWORK_REFRESH_DEBOUNCE_MS)
             startRefresh(
-                trigger = AccountInfoRefreshTrigger.DefaultNetworkChanged(change),
+                trigger = AccountInfoRefreshTrigger.CampusNetworkChanged(change),
                 clearSession = false,
                 attempts = NETWORK_REFRESH_ATTEMPTS,
                 initialDelayMs = 0
@@ -473,7 +473,7 @@ class AppViewModel(
                 LoginResult.Failure(strings.get(R.string.login_no_credentials))
             networkInfo.isCellular ->
                 LoginResult.Failure(strings.get(R.string.login_cellular_blocked))
-            !networkInfo.isWifi || networkInfo.wifiName !in settings.targetWifis.value ->
+            !networkInfo.isWifi || networkInfo.wifiName !in settings.targetSsids.value ->
                 LoginResult.Failure(strings.get(R.string.login_wrong_network))
             else -> network.performLogin(
                 username,
@@ -491,7 +491,7 @@ class AppViewModel(
         if (!startupAutoLoginPending) return RefreshAttemptOutcome.Complete
         startupAutoLoginPending = false
         if (!autoLoginOnStartup.value || !_uiState.value.hasLocationPermission ||
-            username.value.isBlank() || password.value.isBlank()
+            selectedAccountUsername.value.isBlank() || password.value.isBlank()
         ) {
             return RefreshAttemptOutcome.Complete
         }
@@ -568,7 +568,7 @@ class AppViewModel(
             settings.addAutoDetectedTargetWifi(networkInfo.wifiName)
         }
         val isTargetWifi = networkInfo.isWifi &&
-                networkInfo.wifiName in settings.targetWifis.value
+                networkInfo.wifiName in settings.targetSsids.value
 
         if (!isTargetWifi) {
             // 初次权限弹窗期间可能读不到 SSID，保留机会直到权限结果返回。
@@ -739,7 +739,7 @@ class AppViewModel(
         }
     }
 
-    private fun updateState(generation: Long, transform: AppUiState.() -> AppUiState) {
+    private fun updateState(generation: Long, transform: HomeUiState.() -> HomeUiState) {
         if (generation == refreshGeneration) {
             _uiState.update { it.transform() }
         }

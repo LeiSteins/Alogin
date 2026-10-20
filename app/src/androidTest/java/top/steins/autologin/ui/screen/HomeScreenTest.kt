@@ -37,8 +37,8 @@ class HomeScreenTest {
     private val otherDevice = AccountDevice("other", "00:11:22:33:44:66", "10.0.0.2")
     private val overview = AccountOverview(
         username = "alice",
-        usedFlowMb = "1024",
-        remainingFlowMb = "2048",
+        usedTrafficMegabytes = "1024",
+        remainingTrafficMegabytes = "2048",
         remainingMoneyYuan = "20.00",
         devices = emptyList()
     )
@@ -150,7 +150,7 @@ class HomeScreenTest {
             .fetchSemanticsNode().positionInRoot.y
         compose.mainClock.autoAdvance = false
         try {
-            compose.onAllNodesWithContentDescription(context.getString(R.string.delete_device))
+            compose.onAllNodesWithContentDescription(context.getString(R.string.logout_device))
                 .onFirst().performClick()
             compose.runOnIdle { assertEquals(1, refreshCount) }
             compose.onNodeWithText(currentDevice.macAddress).assertIsDisplayed()
@@ -262,7 +262,7 @@ class HomeScreenTest {
                     isDeviceListAvailable = state.value.isDeviceListAvailable,
                     canLogoutDevices = state.value.isDeviceListAvailable,
                     networkStatusError = "",
-                    targetWifis = listOf("Campus WiFi"),
+                    targetSsids = listOf("Campus WiFi"),
                     onRefreshAccountInfo = {},
                     onCheckNetworkStatus = {},
                     onRetryAccountInfo = onRetry,

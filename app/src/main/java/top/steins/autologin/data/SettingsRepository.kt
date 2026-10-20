@@ -47,10 +47,10 @@ interface SettingsGateway {
     /** 在后台完成凭据读取与迁移；认证前必须等待初始化。 */
     suspend fun initialize() = Unit
 
-    val targetWifis: StateFlow<List<String>>
+    val targetSsids: StateFlow<List<String>>
     val targetWifiConfigChanges: SharedFlow<TargetWifiConfigChange>
     val accounts: StateFlow<List<SavedAccount>>
-    val username: StateFlow<String>
+    val selectedAccountUsername: StateFlow<String>
     val password: StateFlow<String>
     val appearanceMode: StateFlow<AppearanceMode>
     val autoLoginOnStartup: StateFlow<Boolean>
@@ -105,8 +105,8 @@ class SettingsRepository(context: Context) : SettingsGateway {
     )
     private val credentialCipher = CredentialCipher(appContext)
 
-    private val _targetWifis = MutableStateFlow(getTargetWifis())
-    override val targetWifis: StateFlow<List<String>> = _targetWifis.asStateFlow()
+    private val _targetSsids = MutableStateFlow(getTargetSsids())
+    override val targetSsids: StateFlow<List<String>> = _targetSsids.asStateFlow()
 
     // 自动识别发生在当前刷新任务内，无需再次刷新；这里只通知手动配置变更。
     private val _targetWifiConfigChanges = MutableSharedFlow<TargetWifiConfigChange>(
@@ -127,8 +127,8 @@ class SettingsRepository(context: Context) : SettingsGateway {
     private var savedAccounts = SavedAccounts()
     private val _accounts = MutableStateFlow(savedAccounts.accounts)
     override val accounts: StateFlow<List<SavedAccount>> = _accounts.asStateFlow()
-    private val _username = MutableStateFlow(savedAccounts.active?.username.orEmpty())
-    override val username: StateFlow<String> = _username.asStateFlow()
+    private val _selectedAccountUsername = MutableStateFlow(savedAccounts.active?.username.orEmpty())
+    override val selectedAccountUsername: StateFlow<String> = _selectedAccountUsername.asStateFlow()
     private val _password = MutableStateFlow(savedAccounts.active?.password.orEmpty())
     override val password: StateFlow<String> = _password.asStateFlow()
 
@@ -155,7 +155,7 @@ class SettingsRepository(context: Context) : SettingsGateway {
     private val _httpLogEnabled = MutableStateFlow(prefs.getBoolean(KEY_HTTP_LOG_ENABLED, false))
     override val httpLogEnabled: StateFlow<Boolean> = _httpLogEnabled.asStateFlow()
 
-    private fun getTargetWifis(): List<String> {
+    private fun getTargetSsids(): List<String> {
         val serialized = prefs.getString(KEY_TARGET_WIFIS, null) ?: return listOf(DEFAULT_WIFI)
         TargetWifiCodec.decode(serialized)?.let(::normalizeWifiList)?.let { return it }
 
@@ -176,8 +176,8 @@ class SettingsRepository(context: Context) : SettingsGateway {
 
     override fun addTargetWifi(ssid: String) {
         val trimmed = ssid.trim()
-        if (trimmed.isEmpty() || trimmed in _targetWifis.value) return
-        persistWifis(_targetWifis.value + trimmed)
+        if (trimmed.isEmpty() || trimmed in _targetSsids.value) return
+        persistTargetSsids(_targetSsids.value + trimmed)
         _targetWifiConfigChanges.tryEmit(
             TargetWifiConfigChange(TargetWifiConfigChangeType.ADDED, trimmed)
         )
@@ -189,35 +189,35 @@ class SettingsRepository(context: Context) : SettingsGateway {
      */
     override fun addAutoDetectedTargetWifi(ssid: String): Boolean {
         val trimmed = ssid.trim()
-        if (!isBjutDormitoryWifi(trimmed) || trimmed in _targetWifis.value) return false
-        persistWifis(_targetWifis.value + trimmed)
+        if (!isBjutDormitoryWifi(trimmed) || trimmed in _targetSsids.value) return false
+        persistTargetSsids(_targetSsids.value + trimmed)
         return true
     }
 
     override fun removeTargetWifi(ssid: String) {
-        val updatedWifis = _targetWifis.value.filterNot { it == ssid }
-        if (updatedWifis == _targetWifis.value) return
-        persistWifis(updatedWifis)
+        val updatedSsids = _targetSsids.value.filterNot { it == ssid }
+        if (updatedSsids == _targetSsids.value) return
+        persistTargetSsids(updatedSsids)
         prefs.edit().remove(KEY_WIFI_LOGIN_METHOD_PREFIX + ssid).apply()
         _targetWifiConfigChanges.tryEmit(
             TargetWifiConfigChange(TargetWifiConfigChangeType.REMOVED, ssid)
         )
     }
 
-    private fun persistWifis(list: List<String>) {
+    private fun persistTargetSsids(list: List<String>) {
         val normalized = normalizeWifiList(list)
         prefs.edit().putString(KEY_TARGET_WIFIS, TargetWifiCodec.encode(normalized)).apply()
-        _targetWifis.value = normalized
+        _targetSsids.value = normalized
     }
 
     override fun getWifiLoginMethod(ssid: String): WifiLoginMethod? {
-        if (ssid !in _targetWifis.value) return null
+        if (ssid !in _targetSsids.value) return null
         val stored = prefs.getString(KEY_WIFI_LOGIN_METHOD_PREFIX + ssid, null)
         return WifiLoginMethod.entries.firstOrNull { it.storageValue == stored }
     }
 
     override fun saveWifiLoginMethod(ssid: String, method: WifiLoginMethod) {
-        if (ssid !in _targetWifis.value || getWifiLoginMethod(ssid) == method) return
+        if (ssid !in _targetSsids.value || getWifiLoginMethod(ssid) == method) return
         prefs.edit().putString(KEY_WIFI_LOGIN_METHOD_PREFIX + ssid, method.storageValue).apply()
     }
 
@@ -286,7 +286,7 @@ class SettingsRepository(context: Context) : SettingsGateway {
     private fun publishAccounts(value: SavedAccounts) {
         savedAccounts = value
         _accounts.value = value.accounts
-        _username.value = value.active?.username.orEmpty()
+        _selectedAccountUsername.value = value.active?.username.orEmpty()
         _password.value = value.active?.password.orEmpty()
     }
 

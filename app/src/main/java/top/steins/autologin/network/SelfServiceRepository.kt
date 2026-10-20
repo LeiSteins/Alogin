@@ -35,8 +35,8 @@ data class AccountDevice(
 
 data class AccountOverview(
     val username: String,
-    val usedFlowMb: String,
-    val remainingFlowMb: String,
+    val usedTrafficMegabytes: String,
+    val remainingTrafficMegabytes: String,
     val remainingMoneyYuan: String,
     val devices: List<AccountDevice>
 )
@@ -114,7 +114,7 @@ class SelfServiceRepository internal constructor(
     @Volatile
     private var sessionNetwork: Network? = null
     private var sessionAccount: String? = null
-    private var sessionKey = 0L
+    private var sessionGeneration = 0L
 
     override suspend fun loadAccountOverview(
         lgnUsername: String
@@ -233,8 +233,8 @@ class SelfServiceRepository internal constructor(
                 AccountOverviewResult.Success(
                     AccountOverview(
                         username = userData.optString("userName").ifBlank { account },
-                        usedFlowMb = userData.optString("internetDownFlow"),
-                        remainingFlowMb = userData.optString("leftFlow"),
+                        usedTrafficMegabytes = userData.optString("internetDownFlow"),
+                        remainingTrafficMegabytes = userData.optString("leftFlow"),
                         remainingMoneyYuan = userData.optString("leftMoney"),
                         devices = deviceList.devices
                     ),
@@ -326,7 +326,7 @@ class SelfServiceRepository internal constructor(
     private fun clearSessionLocked() {
         sessionNetwork = null
         sessionAccount = null
-        sessionKey += 1
+        sessionGeneration += 1
         cookieJar.clear()
     }
 
@@ -360,7 +360,7 @@ class SelfServiceRepository internal constructor(
                     return@withLock SeamlessLoadResult.Failure(appContext.getString(R.string.seamless_session_expired))
                 }
                 SeamlessLoadResult.Success(SeamlessInfo(
-                    username, sessionKey, status, devices, statusError, devicesError
+                    username, sessionGeneration, status, devices, statusError, devicesError
                 ))
             }
         }
@@ -372,7 +372,7 @@ class SelfServiceRepository internal constructor(
         requestMutex.withLock {
             val network = sessionNetwork
             if (network == null || !campusNetwork.isCurrent(network) ||
-                sessionAccount != info.username.substringBefore("@").trim() || sessionKey != info.sessionKey
+                sessionAccount != info.username.substringBefore("@").trim() || sessionGeneration != info.sessionGeneration
             ) return@withLock SeamlessActionResult.Failure(appContext.getString(R.string.seamless_session_expired))
             seamlessService(clients.get(network), network).perform(action)
         }

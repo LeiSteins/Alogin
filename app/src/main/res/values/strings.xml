@@ -50,8 +50,8 @@
 
     <!-- 设备下线 -->
     <string name="current_device">本机</string>
-    <string name="delete_device">下线设备</string>
-    <string name="delete_device_success">已下线设备 %1$s</string>
+    <string name="logout_device">下线设备</string>
+    <string name="logout_device_success">已下线设备 %1$s</string>
 
     <!-- 设置页 -->
     <string name="settings_title">设置</string>

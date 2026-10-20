@@ -17,7 +17,7 @@ import androidx.compose.ui.unit.dp
 import java.util.Locale
 import top.steins.autologin.R
 import top.steins.autologin.network.AccountDevice
-import top.steins.autologin.network.formatFlowMb
+import top.steins.autologin.network.formatTrafficMegabytes
 import top.steins.autologin.ui.component.DeviceListCardContent
 import top.steins.autologin.ui.component.DeviceListEntry
 
@@ -27,7 +27,7 @@ internal fun DeviceListCard(
     localIpAddress: String,
     enabled: Boolean,
     showEmptyState: Boolean = true,
-    onDelete: (AccountDevice) -> Unit
+    onLogoutDevice: (AccountDevice) -> Unit
 ) {
     DeviceListCardContent(
         devices = devices.map { device ->
@@ -39,7 +39,7 @@ internal fun DeviceListCard(
                     device.ipAddress.ifBlank { stringResource(R.string.value_placeholder) }
                 ),
                 isCurrentDevice = device.isCurrentDevice(localIpAddress),
-                deleteDescription = stringResource(R.string.delete_device)
+                removeDeviceDescription = stringResource(R.string.logout_device)
             )
         },
         title = stringResource(R.string.home_online_devices),
@@ -47,7 +47,7 @@ internal fun DeviceListCard(
         animationDurationMillis = CardAnimationDurationMillis,
         enabled = enabled,
         showEmptyState = showEmptyState,
-        onDelete = { entry -> devices.find { it.sessionId == entry.id }?.let(onDelete) }
+        onRemoveDevice = { entry -> devices.find { it.sessionId == entry.id }?.let(onLogoutDevice) }
     )
 }
 
@@ -98,13 +98,13 @@ internal fun AccountDevice.isCurrentDevice(localIpAddress: String): Boolean =
     ipAddress.isNotBlank() && ipAddress.trim() == localIpAddress.trim()
 
 @Composable
-internal fun String.toDisplayFlow(): String =
-    takeIf { it.isNotBlank() }?.let(::formatFlowMb)
+internal fun String.toDisplayTraffic(): String =
+    takeIf { it.isNotBlank() }?.let(::formatTrafficMegabytes)
         ?: stringResource(R.string.value_placeholder)
 
-internal fun calculateFlowUsageFraction(usedFlow: String, remainingFlow: String): Float? {
-    val usedMb = usedFlow.toMegabytes() ?: return null
-    val remainingMb = remainingFlow.toMegabytes() ?: return null
+internal fun calculateTrafficUsageFraction(usedTraffic: String, remainingTraffic: String): Float? {
+    val usedMb = usedTraffic.toMegabytes() ?: return null
+    val remainingMb = remainingTraffic.toMegabytes() ?: return null
     val totalMb = usedMb + remainingMb
     if (totalMb <= 0.0) return null
     return (usedMb / totalMb).toFloat().coerceIn(0f, 1f)

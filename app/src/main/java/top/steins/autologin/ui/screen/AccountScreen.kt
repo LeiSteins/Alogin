@@ -45,7 +45,7 @@ import top.steins.autologin.ui.theme.ScreenHorizontalPadding
 
 @Composable
 fun AccountScreen(
-    username: String,
+    selectedAccountUsername: String,
     accounts: List<SavedAccount>,
     onSaveCredentials: suspend (String, String) -> CredentialSaveResult,
     onSelectAccount: suspend (String) -> CredentialSaveResult,
@@ -99,7 +99,7 @@ fun AccountScreen(
                             color = summaryTextColor
                         )
                         Text(
-                            username.ifBlank { stringResource(R.string.account_welcome) },
+                            selectedAccountUsername.ifBlank { stringResource(R.string.account_welcome) },
                             style = MaterialTheme.typography.headlineSmall,
                             fontWeight = FontWeight.Bold,
                             color = summaryTextColor
@@ -133,11 +133,11 @@ fun AccountScreen(
             }
             item(key = "accountList") {
                 AccountListCard(
-                    username = username,
+                    selectedAccountUsername = selectedAccountUsername,
                     accounts = accounts,
                     enabled = !isMutating,
                     onSelectAccount = { accountUsername ->
-                        if (accountUsername != username) {
+                        if (accountUsername != selectedAccountUsername) {
                             isMutating = true
                             scope.launch {
                                 try {

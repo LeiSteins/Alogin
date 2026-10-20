@@ -16,7 +16,7 @@ data class BoundDeviceList(val total: Int, val devices: List<BoundDevice>)
 
 data class SeamlessInfo(
     val username: String,
-    val sessionKey: Long,
+    val sessionGeneration: Long,
     val status: SeamlessStatus = SeamlessStatus.Unknown,
     val deviceList: BoundDeviceList? = null,
     val statusError: String = "",

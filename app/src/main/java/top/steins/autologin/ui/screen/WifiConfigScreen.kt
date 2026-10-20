@@ -67,7 +67,7 @@ import top.steins.autologin.ui.theme.appCardElevation
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WifiConfigScreen(
-    targetWifis: List<String>,
+    targetSsids: List<String>,
     onAddTargetWifi: (String) -> Unit,
     onRemoveTargetWifi: (String) -> Unit,
     onShowToast: (String) -> Unit,
@@ -80,7 +80,7 @@ fun WifiConfigScreen(
     var showScanSheet by remember { mutableStateOf(false) }
     val scanSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
     // 已有及显示过的行再次进入视口时，直接显示，避免重复播放新增动画。
-    val displayedSsids = remember { targetWifis.toMutableSet() }
+    val displayedSsids = remember { targetSsids.toMutableSet() }
     val wifiItemContainerColor = MaterialTheme.colorScheme.surfaceContainer
 
     fun addNewSsid() {
@@ -118,7 +118,7 @@ fun WifiConfigScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .then(if (targetWifis.isEmpty()) Modifier.fillParentMaxHeight() else Modifier),
+                            .then(if (targetSsids.isEmpty()) Modifier.fillParentMaxHeight() else Modifier),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         // 添加行
@@ -170,7 +170,7 @@ fun WifiConfigScreen(
                             textAlign = TextAlign.Start
                         )
 
-                        if (targetWifis.isEmpty()) {
+                        if (targetSsids.isEmpty()) {
                             Box(
                                 modifier = Modifier.fillMaxWidth().weight(1f),
                                 contentAlignment = Alignment.Center
@@ -185,7 +185,7 @@ fun WifiConfigScreen(
                     }
                 }
 
-                if (targetWifis.isNotEmpty()) {
+                if (targetSsids.isNotEmpty()) {
                     item(key = "wifiList") {
                         Card(
                             modifier = Modifier
@@ -196,7 +196,7 @@ fun WifiConfigScreen(
                             elevation = appCardElevation()
                         ) {
                             Column(modifier = Modifier.fillMaxWidth()) {
-                                targetWifis.forEach { ssid ->
+                                targetSsids.forEach { ssid ->
                                     key(ssid) {
                                         val initiallyVisible = remember { !displayedSsids.add(ssid) }
                                         TargetWifiRow(
@@ -227,7 +227,7 @@ fun WifiConfigScreen(
                 }
             ) {
                 WifiScanSheetContent(
-                    configuredSsids = targetWifis.toSet(),
+                    configuredSsids = targetSsids.toSet(),
                     onSelectWifi = { ssid ->
                         onAddTargetWifi(ssid)
                         showScanSheet = false

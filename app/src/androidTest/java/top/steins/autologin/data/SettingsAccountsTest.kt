@@ -42,7 +42,7 @@ class SettingsAccountsTest {
         val repository = SettingsRepository(context)
         assertTrue(repository.accounts.value.isEmpty())
         repository.initialize()
-        assertEquals("alice", repository.username.value)
+        assertEquals("alice", repository.selectedAccountUsername.value)
         assertEquals("legacy-secret", repository.password.value)
         assertFalse(secure.contains("username"))
         assertEquals(CredentialSaveResult.SAVED, repository.saveCredentials("bob", "second-secret"))
@@ -56,13 +56,13 @@ class SettingsAccountsTest {
         assertFalse(ciphertext.contains("alice"))
         assertFalse(ciphertext.contains("secret"))
         assertEquals(CredentialSaveResult.SAVED, restored.removeAccount("alice"))
-        assertEquals("bob", restored.username.value)
+        assertEquals("bob", restored.selectedAccountUsername.value)
         assertEquals("second-secret", restored.password.value)
         restored.removeAccount("bob")
         val empty = SettingsRepository(context)
         empty.initialize()
         assertTrue(empty.accounts.value.isEmpty())
-        assertEquals("", empty.username.value)
+        assertEquals("", empty.selectedAccountUsername.value)
         assertEquals("", empty.password.value)
     }
 
@@ -91,7 +91,7 @@ class SettingsAccountsTest {
         assertEquals(CredentialSaveResult.STORAGE_UNAVAILABLE, repository.saveCredentials("bob", "changed"))
         assertEquals(CredentialSaveResult.STORAGE_UNAVAILABLE, repository.selectAccount("alice"))
         assertEquals(CredentialSaveResult.STORAGE_UNAVAILABLE, repository.removeAccount("bob"))
-        assertEquals("bob", repository.username.value)
+        assertEquals("bob", repository.selectedAccountUsername.value)
         assertEquals("second", repository.password.value)
         assertEquals(SavedAccount("bob", "second"), repository.readActiveAccount())
         assertEquals(ciphertext, secure.getString("saved_accounts_v1", null))
@@ -108,7 +108,7 @@ class SettingsAccountsTest {
         var failWrites = true
         val repository = SettingsRepository(writeControlledContext { failWrites })
         repository.initialize()
-        assertEquals("alice", repository.username.value)
+        assertEquals("alice", repository.selectedAccountUsername.value)
         assertEquals("legacy", settings.getString("password", null))
         assertFalse(secure.contains("saved_accounts_v1"))
 

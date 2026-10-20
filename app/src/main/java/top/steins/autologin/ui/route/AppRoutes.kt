@@ -35,7 +35,7 @@ fun HomeRoute(
     onNavigateToSeamless: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val targetWifis by viewModel.targetWifis.collectAsStateWithLifecycle()
+    val targetSsids by viewModel.targetSsids.collectAsStateWithLifecycle()
 
     HomeScreen(
         wifiName = uiState.wifiName,
@@ -48,7 +48,7 @@ fun HomeRoute(
         isDeviceListAvailable = uiState.isDeviceListAvailable,
         canLogoutDevices = uiState.canLogoutDevices,
         networkStatusError = uiState.networkStatusError,
-        targetWifis = targetWifis,
+        targetSsids = targetSsids,
         onRefreshAccountInfo = viewModel::refreshAccountInfo,
         onCheckNetworkStatus = viewModel::refreshStatus,
         onRetryAccountInfo = viewModel::retryAccountInfo,
@@ -83,11 +83,11 @@ fun AccountRoute(
     toastState: CapsuleToastState,
     onNavigateBack: () -> Unit
 ) {
-    val username by viewModel.username.collectAsStateWithLifecycle()
+    val selectedAccountUsername by viewModel.selectedAccountUsername.collectAsStateWithLifecycle()
     val accounts by viewModel.accounts.collectAsStateWithLifecycle()
 
     AccountScreen(
-        username = username,
+        selectedAccountUsername = selectedAccountUsername,
         accounts = accounts,
         onSelectAccount = viewModel::selectAccount,
         onRemoveAccount = viewModel::removeAccount,
@@ -106,7 +106,7 @@ fun SettingsRoute(
     onNavigateToSoftwareSettings: () -> Unit,
     onNavigateToAbout: () -> Unit
 ) {
-    val targetWifis by viewModel.targetWifis.collectAsStateWithLifecycle()
+    val targetSsids by viewModel.targetSsids.collectAsStateWithLifecycle()
     val httpLogEnabled by viewModel.httpLogEnabled.collectAsStateWithLifecycle()
     val httpLogs by viewModel.httpLogs.collectAsStateWithLifecycle()
     val lifecycleState by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
@@ -114,7 +114,7 @@ fun SettingsRoute(
     var hasShownHttpLogEntry by rememberSaveable { mutableStateOf(httpLogEnabled) }
 
     SettingsScreen(
-        targetWifiCount = targetWifis.size,
+        targetWifiCount = targetSsids.size,
         httpLogEnabled = httpLogEnabled,
         logEntryCount = httpLogs.size,
         onNavigateBack = onNavigateBack,
@@ -196,10 +196,10 @@ fun WifiConfigRoute(
     toastState: CapsuleToastState,
     onNavigateBack: () -> Unit
 ) {
-    val targetWifis by viewModel.targetWifis.collectAsStateWithLifecycle()
+    val targetSsids by viewModel.targetSsids.collectAsStateWithLifecycle()
 
     WifiConfigScreen(
-        targetWifis = targetWifis,
+        targetSsids = targetSsids,
         onAddTargetWifi = viewModel::addTargetWifi,
         onRemoveTargetWifi = viewModel::removeTargetWifi,
         onShowToast = toastState::show,

@@ -2,7 +2,7 @@ package top.steins.autologin
 
 import top.steins.autologin.data.TargetWifiConfigChange
 import top.steins.autologin.data.TargetWifiConfigChangeType
-import top.steins.autologin.network.DefaultNetworkChange
+import top.steins.autologin.network.CampusNetworkChange
 
 internal enum class RefreshAttemptOutcome {
     Complete,
@@ -14,13 +14,13 @@ internal enum class RefreshAttemptOutcome {
 internal sealed interface AccountInfoRefreshTrigger {
     fun description(strings: AppStrings, attempt: Int, totalAttempts: Int): String
 
-    data class DefaultNetworkChanged(val change: DefaultNetworkChange) : AccountInfoRefreshTrigger {
+    data class CampusNetworkChanged(val change: CampusNetworkChange) : AccountInfoRefreshTrigger {
         override fun description(strings: AppStrings, attempt: Int, totalAttempts: Int): String {
             val messageRes = when (change) {
-                DefaultNetworkChange.INITIAL -> R.string.refresh_trigger_initial
-                DefaultNetworkChange.IP_ADDRESS_CHANGED -> R.string.refresh_trigger_ip_changed
-                DefaultNetworkChange.SSID_CHANGED -> R.string.refresh_trigger_ssid_changed
-                DefaultNetworkChange.IP_ADDRESS_AND_SSID_CHANGED ->
+                CampusNetworkChange.INITIAL -> R.string.refresh_trigger_initial
+                CampusNetworkChange.IP_ADDRESS_CHANGED -> R.string.refresh_trigger_ip_changed
+                CampusNetworkChange.SSID_CHANGED -> R.string.refresh_trigger_ssid_changed
+                CampusNetworkChange.IP_ADDRESS_AND_SSID_CHANGED ->
                     R.string.refresh_trigger_ip_ssid_changed
             }
             return strings.get(messageRes)

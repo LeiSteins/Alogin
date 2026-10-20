@@ -96,7 +96,7 @@ fun HomeScreen(
     isDeviceListAvailable: Boolean,
     canLogoutDevices: Boolean,
     networkStatusError: String,
-    targetWifis: List<String>,
+    targetSsids: List<String>,
     onRefreshAccountInfo: () -> Unit,
     onCheckNetworkStatus: () -> Unit,
     onRetryAccountInfo: () -> Unit,
@@ -114,7 +114,7 @@ fun HomeScreen(
     val hapticFeedback = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
 
-    var isDeletingDevice by remember { mutableStateOf(false) }
+    var isLoggingOutDevice by remember { mutableStateOf(false) }
     val currentOnlineContent = HomeOnlineContent(
         accountOverview, accountInfoError, isDeviceListAvailable, wifiName, ipAddress, seamlessStatus
     )
@@ -145,7 +145,7 @@ fun HomeScreen(
     // 离线确认会清空业务状态；保留完整在线快照，直到行删除和卡片退场全部完成。
     val contentForCards = if (isOnline) currentOnlineContent else lastOnlineContent
     val overviewForCards = contentForCards.overview
-    val isTargetWifi = targetWifis.contains(wifiName)
+    val isTargetWifi = targetSsids.contains(wifiName)
     val renderNetworkCard = presentationStage == HomePresentationStage.Offline ||
             presentationStage == HomePresentationStage.HidingNetwork
     val onlineContentVisible = presentationStage == HomePresentationStage.Online ||
@@ -285,7 +285,7 @@ fun HomeScreen(
                         else -> stringResource(R.string.home_primary_refresh)
                     },
                     isLoading = isLoggingIn || isAccountInfoLoading,
-                    enabled = !isLoggingIn && !isAccountInfoLoading && !isDeletingDevice &&
+                    enabled = !isLoggingIn && !isAccountInfoLoading && !isLoggingOutDevice &&
                             !isGoingOffline,
                     onClick = {
                         hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
@@ -351,11 +351,11 @@ fun HomeScreen(
                                 DeviceListCard(
                                     devices = devicesForCards,
                                     localIpAddress = contentForCards.ipAddress,
-                                    enabled = isOnline && !isDeletingDevice && canLogoutDevices,
+                                    enabled = isOnline && !isLoggingOutDevice && canLogoutDevices,
                                     showEmptyState = isOnline,
-                                    onDelete = { device ->
+                                    onLogoutDevice = { device ->
                                         hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
-                                        isDeletingDevice = true
+                                        isLoggingOutDevice = true
                                         scope.launch {
                                             try {
                                                 when (
@@ -368,7 +368,7 @@ fun HomeScreen(
                                                     DeviceLogoutResult.Success -> {
                                                         onShowToast(
                                                             resources.getString(
-                                                                R.string.delete_device_success,
+                                                                R.string.logout_device_success,
                                                                 device.macAddress
                                                             )
                                                         )
@@ -385,7 +385,7 @@ fun HomeScreen(
                                                     }
                                                 }
                                             } finally {
-                                                isDeletingDevice = false
+                                                isLoggingOutDevice = false
                                             }
                                         }
                                     }

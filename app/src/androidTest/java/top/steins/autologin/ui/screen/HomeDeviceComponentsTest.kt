@@ -33,7 +33,7 @@ class HomeDeviceComponentsTest {
                         devices = listOf(firstDevice, secondDevice),
                         localIpAddress = firstDevice.ipAddress,
                         enabled = true,
-                        onDelete = {}
+                        onLogoutDevice = {}
                     )
                 }
             }
@@ -51,7 +51,7 @@ class HomeDeviceComponentsTest {
     fun refreshingDevices_shrinksRemovedRowBeforeShowingEmptyState() {
         val devices = mutableStateOf(listOf(firstDevice, secondDevice))
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val deleteDescription = context.getString(R.string.delete_device)
+        val removeDeviceDescription = context.getString(R.string.logout_device)
         val emptyMessage = context.getString(R.string.home_no_devices)
         compose.setContent {
             AloginTheme(darkTheme = false) {
@@ -59,7 +59,7 @@ class HomeDeviceComponentsTest {
                     devices = devices.value,
                     localIpAddress = firstDevice.ipAddress,
                     enabled = true,
-                    onDelete = {}
+                    onLogoutDevice = {}
                 )
             }
         }
@@ -70,7 +70,7 @@ class HomeDeviceComponentsTest {
             compose.mainClock.advanceTimeBy(125)
             val intermediateTop = secondRowTop()
             assertTrue(intermediateTop < initialTop)
-            compose.onAllNodesWithContentDescription(deleteDescription).onFirst()
+            compose.onAllNodesWithContentDescription(removeDeviceDescription).onFirst()
                 .assertIsNotEnabled()
             compose.mainClock.advanceTimeBy(1_000)
             compose.onNodeWithText(firstDevice.macAddress).assertDoesNotExist()
@@ -96,7 +96,7 @@ class HomeDeviceComponentsTest {
                     devices = devices.value,
                     localIpAddress = firstDevice.ipAddress,
                     enabled = true,
-                    onDelete = {}
+                    onLogoutDevice = {}
                 )
             }
         }

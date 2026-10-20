@@ -64,10 +64,10 @@ fun SeamlessLoginScreen(
     val info = state.info
     val list = info?.deviceList
     val switchLabel = stringResource(R.string.seamless_title)
-    var showEditor by rememberSaveable(info?.username, info?.sessionKey) { mutableStateOf(false) }
-    var macInput by rememberSaveable(info?.username, info?.sessionKey) { mutableStateOf("") }
-    var invalidMac by rememberSaveable(info?.username, info?.sessionKey) { mutableStateOf(false) }
-    var pendingAction by remember(info?.username, info?.sessionKey) { mutableStateOf<SeamlessAction?>(null) }
+    var showEditor by rememberSaveable(info?.username, info?.sessionGeneration) { mutableStateOf(false) }
+    var macInput by rememberSaveable(info?.username, info?.sessionGeneration) { mutableStateOf("") }
+    var invalidMac by rememberSaveable(info?.username, info?.sessionGeneration) { mutableStateOf(false) }
+    var pendingAction by remember(info?.username, info?.sessionGeneration) { mutableStateOf<SeamlessAction?>(null) }
     val lowerCardsVisible = list != null
     var retainedInfo by remember { mutableStateOf(info) }
     var retainLowerCards by remember { mutableStateOf(lowerCardsVisible) }
@@ -156,7 +156,7 @@ fun SeamlessLoginScreen(
                                         isCurrentDevice = device.isOnline == true &&
                                             device.lastLoginIp.isNotBlank() &&
                                             device.lastLoginIp.trim() == localIpAddress.trim(),
-                                        deleteDescription = stringResource(R.string.seamless_unbind),
+                                        removeDeviceDescription = stringResource(R.string.seamless_unbind),
                                         statusText = stringResource(when (device.isOnline) {
                                             true -> R.string.seamless_online
                                             false -> R.string.seamless_offline
@@ -169,7 +169,7 @@ fun SeamlessLoginScreen(
                                 emptyText = stringResource(R.string.seamless_empty),
                                 animationDurationMillis = CardAnimationDurationMillis,
                                 enabled = state.canManage && lowerCardsVisible,
-                                onDelete = { pendingAction = SeamlessAction.Unbind(it.macAddress) }
+                                onRemoveDevice = { pendingAction = SeamlessAction.Unbind(it.macAddress) }
                             )
                         }
                     }

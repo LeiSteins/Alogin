@@ -11,7 +11,7 @@ import top.steins.autologin.data.WifiLoginMethod
  * 网络状态的入口抽象，把 ViewModel 与系统 API 解耦，便于单元测试注入替身。
  */
 interface NetworkEnvironment : AutoCloseable {
-    fun observeDefaultNetworkChanges(): Flow<DefaultNetworkChange>
+    fun observeCampusNetworkChanges(): Flow<CampusNetworkChange>
 
     fun fetchCurrentNetworkInfo(canReadWifiName: Boolean): CurrentNetworkInfo
 
@@ -45,7 +45,7 @@ class DefaultNetworkEnvironment internal constructor(
         createLoginClient(appContext, network)
     }
 
-    override fun observeDefaultNetworkChanges(): Flow<DefaultNetworkChange> =
+    override fun observeCampusNetworkChanges(): Flow<CampusNetworkChange> =
         campusNetwork.observeChanges()
 
     override fun fetchCurrentNetworkInfo(canReadWifiName: Boolean): CurrentNetworkInfo =
@@ -112,7 +112,7 @@ class DefaultNetworkEnvironment internal constructor(
     }
 }
 
-enum class DefaultNetworkChange {
+enum class CampusNetworkChange {
     INITIAL,
     IP_ADDRESS_CHANGED,
     SSID_CHANGED,
@@ -125,19 +125,19 @@ internal data class NetworkRefreshSnapshot(
     val isSsidReadable: Boolean = true
 )
 
-internal fun detectDefaultNetworkChange(
+internal fun detectCampusNetworkChange(
     previous: NetworkRefreshSnapshot?,
     current: NetworkRefreshSnapshot
-): DefaultNetworkChange? {
-    if (previous == null) return DefaultNetworkChange.INITIAL
+): CampusNetworkChange? {
+    if (previous == null) return CampusNetworkChange.INITIAL
 
     val ipAddressChanged = previous.ipAddress != current.ipAddress
     val ssidChanged = previous.isSsidReadable && current.isSsidReadable &&
             previous.ssid != current.ssid
     return when {
-        ipAddressChanged && ssidChanged -> DefaultNetworkChange.IP_ADDRESS_AND_SSID_CHANGED
-        ipAddressChanged -> DefaultNetworkChange.IP_ADDRESS_CHANGED
-        ssidChanged -> DefaultNetworkChange.SSID_CHANGED
+        ipAddressChanged && ssidChanged -> CampusNetworkChange.IP_ADDRESS_AND_SSID_CHANGED
+        ipAddressChanged -> CampusNetworkChange.IP_ADDRESS_CHANGED
+        ssidChanged -> CampusNetworkChange.SSID_CHANGED
         else -> null
     }
 }

@@ -49,7 +49,7 @@ private const val AccountRowAnimationDurationMillis = 250
 
 @Composable
 internal fun AccountListCard(
-    username: String,
+    selectedAccountUsername: String,
     accounts: List<SavedAccount>,
     enabled: Boolean,
     onSelectAccount: (String) -> Unit,
@@ -103,7 +103,7 @@ internal fun AccountListCard(
                     ) {
                         AccountListRow(
                             account = account,
-                            isActive = account.username == username,
+                            isActive = account.username == selectedAccountUsername,
                             enabled = enabled && visible,
                             onSelect = { onSelectAccount(account.username) },
                             onEdit = { onEditAccount(account) }

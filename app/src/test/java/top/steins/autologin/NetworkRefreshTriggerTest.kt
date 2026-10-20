@@ -3,9 +3,9 @@ package top.steins.autologin
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
-import top.steins.autologin.network.DefaultNetworkChange
+import top.steins.autologin.network.CampusNetworkChange
 import top.steins.autologin.network.NetworkRefreshSnapshot
-import top.steins.autologin.network.detectDefaultNetworkChange
+import top.steins.autologin.network.detectCampusNetworkChange
 
 class NetworkRefreshTriggerTest {
 
@@ -15,22 +15,22 @@ class NetworkRefreshTriggerTest {
     )
 
     @Test
-    fun detectDefaultNetworkChange_returnsInitialForFirstSnapshot() {
+    fun detectCampusNetworkChange_returnsInitialForFirstSnapshot() {
         assertEquals(
-            DefaultNetworkChange.INITIAL,
-            detectDefaultNetworkChange(previous = null, current = previous)
+            CampusNetworkChange.INITIAL,
+            detectCampusNetworkChange(previous = null, current = previous)
         )
     }
 
     @Test
-    fun detectDefaultNetworkChange_ignoresUnchangedSnapshot() {
-        assertNull(detectDefaultNetworkChange(previous, previous))
+    fun detectCampusNetworkChange_ignoresUnchangedSnapshot() {
+        assertNull(detectCampusNetworkChange(previous, previous))
     }
 
     @Test
-    fun detectDefaultNetworkChange_ignoresSsidWhenItWasNotReadable() {
+    fun detectCampusNetworkChange_ignoresSsidWhenItWasNotReadable() {
         assertNull(
-            detectDefaultNetworkChange(
+            detectCampusNetworkChange(
                 previous.copy(ssid = null, isSsidReadable = false),
                 previous
             )
@@ -38,24 +38,24 @@ class NetworkRefreshTriggerTest {
     }
 
     @Test
-    fun detectDefaultNetworkChange_reportsOnlyIpOrSsidChanges() {
+    fun detectCampusNetworkChange_reportsOnlyIpOrSsidChanges() {
         assertEquals(
-            DefaultNetworkChange.IP_ADDRESS_CHANGED,
-            detectDefaultNetworkChange(
+            CampusNetworkChange.IP_ADDRESS_CHANGED,
+            detectCampusNetworkChange(
                 previous,
                 previous.copy(ipAddress = "10.21.1.11")
             )
         )
         assertEquals(
-            DefaultNetworkChange.SSID_CHANGED,
-            detectDefaultNetworkChange(
+            CampusNetworkChange.SSID_CHANGED,
+            detectCampusNetworkChange(
                 previous,
                 previous.copy(ssid = "bjut_wifi_2")
             )
         )
         assertEquals(
-            DefaultNetworkChange.IP_ADDRESS_AND_SSID_CHANGED,
-            detectDefaultNetworkChange(
+            CampusNetworkChange.IP_ADDRESS_AND_SSID_CHANGED,
+            detectCampusNetworkChange(
                 previous,
                 NetworkRefreshSnapshot(ipAddress = "10.21.1.11", ssid = "bjut_wifi_2")
             )

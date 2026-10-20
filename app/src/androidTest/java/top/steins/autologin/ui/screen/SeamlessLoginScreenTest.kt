@@ -23,7 +23,7 @@ class SeamlessLoginScreenTest {
     @get:Rule val compose = createComposeRule()
 
     private fun state(count: Int = 3) = SeamlessUiState(info = SeamlessInfo(
-        username = "student", sessionKey = 1, status = SeamlessStatus.Enabled,
+        username = "student", sessionGeneration = 1, status = SeamlessStatus.Enabled,
         deviceList = BoundDeviceList(count, (1..count).map {
             BoundDevice("00:11:22:33:44:0$it", it == 1, "Android", "2026-10-20 09:00:00", "10.1.2.$it")
         })

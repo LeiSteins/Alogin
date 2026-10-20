@@ -25,7 +25,7 @@ internal data class CampusRoute(
  * 不要求 NET_CAPABILITY_VALIDATED：校园网在认证前通常尚未通过系统联网验证。
  */
 internal interface CampusNetworkProvider : AutoCloseable {
-    fun observeChanges(): Flow<DefaultNetworkChange>
+    fun observeChanges(): Flow<CampusNetworkChange>
 
     fun currentNetworkInfo(canReadWifiName: Boolean): CurrentNetworkInfo
 
@@ -47,7 +47,7 @@ internal class DefaultCampusNetworkProvider(context: Context) : CampusNetworkPro
     private val stateLock = Any()
     private val availableWifiNetworks = linkedSetOf<Network>()
     private val stateVersion = MutableStateFlow(0L)
-    private val networkChanges = MutableSharedFlow<DefaultNetworkChange>(
+    private val networkChanges = MutableSharedFlow<CampusNetworkChange>(
         replay = 1,
         extraBufferCapacity = 4
     )
@@ -105,7 +105,7 @@ internal class DefaultCampusNetworkProvider(context: Context) : CampusNetworkPro
         notifyNetworkStateChanged()
     }
 
-    override fun observeChanges(): Flow<DefaultNetworkChange> = networkChanges.asSharedFlow()
+    override fun observeChanges(): Flow<CampusNetworkChange> = networkChanges.asSharedFlow()
 
     override fun currentNetworkInfo(canReadWifiName: Boolean): CurrentNetworkInfo =
         getCurrentNetworkInfo(appContext, canReadWifiName, physicalWifiNetwork)
@@ -159,7 +159,7 @@ internal class DefaultCampusNetworkProvider(context: Context) : CampusNetworkPro
         )
 
         val change = synchronized(stateLock) {
-            detectDefaultNetworkChange(previousSnapshot, currentSnapshot).also {
+            detectCampusNetworkChange(previousSnapshot, currentSnapshot).also {
                 previousSnapshot = currentSnapshot
                 stateVersion.value += 1
             }

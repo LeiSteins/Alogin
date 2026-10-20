@@ -47,7 +47,7 @@ internal data class DeviceListEntry(
     val macAddress: String,
     val ipAddressLabel: String,
     val isCurrentDevice: Boolean,
-    val deleteDescription: String,
+    val removeDeviceDescription: String,
     val statusText: String? = null,
     val isOnline: Boolean = false
 )
@@ -60,7 +60,7 @@ internal fun DeviceListCardContent(
     animationDurationMillis: Int,
     enabled: Boolean,
     showEmptyState: Boolean = true,
-    onDelete: (DeviceListEntry) -> Unit
+    onRemoveDevice: (DeviceListEntry) -> Unit
 ) {
     var renderedDevices by remember { mutableStateOf(devices) }
     var isInitialComposition by remember { mutableStateOf(true) }
@@ -110,7 +110,7 @@ internal fun DeviceListCardContent(
                         initiallyVisible = isInitialComposition,
                         isCurrentDevice = device.isCurrentDevice,
                         enabled = enabled && visible,
-                        onDelete = { onDelete(device) },
+                        onRemoveDevice = { onRemoveDevice(device) },
                         onHidden = {
                             if (currentDevices.none { it.id == device.id }) {
                                 renderedDevices = renderedDevices.filterNot {
@@ -146,7 +146,7 @@ private fun AnimatedDeviceRow(
     initiallyVisible: Boolean,
     isCurrentDevice: Boolean,
     enabled: Boolean,
-    onDelete: () -> Unit,
+    onRemoveDevice: () -> Unit,
     onHidden: () -> Unit
 ) {
     val visibility = remember { MutableTransitionState(initiallyVisible) }
@@ -216,13 +216,13 @@ private fun AnimatedDeviceRow(
             }
             Spacer(modifier = Modifier.width(8.dp))
             IconButton(
-                onClick = onDelete,
+                onClick = onRemoveDevice,
                 enabled = enabled,
                 modifier = Modifier.size(48.dp)
             ) {
                 Icon(
                     painter = painterResource(R.drawable.delete),
-                    contentDescription = device.deleteDescription,
+                    contentDescription = device.removeDeviceDescription,
                     modifier = Modifier.size(24.dp),
                     tint = MaterialTheme.colorScheme.error
                 )

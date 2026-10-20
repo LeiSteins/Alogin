@@ -39,7 +39,7 @@ import top.steins.autologin.network.AccountDevice
 import top.steins.autologin.network.AccountOverview
 import top.steins.autologin.network.AccountOverviewResult
 import top.steins.autologin.network.CurrentNetworkInfo
-import top.steins.autologin.network.DefaultNetworkChange
+import top.steins.autologin.network.CampusNetworkChange
 import top.steins.autologin.network.DeviceLogoutResult
 import top.steins.autologin.network.HttpLogEntry
 import top.steins.autologin.network.HttpLogStorage
@@ -692,7 +692,7 @@ class AppViewModelTest {
             advanceUntilIdle()
 
             network.info = network.info.copy(wifiName = "bjut_wifi")
-            network.emitDefaultNetworkChange(DefaultNetworkChange.SSID_CHANGED)
+            network.emitCampusNetworkChange(CampusNetworkChange.SSID_CHANGED)
             advanceUntilIdle()
             assertEquals(0, network.loginCount)
         }
@@ -1013,7 +1013,7 @@ class AppViewModelTest {
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
             val viewModel = createOnlineViewModel()
             val original = viewModel.uiState.value
-            val refreshedOverview = original.accountOverview!!.copy(usedFlowMb = "200")
+            val refreshedOverview = original.accountOverview!!.copy(usedTrafficMegabytes = "200")
             network.info = network.info.copy(wifiName = "bjut-sushe-1", ipAddress = "10.1.2.4")
             network.loginStatusGate = CompletableDeferred()
             selfService.overviewGate = CompletableDeferred()
@@ -1134,7 +1134,7 @@ class AppViewModelTest {
         }
 
     @Test
-    fun defaultNetworkChange_retriesRetryableAccountFailure() =
+    fun campusNetworkChange_retriesRetryableAccountFailure() =
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
             network.info = CurrentNetworkInfo(
                 wifiName = "bjut_wifi",
@@ -1151,7 +1151,7 @@ class AppViewModelTest {
             selfService.overviewResults.add(AccountOverviewResult.Success(overview))
             val viewModel = createViewModel()
 
-            network.emitDefaultNetworkChange(DefaultNetworkChange.IP_ADDRESS_CHANGED)
+            network.emitCampusNetworkChange(CampusNetworkChange.IP_ADDRESS_CHANGED)
             advanceUntilIdle()
 
             assertEquals(2, selfService.overviewLoadCount)
@@ -1160,7 +1160,7 @@ class AppViewModelTest {
         }
 
     @Test
-    fun defaultNetworkChange_doesNotRetryNonRetryableAccountFailure() =
+    fun campusNetworkChange_doesNotRetryNonRetryableAccountFailure() =
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
             network.info = CurrentNetworkInfo(
                 wifiName = "bjut_wifi",
@@ -1176,7 +1176,7 @@ class AppViewModelTest {
             )
             val viewModel = createViewModel()
 
-            network.emitDefaultNetworkChange(DefaultNetworkChange.IP_ADDRESS_CHANGED)
+            network.emitCampusNetworkChange(CampusNetworkChange.IP_ADDRESS_CHANGED)
             advanceUntilIdle()
 
             assertEquals(1, selfService.overviewLoadCount)
@@ -1184,7 +1184,7 @@ class AppViewModelTest {
         }
 
     @Test
-    fun defaultNetworkChange_showsRetryableFailureAfterAttemptsAreExhausted() =
+    fun campusNetworkChange_showsRetryableFailureAfterAttemptsAreExhausted() =
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
             network.info = CurrentNetworkInfo(
                 wifiName = "bjut_wifi",
@@ -1200,7 +1200,7 @@ class AppViewModelTest {
             )
             val viewModel = createViewModel()
 
-            network.emitDefaultNetworkChange(DefaultNetworkChange.IP_ADDRESS_CHANGED)
+            network.emitCampusNetworkChange(CampusNetworkChange.IP_ADDRESS_CHANGED)
             advanceUntilIdle()
 
             assertEquals(AppViewModel.NETWORK_REFRESH_ATTEMPTS, selfService.overviewLoadCount)
@@ -1209,7 +1209,7 @@ class AppViewModelTest {
         }
 
     @Test
-    fun defaultNetworkChange_doesNotRetryConfirmedLoggedOutStatus() =
+    fun campusNetworkChange_doesNotRetryConfirmedLoggedOutStatus() =
         runTest(mainDispatcherRule.testDispatcher.scheduler) {
             network.info = CurrentNetworkInfo(
                 wifiName = "bjut_wifi",
@@ -1221,7 +1221,7 @@ class AppViewModelTest {
             network.loginStatus = LoginStatus(isLoggedIn = false)
             val viewModel = createViewModel()
 
-            network.emitDefaultNetworkChange(DefaultNetworkChange.IP_ADDRESS_CHANGED)
+            network.emitCampusNetworkChange(CampusNetworkChange.IP_ADDRESS_CHANGED)
             advanceUntilIdle()
 
             assertEquals(1, network.loginStatusFetchCount)
@@ -1580,7 +1580,7 @@ class AppViewModelTest {
         viewModel.login()
         assertEquals("alice" to "a", network.performedLogin)
         viewModel.removeAccount("alice")
-        assertEquals("", viewModel.username.value)
+        assertEquals("", viewModel.selectedAccountUsername.value)
         assertEquals("", viewModel.password.value)
     }
 
@@ -1666,7 +1666,7 @@ private class FakeSettingsGateway : SettingsGateway {
         wifiLoginMethods[ssid] = method
     }
     override suspend fun readActiveAccount(): top.steins.autologin.data.SavedAccount? =
-        username.value.takeIf { it.isNotBlank() }?.let {
+        selectedAccountUsername.value.takeIf { it.isNotBlank() }?.let {
             top.steins.autologin.data.SavedAccount(it, password.value)
         }
     override val autoLoginOnStartup = MutableStateFlow(false)
@@ -1683,15 +1683,15 @@ private class FakeSettingsGateway : SettingsGateway {
     }
     override suspend fun removeAccount(username: String): CredentialSaveResult {
         accounts.value = accounts.value.filterNot { it.username == username }
-        if (this.username.value == username) {
+        if (this.selectedAccountUsername.value == username) {
             val next = accounts.value.firstOrNull()
             setCredentials(next?.username.orEmpty(), next?.password.orEmpty())
         }
         return CredentialSaveResult.SAVED
     }
 
-    private val _targetWifis = MutableStateFlow(listOf("bjut_wifi"))
-    override val targetWifis: StateFlow<List<String>> = _targetWifis.asStateFlow()
+    private val _targetSsids = MutableStateFlow(listOf("bjut_wifi"))
+    override val targetSsids: StateFlow<List<String>> = _targetSsids.asStateFlow()
 
     private val _targetWifiConfigChanges = MutableSharedFlow<TargetWifiConfigChange>(
         extraBufferCapacity = 1
@@ -1699,8 +1699,8 @@ private class FakeSettingsGateway : SettingsGateway {
     override val targetWifiConfigChanges: SharedFlow<TargetWifiConfigChange> =
         _targetWifiConfigChanges.asSharedFlow()
 
-    private val _username = MutableStateFlow("")
-    override val username: StateFlow<String> = _username.asStateFlow()
+    private val _selectedAccountUsername = MutableStateFlow("")
+    override val selectedAccountUsername: StateFlow<String> = _selectedAccountUsername.asStateFlow()
 
     private val _password = MutableStateFlow("")
     override val password: StateFlow<String> = _password.asStateFlow()
@@ -1725,23 +1725,23 @@ private class FakeSettingsGateway : SettingsGateway {
     }
 
     fun setCredentials(username: String, password: String) {
-        _username.value = username
+        _selectedAccountUsername.value = username
         _password.value = password
     }
 
     override fun addAutoDetectedTargetWifi(ssid: String): Boolean {
         if (!ssid.startsWith("bjut-sushe-")) return false
-        if (ssid in _targetWifis.value) return false
-        _targetWifis.value += ssid
+        if (ssid in _targetSsids.value) return false
+        _targetSsids.value += ssid
         return true
     }
 
     override fun addTargetWifi(ssid: String) {
-        if (ssid !in _targetWifis.value) _targetWifis.value += ssid
+        if (ssid !in _targetSsids.value) _targetSsids.value += ssid
     }
 
     override fun removeTargetWifi(ssid: String) {
-        _targetWifis.value = _targetWifis.value.filterNot { it == ssid }
+        _targetSsids.value = _targetSsids.value.filterNot { it == ssid }
     }
 
     override suspend fun saveCredentials(username: String, password: String): CredentialSaveResult {
@@ -1833,7 +1833,7 @@ private class FakeSelfServiceGateway : SelfServiceGateway {
 private class FakeNetworkEnvironment : NetworkEnvironment {
     var loginGate: CompletableDeferred<Unit>? = null
     var loginStatusGate: CompletableDeferred<Unit>? = null
-    private val defaultNetworkChanges = MutableSharedFlow<DefaultNetworkChange>(
+    private val campusNetworkChanges = MutableSharedFlow<CampusNetworkChange>(
         extraBufferCapacity = 1
     )
     var info = CurrentNetworkInfo(
@@ -1855,10 +1855,10 @@ private class FakeNetworkEnvironment : NetworkEnvironment {
     var validatedInternet = false
     var loginStatusFetchCount = 0
 
-    override fun observeDefaultNetworkChanges(): Flow<DefaultNetworkChange> = defaultNetworkChanges
+    override fun observeCampusNetworkChanges(): Flow<CampusNetworkChange> = campusNetworkChanges
 
-    fun emitDefaultNetworkChange(change: DefaultNetworkChange) {
-        check(defaultNetworkChanges.tryEmit(change))
+    fun emitCampusNetworkChange(change: CampusNetworkChange) {
+        check(campusNetworkChanges.tryEmit(change))
     }
 
     override fun fetchCurrentNetworkInfo(canReadWifiName: Boolean): CurrentNetworkInfo = info
