@@ -32,6 +32,7 @@ import top.steins.autologin.ui.route.SoftwareSettingsRoute
 import top.steins.autologin.ui.route.SettingsRoute
 import top.steins.autologin.ui.route.UpdateMessageEffect
 import top.steins.autologin.ui.route.WifiConfigRoute
+import top.steins.autologin.ui.route.SeamlessLoginRoute
 
 private val NavigationAnimationSpec = spring<IntOffset>(
     dampingRatio = Spring.DampingRatioNoBouncy,
@@ -105,7 +106,8 @@ fun AppRoot(viewModel: AppViewModel) {
                     viewModel = viewModel,
                     toastState = toastState,
                     onNavigateToAccount = { navigateTo(AppDestination.Account) },
-                    onNavigateToSettings = { navigateTo(AppDestination.Settings) }
+                    onNavigateToSettings = { navigateTo(AppDestination.Settings) },
+                    onNavigateToSeamless = { navigateTo(AppDestination.SeamlessLogin) }
                 )
             }
 
@@ -115,6 +117,10 @@ fun AppRoot(viewModel: AppViewModel) {
                     toastState = toastState,
                     onNavigateBack = onNavigateBack
                 )
+            }
+
+            appComposable(AppDestination.SeamlessLogin, navController) { onNavigateBack ->
+                SeamlessLoginRoute(viewModel, onNavigateBack)
             }
 
             appComposable(AppDestination.Settings, navController) { onNavigateBack ->

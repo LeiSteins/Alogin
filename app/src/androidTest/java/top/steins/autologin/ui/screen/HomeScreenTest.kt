@@ -1,12 +1,16 @@
 package top.steins.autologin.ui.screen
 
+import android.graphics.Bitmap
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
@@ -17,7 +21,9 @@ import top.steins.autologin.R
 import top.steins.autologin.network.AccountDevice
 import top.steins.autologin.network.AccountOverview
 import top.steins.autologin.network.DeviceLogoutResult
+import top.steins.autologin.network.SeamlessStatus
 import top.steins.autologin.ui.theme.AloginTheme
+import java.io.File
 
 class HomeScreenTest {
     @get:Rule
@@ -55,6 +61,12 @@ class HomeScreenTest {
         compose.onNodeWithText(overview.username).assertIsDisplayed()
         compose.onNodeWithText(context.getString(R.string.home_money_yuan, "20.00"))
             .assertIsDisplayed()
+        InstrumentationRegistry.getArguments().getString("additionalTestOutputDir")?.let { path ->
+            val directory = File(path).apply { mkdirs() }
+            File(directory, "home-account-seamless-status.png").outputStream().use {
+                compose.onRoot().captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, it)
+            }
+        }
     }
 
     @Test
@@ -260,7 +272,8 @@ class HomeScreenTest {
                     onRefreshAfterIndeterminateDeviceLogout = {},
                     onShowToast = {},
                     onNavigateToAccount = {},
-                    onNavigateToSettings = {}
+                    onNavigateToSettings = {},
+                    seamlessStatus = SeamlessStatus.Enabled
                 )
             }
         }

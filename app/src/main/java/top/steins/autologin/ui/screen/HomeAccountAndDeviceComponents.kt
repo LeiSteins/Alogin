@@ -6,6 +6,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -25,10 +26,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import top.steins.autologin.R
 import top.steins.autologin.network.AccountOverview
+import top.steins.autologin.network.SeamlessStatus
 import top.steins.autologin.ui.component.AppearEasing
 import top.steins.autologin.ui.component.DismissEasing
 import top.steins.autologin.ui.theme.AppCardShape
@@ -38,7 +41,10 @@ import top.steins.autologin.ui.theme.appCardElevation
 internal fun AccountInfoCard(
     overview: AccountOverview?,
     errorMessage: String,
-    onRetry: () -> Unit
+    onRetry: () -> Unit,
+    seamlessStatus: SeamlessStatus,
+    onNavigateToSeamless: () -> Unit,
+    canNavigateToSeamless: Boolean
 ) {
     val hasError = errorMessage.isNotBlank()
     val contentState = AccountInfoContentState(
@@ -121,6 +127,40 @@ internal fun AccountInfoCard(
                             Text(stringResource(R.string.home_retry_fetch))
                         }
                     }
+                }
+            }
+            if (overview != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = stringResource(R.string.seamless_title),
+                        modifier = Modifier.alignByBaseline(),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = stringResource(
+                            when (seamlessStatus) {
+                                SeamlessStatus.Enabled -> R.string.seamless_enabled
+                                SeamlessStatus.Disabled -> R.string.seamless_disabled
+                                SeamlessStatus.Unknown -> R.string.value_placeholder
+                            }
+                        ),
+                        modifier = Modifier
+                            .alignByBaseline()
+                            .clip(RoundedCornerShape(4.dp))
+                            .clickable(
+                                enabled = canNavigateToSeamless,
+                                role = Role.Button,
+                                onClick = onNavigateToSeamless
+                            ),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = if (canNavigateToSeamless) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                    )
                 }
             }
         }

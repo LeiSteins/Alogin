@@ -13,4 +13,5 @@ sealed class AppDestination(val route: String) {
     data object About : AppDestination("about")
     data object Log : AppDestination("log")
     data object WifiConfig : AppDestination("wifi_config")
+    data object SeamlessLogin : AppDestination("seamless_login")
 }

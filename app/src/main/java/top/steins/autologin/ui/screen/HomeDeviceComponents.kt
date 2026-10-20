@@ -1,41 +1,16 @@
 package top.steins.autologin.ui.screen
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.MutableTransitionState
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -43,8 +18,8 @@ import java.util.Locale
 import top.steins.autologin.R
 import top.steins.autologin.network.AccountDevice
 import top.steins.autologin.network.formatFlowMb
-import top.steins.autologin.ui.theme.AppCardShape
-import top.steins.autologin.ui.theme.appCardElevation
+import top.steins.autologin.ui.component.DeviceListCardContent
+import top.steins.autologin.ui.component.DeviceListEntry
 
 @Composable
 internal fun DeviceListCard(
@@ -54,163 +29,26 @@ internal fun DeviceListCard(
     showEmptyState: Boolean = true,
     onDelete: (AccountDevice) -> Unit
 ) {
-    var renderedDevices by remember { mutableStateOf(devices) }
-    var isInitialComposition by remember { mutableStateOf(true) }
-    val currentDevices by rememberUpdatedState(devices)
-    SideEffect {
-        isInitialComposition = false
-    }
-
-    LaunchedEffect(devices) {
-        // 刷新后保留已移除的行，等收缩、淡出完成后再清理。
-        val updatedDevices = devices.toMutableList()
-        renderedDevices.forEachIndexed { index, device ->
-            if (devices.none { it.sessionId == device.sessionId }) {
-                updatedDevices.add(index.coerceAtMost(updatedDevices.size), device)
-            }
-        }
-        renderedDevices = updatedDevices
-    }
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = AppCardShape,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainer
-        ),
-        elevation = appCardElevation(),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 8.dp)
-        ) {
-            Text(
-                text = stringResource(R.string.home_online_devices),
-                modifier = Modifier.padding(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 8.dp),
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.Bold
+    DeviceListCardContent(
+        devices = devices.map { device ->
+            DeviceListEntry(
+                id = device.sessionId,
+                macAddress = device.macAddress,
+                ipAddressLabel = stringResource(
+                    R.string.home_device_ip,
+                    device.ipAddress.ifBlank { stringResource(R.string.value_placeholder) }
+                ),
+                isCurrentDevice = device.isCurrentDevice(localIpAddress),
+                deleteDescription = stringResource(R.string.delete_device)
             )
-            renderedDevices.forEach { device ->
-                key(device.sessionId) {
-                    val visible = devices.any { it.sessionId == device.sessionId }
-                    AnimatedDeviceRow(
-                        device = device,
-                        visible = visible,
-                        initiallyVisible = isInitialComposition,
-                        isCurrentDevice = device.isCurrentDevice(localIpAddress),
-                        enabled = enabled && visible,
-                        onDelete = { onDelete(device) },
-                        onHidden = {
-                            if (currentDevices.none { it.sessionId == device.sessionId }) {
-                                renderedDevices = renderedDevices.filterNot {
-                                    it.sessionId == device.sessionId
-                                }
-                            }
-                        }
-                    )
-                }
-            }
-            AnimatedVisibility(
-                visible = showEmptyState && renderedDevices.isEmpty(),
-                enter = expandVertically(tween(CardAnimationDurationMillis)) +
-                        fadeIn(tween(CardAnimationDurationMillis)),
-                exit = shrinkVertically(tween(CardAnimationDurationMillis)) +
-                        fadeOut(tween(CardAnimationDurationMillis))
-            ) {
-                Text(
-                    text = stringResource(R.string.home_no_devices),
-                    modifier = Modifier.padding(16.dp),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun AnimatedDeviceRow(
-    device: AccountDevice,
-    visible: Boolean,
-    initiallyVisible: Boolean,
-    isCurrentDevice: Boolean,
-    enabled: Boolean,
-    onDelete: () -> Unit,
-    onHidden: () -> Unit
-) {
-    val visibility = remember { MutableTransitionState(initiallyVisible) }
-    val currentOnHidden by rememberUpdatedState(onHidden)
-    LaunchedEffect(visible) {
-        visibility.targetState = visible
-    }
-    LaunchedEffect(visible, visibility.isIdle, visibility.currentState) {
-        if (!visible && visibility.isIdle && !visibility.currentState) {
-            currentOnHidden()
-        }
-    }
-
-    AnimatedVisibility(
-        visibleState = visibility,
-        enter = expandVertically(tween(CardAnimationDurationMillis)) +
-                fadeIn(tween(CardAnimationDurationMillis)),
-        exit = shrinkVertically(tween(CardAnimationDurationMillis)) +
-                fadeOut(tween(CardAnimationDurationMillis))
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                // 按钮触控区和图标画布已有留白，行尾不再叠加内边距。
-                .padding(start = 16.dp, top = 8.dp, bottom = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = device.macAddress,
-                        modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-                val deviceIp = device.ipAddress.ifBlank { stringResource(R.string.value_placeholder) }
-                Text(
-                    text = stringResource(R.string.home_device_ip, deviceIp),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            if (isCurrentDevice) {
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = stringResource(R.string.current_device),
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(MaterialTheme.colorScheme.primaryContainer)
-                        .padding(horizontal = 8.dp, vertical = 2.dp),
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-            }
-            Spacer(modifier = Modifier.width(8.dp))
-            IconButton(
-                onClick = onDelete,
-                enabled = enabled,
-                modifier = Modifier.size(48.dp)
-            ) {
-                Icon(
-                    painter = painterResource(R.drawable.delete),
-                    contentDescription = stringResource(R.string.delete_device),
-                    modifier = Modifier.size(24.dp),
-                    tint = MaterialTheme.colorScheme.error
-                )
-            }
-        }
-    }
+        },
+        title = stringResource(R.string.home_online_devices),
+        emptyText = stringResource(R.string.home_no_devices),
+        animationDurationMillis = CardAnimationDurationMillis,
+        enabled = enabled,
+        showEmptyState = showEmptyState,
+        onDelete = { entry -> devices.find { it.sessionId == entry.id }?.let(onDelete) }
+    )
 }
 
 @Composable

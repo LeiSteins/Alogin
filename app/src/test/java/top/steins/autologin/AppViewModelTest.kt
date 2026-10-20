@@ -47,6 +47,11 @@ import top.steins.autologin.network.LoginResult
 import top.steins.autologin.network.LoginStatus
 import top.steins.autologin.network.NetworkEnvironment
 import top.steins.autologin.network.SelfServiceGateway
+import top.steins.autologin.network.SeamlessAction
+import top.steins.autologin.network.SeamlessActionResult
+import top.steins.autologin.network.SeamlessInfo
+import top.steins.autologin.network.SeamlessLoadResult
+import top.steins.autologin.network.SeamlessStatus
 import top.steins.autologin.network.update.UpdateDownloadState
 import top.steins.autologin.network.update.UpdateDownloadFailure
 import top.steins.autologin.network.update.UpdateTransfer
@@ -120,6 +125,159 @@ class AppViewModelTest {
             )
         )
         return createViewModel().also { it.refreshStatus() }
+    }
+
+    @Test
+    fun seamlessQuery_usesAuthenticatedAccountRatherThanSelectedSavedAccount() = runTest {
+        settings.setCredentials("different-saved-account", "secret")
+        val viewModel = createOnlineViewModel()
+        advanceUntilIdle()
+        assertEquals("2021001", selfService.seamlessRequestedAccount)
+        assertEquals(SeamlessStatus.Enabled, viewModel.seamlessState.value.info?.status)
+    }
+
+    @Test
+    fun seamlessQueryFailure_doesNotHideAccountOverviewOrMarkNetworkOffline() = runTest {
+        selfService.seamlessLoadResult = SeamlessLoadResult.Failure("list unavailable")
+        val viewModel = createOnlineViewModel()
+        advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.isOnline)
+        assertEquals("2021001", viewModel.uiState.value.accountOverview?.username)
+        assertEquals("list unavailable", viewModel.seamlessState.value.error)
+        assertFalse(viewModel.seamlessState.value.canManage)
+        assertEquals(SeamlessStatus.Unknown, viewModel.uiState.value.seamlessStatus)
+    }
+
+    @Test
+    fun seamlessHomeStatus_fullRefreshKeepsLastValueUntilNewStatusArrives() = runTest {
+        val viewModel = createOnlineViewModel()
+        advanceUntilIdle()
+        assertEquals(SeamlessStatus.Enabled, viewModel.uiState.value.seamlessStatus)
+        val overviewGate = CompletableDeferred<Unit>()
+        val statusGate = CompletableDeferred<Unit>()
+        selfService.overviewGate = overviewGate
+        selfService.seamlessLoadGate = statusGate
+        selfService.seamlessLoadResult = SeamlessLoadResult.Success(SeamlessInfo("2021001", 2, SeamlessStatus.Disabled))
+
+        viewModel.refreshAccountInfo()
+        runCurrent()
+        assertEquals(SeamlessStatus.Enabled, viewModel.uiState.value.seamlessStatus)
+        assertNull(viewModel.seamlessState.value.info)
+        overviewGate.complete(Unit)
+        runCurrent()
+        assertTrue(viewModel.seamlessState.value.isLoading)
+        assertEquals(SeamlessStatus.Enabled, viewModel.uiState.value.seamlessStatus)
+
+        statusGate.complete(Unit)
+        advanceUntilIdle()
+        assertEquals(SeamlessStatus.Disabled, viewModel.uiState.value.seamlessStatus)
+    }
+
+    @Test
+    fun seamlessHomeStatus_queryFailureOrUnknownStatusDoesNotReplaceConfirmedValue() = runTest {
+        val viewModel = createOnlineViewModel()
+        advanceUntilIdle()
+        for (result in listOf(
+            SeamlessLoadResult.Failure("session unavailable"),
+            SeamlessLoadResult.Success(SeamlessInfo("2021001", 2, statusError = "status unavailable"))
+        )) {
+            selfService.seamlessLoadResult = result
+            viewModel.refreshAccountInfo()
+            advanceUntilIdle()
+            assertEquals(SeamlessStatus.Enabled, viewModel.uiState.value.seamlessStatus)
+        }
+    }
+
+    @Test
+    fun seamlessHomeStatus_portalQueryFailureKeepsPreviousAccountAndStatus() = runTest {
+        val viewModel = createOnlineViewModel()
+        advanceUntilIdle()
+        network.loginStatus = LoginStatus(isLoggedIn = false, error = "timeout")
+        viewModel.refreshAccountInfo()
+        advanceUntilIdle()
+        assertEquals("2021001", viewModel.uiState.value.accountOverview?.username)
+        assertEquals(SeamlessStatus.Enabled, viewModel.uiState.value.seamlessStatus)
+    }
+
+    @Test
+    fun seamlessHomeStatus_accountChangeClearsPreviousValueBeforeFetchingNewAccount() = runTest {
+        val viewModel = createOnlineViewModel()
+        advanceUntilIdle()
+        val gate = CompletableDeferred<Unit>()
+        selfService.overviewGate = gate
+        network.loginStatus = LoginStatus(isLoggedIn = true, uid = "another-account")
+        selfService.overviewResult = AccountOverviewResult.Success(AccountOverview("another-account", "0", "0", "0", emptyList()))
+        selfService.seamlessLoadResult = SeamlessLoadResult.Success(SeamlessInfo("another-account", 2, SeamlessStatus.Disabled))
+        viewModel.refreshAccountInfo()
+        runCurrent()
+        assertEquals(SeamlessStatus.Unknown, viewModel.uiState.value.seamlessStatus)
+        gate.complete(Unit)
+        advanceUntilIdle()
+        assertEquals("another-account", viewModel.uiState.value.accountOverview?.username)
+        assertEquals(SeamlessStatus.Disabled, viewModel.uiState.value.seamlessStatus)
+    }
+
+    @Test
+    fun seamlessMutation_rejectsRepeatedClicksAndReloadsAfterCompletion() = runTest {
+        val viewModel = createOnlineViewModel()
+        advanceUntilIdle()
+        val previousLoads = selfService.seamlessLoadCount
+        val gate = CompletableDeferred<Unit>()
+        selfService.seamlessActionGate = gate
+        val action = SeamlessAction.Bind("AABBCC112233", true)
+        viewModel.performSeamlessAction(action)
+        runCurrent()
+        viewModel.performSeamlessAction(action)
+        assertTrue(viewModel.seamlessState.value.isSubmitting)
+        assertEquals(1, selfService.seamlessActionCount)
+        gate.complete(Unit)
+        advanceUntilIdle()
+        assertFalse(viewModel.seamlessState.value.isSubmitting)
+        assertEquals(previousLoads + 1, selfService.seamlessLoadCount)
+    }
+
+    @Test
+    fun seamlessMutation_doesNotWriteWhenPortalAccountChanged() = runTest {
+        val viewModel = createOnlineViewModel()
+        advanceUntilIdle()
+        network.loginStatus = LoginStatus(isLoggedIn = true, uid = "another-account")
+        viewModel.performSeamlessAction(SeamlessAction.Toggle(SeamlessStatus.Enabled))
+        advanceUntilIdle()
+        assertEquals(0, selfService.seamlessActionCount)
+        assertNull(viewModel.seamlessState.value.info)
+        assertEquals(SeamlessStatus.Unknown, viewModel.uiState.value.seamlessStatus)
+    }
+
+    @Test
+    fun seamlessToggle_refreshesHomeWhenServerDisconnectsTheCurrentDevice() = runTest {
+        val viewModel = createOnlineViewModel()
+        advanceUntilIdle()
+        selfService.onSeamlessAction = { network.loginStatus = LoginStatus(isLoggedIn = false) }
+        viewModel.performSeamlessAction(SeamlessAction.Toggle(SeamlessStatus.Enabled))
+        advanceUntilIdle()
+        assertEquals(1, selfService.seamlessActionCount)
+        assertFalse(viewModel.uiState.value.isOnline)
+        assertNull(viewModel.uiState.value.accountOverview)
+        assertNull(viewModel.seamlessState.value.info)
+        assertEquals(SeamlessStatus.Unknown, viewModel.uiState.value.seamlessStatus)
+    }
+
+    @Test
+    fun seamlessNetworkChange_clearsOldAccountEvenWhenQueryWasPending() = runTest {
+        val viewModel = createOnlineViewModel()
+        advanceUntilIdle()
+        val gate = CompletableDeferred<Unit>()
+        selfService.seamlessLoadGate = gate
+        viewModel.refreshSeamlessInfo()
+        runCurrent()
+        network.info = network.info.copy(wifiName = "other-wifi")
+        viewModel.refreshStatus()
+        runCurrent()
+        gate.complete(Unit)
+        advanceUntilIdle()
+        assertNull(viewModel.seamlessState.value.info)
+        assertFalse(viewModel.seamlessState.value.canManage)
+        assertEquals(SeamlessStatus.Unknown, viewModel.uiState.value.seamlessStatus)
     }
 
     private fun createStartupViewModel(enabled: Boolean = true): AppViewModel {
@@ -1564,6 +1722,29 @@ private class FakeSettingsGateway : SettingsGateway {
 }
 
 private class FakeSelfServiceGateway : SelfServiceGateway {
+    var seamlessLoadGate: CompletableDeferred<Unit>? = null
+    var seamlessActionGate: CompletableDeferred<Unit>? = null
+    var seamlessLoadResult: SeamlessLoadResult = SeamlessLoadResult.Success(SeamlessInfo("2021001", 1, SeamlessStatus.Enabled))
+    var seamlessLoadCount = 0
+    var seamlessActionCount = 0
+    var seamlessRequestedAccount: String? = null
+    var lastSeamlessAction: SeamlessAction? = null
+    var onSeamlessAction: () -> Unit = {}
+
+    override suspend fun loadSeamlessInfo(username: String): SeamlessLoadResult {
+        seamlessLoadCount += 1
+        seamlessRequestedAccount = username
+        seamlessLoadGate?.await()
+        return seamlessLoadResult
+    }
+
+    override suspend fun performSeamlessAction(info: SeamlessInfo, action: SeamlessAction): SeamlessActionResult {
+        seamlessActionCount += 1
+        lastSeamlessAction = action
+        seamlessActionGate?.await()
+        onSeamlessAction()
+        return SeamlessActionResult.Success
+    }
     var overviewGate: CompletableDeferred<Unit>? = null
     var overviewResult: AccountOverviewResult = AccountOverviewResult.Failure("fail")
     val overviewResults = ArrayDeque<AccountOverviewResult>()

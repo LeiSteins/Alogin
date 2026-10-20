@@ -42,6 +42,25 @@ class HttpLogInterceptorTest {
     }
 
     @Test
+    fun interceptor_hidesDeviceTokensAndBodiesWithoutChangingActualTraffic() {
+        val responseBody = """{"total":1,"rows":[["1","AABBCC112233","phone","",""]]}"""
+        CapturingTestServer(responseBody.toByteArray(StandardCharsets.UTF_8)).use { server ->
+            val client = OkHttpClient.Builder().addInterceptor(HttpLogInterceptor(messages)).build()
+            client.newCall(Request.Builder()
+                .url("http://127.0.0.1:${server.port}/Self/service/bindMac?ajaxCsrfToken=private-token&mac=AABBCC112233")
+                .post("macAddress=AABBCC112233&ajaxCsrfToken=private-token".toRequestBody("application/x-www-form-urlencoded".toMediaType()))
+                .build()).execute().use { assertEquals(responseBody, it.body?.string()) }
+            server.awaitRequest()
+            val log = HttpLogStorage.logs.value.single()
+            assertFalse(log.url.contains("private-token"))
+            assertFalse(log.url.contains("AABBCC112233"))
+            assertFalse(log.requestBody.contains("private-token"))
+            assertFalse(log.requestBody.contains("AABBCC112233"))
+            assertFalse(log.responseBody.contains("AABBCC112233"))
+        }
+    }
+
+    @Test
     fun interceptor_whenDisabledPassesThroughWithoutRecording() {
         CapturingTestServer("ok".toByteArray(StandardCharsets.UTF_8)).use { server ->
             HttpLogStorage.setEnabled(false)

@@ -66,6 +66,10 @@ sealed interface DeviceLogoutResult {
 interface SelfServiceGateway : AutoCloseable {
     suspend fun loadAccountOverview(lgnUsername: String): AccountOverviewResult
 
+    suspend fun loadSeamlessInfo(username: String): SeamlessLoadResult
+
+    suspend fun performSeamlessAction(info: SeamlessInfo, action: SeamlessAction): SeamlessActionResult
+
     suspend fun logoutDevice(
         sessionId: String,
         ipAddress: String,
@@ -101,12 +105,16 @@ class SelfServiceRepository internal constructor(
             .callTimeout(CAMPUS_CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .followRedirects(true)
             .followSslRedirects(true)
+            // 开关和解绑使用 GET，连接中断后不能由 HTTP 客户端自动重发。
+            .retryOnConnectionFailure(false)
             .addInterceptor(HttpLogInterceptor(httpLogMessageProvider(appContext)))
             .build()
     }
 
     @Volatile
     private var sessionNetwork: Network? = null
+    private var sessionAccount: String? = null
+    private var sessionKey = 0L
 
     override suspend fun loadAccountOverview(
         lgnUsername: String
@@ -218,6 +226,7 @@ class SelfServiceRepository internal constructor(
                 }
                 stage = AccountOverviewLoadStage.BUILD_ACCOUNT_OVERVIEW
                 sessionNetwork = route.network
+                sessionAccount = account
                 val warnings = buildList {
                     if (!deviceList.isAvailable) add(deviceList.errorMessage)
                 }
@@ -316,8 +325,65 @@ class SelfServiceRepository internal constructor(
 
     private fun clearSessionLocked() {
         sessionNetwork = null
+        sessionAccount = null
+        sessionKey += 1
         cookieJar.clear()
     }
+
+    override suspend fun loadSeamlessInfo(username: String): SeamlessLoadResult =
+        withContext(Dispatchers.IO) {
+            requestMutex.withLock {
+                val network = sessionNetwork
+                if (network == null || !campusNetwork.isCurrent(network) || sessionAccount != username.substringBefore("@").trim()) {
+                    return@withLock SeamlessLoadResult.Failure(appContext.getString(R.string.seamless_session_expired))
+                }
+                val service = seamlessService(clients.get(network), network)
+                var statusError = ""
+                val status = try {
+                    service.readStatus()
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    statusError = error.toUserMessage(appContext, R.string.seamless_status_failed)
+                    SeamlessStatus.Unknown
+                }
+                var devicesError = ""
+                val devices = try {
+                    service.readDevices()
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    devicesError = error.toUserMessage(appContext, R.string.seamless_devices_failed)
+                    null
+                }
+                if (!campusNetwork.isCurrent(network)) {
+                    return@withLock SeamlessLoadResult.Failure(appContext.getString(R.string.seamless_session_expired))
+                }
+                SeamlessLoadResult.Success(SeamlessInfo(
+                    username, sessionKey, status, devices, statusError, devicesError
+                ))
+            }
+        }
+
+    override suspend fun performSeamlessAction(
+        info: SeamlessInfo,
+        action: SeamlessAction
+    ): SeamlessActionResult = withContext(Dispatchers.IO) {
+        requestMutex.withLock {
+            val network = sessionNetwork
+            if (network == null || !campusNetwork.isCurrent(network) ||
+                sessionAccount != info.username.substringBefore("@").trim() || sessionKey != info.sessionKey
+            ) return@withLock SeamlessActionResult.Failure(appContext.getString(R.string.seamless_session_expired))
+            seamlessService(clients.get(network), network).perform(action)
+        }
+    }
+
+    private fun seamlessService(client: OkHttpClient, network: Network) = SeamlessService(
+        execute = { execute(client, it).body },
+        isCurrent = { campusNetwork.isCurrent(network) },
+        message = { appContext.getString(it) },
+        userAgent = USER_AGENT
+    )
 
     override fun close() {
         clearSessionLocked()
@@ -369,6 +435,9 @@ class SelfServiceRepository internal constructor(
                 throw SelfServiceException(
                     appContext.getString(R.string.self_service_http_error, response.code)
                 )
+            }
+            if (response.request.url.encodedPath.startsWith("/Self/login")) {
+                throw SelfServiceException(appContext.getString(R.string.seamless_session_expired))
             }
             return HttpResponse(body)
         }

@@ -41,6 +41,7 @@ import kotlinx.coroutines.launch
 import top.steins.autologin.R
 import top.steins.autologin.network.AccountOverview
 import top.steins.autologin.network.DeviceLogoutResult
+import top.steins.autologin.network.SeamlessStatus
 import top.steins.autologin.ui.component.ScaleFadeBox
 import top.steins.autologin.ui.theme.ScreenHorizontalPadding
 import top.steins.autologin.ui.theme.TopBarHeight
@@ -60,7 +61,8 @@ private data class HomeOnlineContent(
     val errorMessage: String,
     val isDeviceListAvailable: Boolean,
     val wifiName: String,
-    val ipAddress: String
+    val ipAddress: String,
+    val seamlessStatus: SeamlessStatus
 )
 
 private suspend fun awaitCardAnimation() {
@@ -104,7 +106,9 @@ fun HomeScreen(
     onRefreshAfterIndeterminateDeviceLogout: () -> Unit,
     onShowToast: (String) -> Unit,
     onNavigateToAccount: () -> Unit,
-    onNavigateToSettings: () -> Unit
+    onNavigateToSettings: () -> Unit,
+    seamlessStatus: SeamlessStatus = SeamlessStatus.Unknown,
+    onNavigateToSeamless: () -> Unit = {}
 ) {
     val resources = LocalResources.current
     val hapticFeedback = LocalHapticFeedback.current
@@ -112,7 +116,7 @@ fun HomeScreen(
 
     var isDeletingDevice by remember { mutableStateOf(false) }
     val currentOnlineContent = HomeOnlineContent(
-        accountOverview, accountInfoError, isDeviceListAvailable, wifiName, ipAddress
+        accountOverview, accountInfoError, isDeviceListAvailable, wifiName, ipAddress, seamlessStatus
     )
     var lastOnlineContent by remember { mutableStateOf(currentOnlineContent) }
     var presentationStage by remember {
@@ -329,7 +333,10 @@ fun HomeScreen(
                             AccountInfoCard(
                                 overview = overviewForCards,
                                 errorMessage = contentForCards.errorMessage,
-                                onRetry = onRetryAccountInfo
+                                onRetry = onRetryAccountInfo,
+                                seamlessStatus = contentForCards.seamlessStatus,
+                                onNavigateToSeamless = onNavigateToSeamless,
+                                canNavigateToSeamless = isOnline
                             )
                         }
                     }

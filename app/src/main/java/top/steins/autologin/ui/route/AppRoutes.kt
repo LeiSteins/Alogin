@@ -1,6 +1,8 @@
 package top.steins.autologin.ui.route
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -20,6 +22,7 @@ import top.steins.autologin.ui.screen.LogScreen
 import top.steins.autologin.ui.screen.SoftwareSettingsScreen
 import top.steins.autologin.ui.screen.SettingsScreen
 import top.steins.autologin.ui.screen.WifiConfigScreen
+import top.steins.autologin.ui.screen.SeamlessLoginScreen
 
 /**
  * 各导航页面只订阅自己需要的状态，避免日志或凭据变化触发整个 NavHost 重组。
@@ -29,7 +32,8 @@ fun HomeRoute(
     viewModel: AppViewModel,
     toastState: CapsuleToastState,
     onNavigateToAccount: () -> Unit,
-    onNavigateToSettings: () -> Unit
+    onNavigateToSettings: () -> Unit,
+    onNavigateToSeamless: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val targetWifis by viewModel.targetWifis.collectAsStateWithLifecycle()
@@ -56,8 +60,24 @@ fun HomeRoute(
             viewModel::refreshAfterIndeterminateDeviceLogout,
         onShowToast = toastState::show,
         onNavigateToAccount = onNavigateToAccount,
-        onNavigateToSettings = onNavigateToSettings
+        onNavigateToSettings = onNavigateToSettings,
+        seamlessStatus = uiState.seamlessStatus,
+        onNavigateToSeamless = onNavigateToSeamless
     )
+}
+
+@Composable
+fun SeamlessLoginRoute(viewModel: AppViewModel, onNavigateBack: () -> Unit) {
+    val state by viewModel.seamlessState.collectAsStateWithLifecycle()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    var hasRequestedData by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        viewModel.refreshSeamlessInfo()
+        hasRequestedData = true
+    }
+    SeamlessLoginScreen(state.copy(isLoading = !hasRequestedData || state.isLoading),
+        viewModel::refreshAccountInfo, viewModel::performSeamlessAction, onNavigateBack,
+        localIpAddress = uiState.ipAddress)
 }
 
 @Composable

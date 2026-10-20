@@ -31,6 +31,10 @@ import top.steins.autologin.network.HttpLogStorage
 import top.steins.autologin.network.LoginResult
 import top.steins.autologin.network.NetworkEnvironment
 import top.steins.autologin.network.SelfServiceGateway
+import top.steins.autologin.network.SeamlessAction
+import top.steins.autologin.network.SeamlessActionResult
+import top.steins.autologin.network.SeamlessLoadResult
+import top.steins.autologin.network.SeamlessStatus
 import top.steins.autologin.network.update.UpdateGateway
 import top.steins.autologin.network.update.UpdateState
 
@@ -71,6 +75,107 @@ class AppViewModel(
         )
     )
     val uiState: StateFlow<AppUiState> = _uiState.asStateFlow()
+    private val _seamlessState = MutableStateFlow(SeamlessUiState())
+    val seamlessState: StateFlow<SeamlessUiState> = _seamlessState.asStateFlow()
+    private var seamlessEpoch = 0L
+    private var seamlessLoadJob: Job? = null
+    private var seamlessMutationJob: Job? = null
+
+    private fun invalidateSeamless() {
+        seamlessEpoch += 1
+        seamlessLoadJob?.cancel()
+        _seamlessState.value = SeamlessUiState(isSubmitting = seamlessMutationJob?.isActive == true)
+    }
+
+    fun refreshSeamlessInfo() {
+        if (seamlessMutationJob?.isActive == true || seamlessLoadJob?.isActive == true) return
+        if (_uiState.value.isAccountInfoLoading) return
+        val account = _uiState.value.accountOverview?.username
+        if (!_uiState.value.isOnline || account.isNullOrBlank()) {
+            _seamlessState.value = SeamlessUiState(error = strings.get(R.string.seamless_requires_login))
+            return
+        }
+        val epoch = seamlessEpoch
+        _seamlessState.update { it.copy(isLoading = true, error = "") }
+        seamlessLoadJob = viewModelScope.launch {
+            try {
+                accountOperationMutex.withLock {
+                    if (epoch == seamlessEpoch) loadSeamlessLocked(account, epoch)
+                }
+            } finally {
+                if (epoch == seamlessEpoch) _seamlessState.update { it.copy(isLoading = false) }
+            }
+        }
+    }
+
+    private suspend fun loadSeamlessLocked(account: String, epoch: Long) {
+        val result = selfService.loadSeamlessInfo(account)
+        if (epoch != seamlessEpoch) return
+        if (result is SeamlessLoadResult.Success && result.info.status != SeamlessStatus.Unknown &&
+            result.info.username.substringBefore("@").trim() == account.substringBefore("@").trim()
+        ) {
+            // 主页只保存服务端已确认的状态；刷新和失败不能覆盖上次有效结果。
+            _uiState.update {
+                if (it.isOnline && it.accountOverview?.username?.substringBefore("@")?.trim() == account.substringBefore("@").trim()) {
+                    it.copy(seamlessStatus = result.info.status)
+                } else it
+            }
+        }
+        _seamlessState.update {
+            when (result) {
+                is SeamlessLoadResult.Success -> it.copy(info = result.info, isLoading = false, error = "")
+                is SeamlessLoadResult.Failure -> it.copy(info = null, isLoading = false, error = result.message)
+            }
+        }
+    }
+
+    fun performSeamlessAction(action: SeamlessAction) {
+        val state = _seamlessState.value
+        val info = state.info ?: return
+        if (!state.canManage || seamlessMutationJob?.isActive == true) return
+        val epoch = seamlessEpoch
+        _seamlessState.update { it.copy(isSubmitting = true, operationMessage = "") }
+        // 操作由 ViewModel 持有；退出页面不会中断已经提交的请求。
+        seamlessMutationJob = viewModelScope.launch {
+            var refreshNetwork = false
+            try {
+                accountOperationMutex.withLock {
+                    if (epoch != seamlessEpoch) return@withLock
+                    val authenticated = network.fetchLoginStatus(
+                        preferredMethod = preferredWifiLoginMethod(_uiState.value.wifiName)
+                    )
+                    if (epoch != seamlessEpoch) return@withLock
+                    if (!authenticated.isLoggedIn || authenticated.uid.substringBefore("@").trim() != info.username.substringBefore("@").trim()) {
+                        _uiState.update { it.copy(seamlessStatus = SeamlessStatus.Unknown) }
+                        _seamlessState.update { it.copy(info = null, error = strings.get(R.string.seamless_session_expired)) }
+                        return@withLock
+                    }
+                    val result = selfService.performSeamlessAction(info, action)
+                    if (epoch != seamlessEpoch) return@withLock
+                    refreshNetwork = action !is SeamlessAction.Bind && result !is SeamlessActionResult.Failure
+                    val message = when (result) {
+                        SeamlessActionResult.Success -> strings.get(R.string.seamless_operation_success)
+                        is SeamlessActionResult.Failure -> result.message
+                        is SeamlessActionResult.Indeterminate -> result.message
+                    }
+                    _seamlessState.update { it.copy(operationMessage = message) }
+                    loadSeamlessLocked(info.username, epoch)
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                if (epoch == seamlessEpoch) _seamlessState.update {
+                    it.copy(operationMessage = strings.get(R.string.seamless_operation_failed))
+                }
+            } finally {
+                seamlessMutationJob = null
+                _seamlessState.update { it.copy(isSubmitting = false) }
+                // 关闭无感知或解绑当前设备可能让门户离线，需要同步主页认证状态。
+                if (epoch == seamlessEpoch && refreshNetwork) refreshStatus()
+                else if (epoch != seamlessEpoch) refreshSeamlessInfo()
+            }
+        }
+    }
 
     private val updateCoordinator = AppUpdateCoordinator(
         scope = viewModelScope,
@@ -263,6 +368,7 @@ class AppViewModel(
         knownLoggedIn: Boolean = false
     ) {
         refreshGeneration += 1
+        invalidateSeamless()
         val generation = refreshGeneration
         refreshJob?.cancel()
         refreshJob = viewModelScope.launch {
@@ -309,6 +415,7 @@ class AppViewModel(
 
     private fun beginLogin(): Deferred<LoginResult> {
         loginJob?.takeIf { it.isActive }?.let { return it }
+        invalidateSeamless()
         startupAutoLoginPending = false
         updateCoordinator.cancelForLogin()
         _uiState.update { it.copy(isLoggingIn = true, loginMessage = null) }
@@ -460,6 +567,7 @@ class AppViewModel(
                     ipAddress = networkInfo.ipAddress,
                     isOnline = false,
                     accountOverview = null,
+                    seamlessStatus = SeamlessStatus.Unknown,
                     isAccountInfoLoading = false,
                     accountInfoError = "",
                     isDeviceListAvailable = false,
@@ -519,6 +627,7 @@ class AppViewModel(
                     ipAddress = networkInfo.ipAddress,
                     isOnline = false,
                     accountOverview = null,
+                    seamlessStatus = SeamlessStatus.Unknown,
                     isAccountInfoLoading = false,
                     accountInfoError = "",
                     isDeviceListAvailable = false,
@@ -542,6 +651,7 @@ class AppViewModel(
                     ipAddress = networkInfo.ipAddress,
                     isOnline = true,
                     accountOverview = null,
+                    seamlessStatus = SeamlessStatus.Unknown,
                     isAccountInfoLoading = false,
                     accountInfoError = strings.get(R.string.account_info_fetch_failed),
                     isDeviceListAvailable = false,
@@ -560,6 +670,7 @@ class AppViewModel(
                 ipAddress = networkInfo.ipAddress,
                 isOnline = true,
                 accountOverview = if (keepOverview) accountOverview else null,
+                seamlessStatus = if (keepOverview) seamlessStatus else SeamlessStatus.Unknown,
                 isAccountInfoLoading = true,
                 accountInfoError = if (keepOverview) accountInfoError else "",
                 isDeviceListAvailable = keepOverview && isDeviceListAvailable,
@@ -574,12 +685,14 @@ class AppViewModel(
                     copy(
                         isOnline = true,
                         accountOverview = result.overview,
+                        seamlessStatus = if (accountOverview?.username == result.overview.username) seamlessStatus else SeamlessStatus.Unknown,
                         isAccountInfoLoading = false,
                         accountInfoError = result.warningMessage,
                         isDeviceListAvailable = result.isDeviceListAvailable,
                         canLogoutDevices = result.canLogoutDevices
                     )
                 }
+                if (generation == refreshGeneration) refreshSeamlessInfo()
                 RefreshAttemptOutcome.Complete
             }
 

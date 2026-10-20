@@ -36,12 +36,17 @@ class HttpLogInterceptor(
         val timestamp = System.currentTimeMillis()
 
         // 日志采集绝不能改变实际发出的请求或业务侧读取到的响应。
-        val requestBodyString = captureRequestBody(originalRequest)
+        val sensitiveSelfService = originalRequest.url.encodedPath.startsWith("/Self/service/")
+        val requestBodyString = if (sensitiveSelfService && originalRequest.body != null) {
+            messages.get(R.string.log_sensitive_body_omitted)
+        } else captureRequestBody(originalRequest)
         val loggedUrl = redactSensitiveQueryParams(originalRequest.url)
 
         return try {
             val response = chain.proceed(originalRequest)
-            val responseBodyString = captureResponseBody(response)
+            val responseBodyString = if (sensitiveSelfService) {
+                messages.get(R.string.log_sensitive_body_omitted)
+            } else captureResponseBody(response)
 
             HttpLogStorage.add(
                 HttpLogEntry(
@@ -162,7 +167,11 @@ class HttpLogInterceptor(
             "upass",
             "user_account",
             "user_password",
-            "wlan_user_ip"
+            "wlan_user_ip",
+            "mac",
+            "macaddress",
+            "ajaxcsrftoken",
+            "csrftoken"
         )
     }
 }
