@@ -45,7 +45,7 @@ import top.steins.autologin.ui.theme.ScreenHorizontalPadding
 
 @Composable
 private fun seamlessStatusText(state: SeamlessUiState): String = when {
-    state.isLoading || (state.info == null && state.error.isBlank()) -> stringResource(R.string.seamless_loading)
+    state.info == null && (state.isLoading || state.error.isBlank()) -> stringResource(R.string.seamless_loading)
     else -> stringResource(when (state.info?.status) {
         SeamlessStatus.Enabled -> R.string.seamless_enabled
         SeamlessStatus.Disabled -> R.string.seamless_disabled
@@ -68,7 +68,7 @@ fun SeamlessLoginScreen(
     var macInput by rememberSaveable(info?.username, info?.sessionKey) { mutableStateOf("") }
     var invalidMac by rememberSaveable(info?.username, info?.sessionKey) { mutableStateOf(false) }
     var pendingAction by remember(info?.username, info?.sessionKey) { mutableStateOf<SeamlessAction?>(null) }
-    val lowerCardsVisible = list != null && !state.isLoading
+    val lowerCardsVisible = list != null
     var retainedInfo by remember { mutableStateOf(info) }
     var retainLowerCards by remember { mutableStateOf(lowerCardsVisible) }
 

@@ -149,10 +149,61 @@ class AppViewModelTest {
     }
 
     @Test
+    fun seamlessQuery_reentryKeepsPreviousStateUntilNewDataArrives() = runTest {
+        val viewModel = createOnlineViewModel()
+        advanceUntilIdle()
+        val previous = viewModel.seamlessState.value
+        val previousLoads = selfService.seamlessLoadCount
+        val gate = CompletableDeferred<Unit>()
+        selfService.seamlessLoadGate = gate
+        val nextInfo = SeamlessInfo("2021001", 2, SeamlessStatus.Disabled)
+        selfService.seamlessLoadResult = SeamlessLoadResult.Success(nextInfo)
+
+        viewModel.refreshSeamlessInfo()
+        runCurrent()
+        assertEquals(previous.copy(isLoading = true), viewModel.seamlessState.value)
+        assertFalse(viewModel.seamlessState.value.canManage)
+        assertEquals(previousLoads + 1, selfService.seamlessLoadCount)
+
+        gate.complete(Unit)
+        advanceUntilIdle()
+        assertEquals(nextInfo, viewModel.seamlessState.value.info)
+        assertFalse(viewModel.seamlessState.value.isLoading)
+        assertTrue(viewModel.seamlessState.value.canManage)
+    }
+
+    @Test
+    fun seamlessQuery_failureKeepsPreviousDataAndDisablesWritesUntilRecovery() = runTest {
+        val viewModel = createOnlineViewModel()
+        advanceUntilIdle()
+        val previousInfo = viewModel.seamlessState.value.info
+        selfService.seamlessLoadResult = SeamlessLoadResult.Failure("list unavailable")
+
+        viewModel.refreshSeamlessInfo()
+        advanceUntilIdle()
+        assertEquals(previousInfo, viewModel.seamlessState.value.info)
+        assertEquals("list unavailable", viewModel.seamlessState.value.error)
+        assertFalse(viewModel.seamlessState.value.canManage)
+
+        val gate = CompletableDeferred<Unit>()
+        selfService.seamlessLoadGate = gate
+        selfService.seamlessLoadResult = SeamlessLoadResult.Success(previousInfo!!)
+        viewModel.refreshSeamlessInfo()
+        runCurrent()
+        assertEquals(previousInfo, viewModel.seamlessState.value.info)
+        assertEquals("list unavailable", viewModel.seamlessState.value.error)
+        gate.complete(Unit)
+        advanceUntilIdle()
+        assertEquals("", viewModel.seamlessState.value.error)
+        assertTrue(viewModel.seamlessState.value.canManage)
+    }
+
+    @Test
     fun seamlessHomeStatus_fullRefreshKeepsLastValueUntilNewStatusArrives() = runTest {
         val viewModel = createOnlineViewModel()
         advanceUntilIdle()
         assertEquals(SeamlessStatus.Enabled, viewModel.uiState.value.seamlessStatus)
+        val previousInfo = viewModel.seamlessState.value.info
         val overviewGate = CompletableDeferred<Unit>()
         val statusGate = CompletableDeferred<Unit>()
         selfService.overviewGate = overviewGate
@@ -162,15 +213,18 @@ class AppViewModelTest {
         viewModel.refreshAccountInfo()
         runCurrent()
         assertEquals(SeamlessStatus.Enabled, viewModel.uiState.value.seamlessStatus)
-        assertNull(viewModel.seamlessState.value.info)
+        assertEquals(previousInfo, viewModel.seamlessState.value.info)
+        assertTrue(viewModel.seamlessState.value.isLoading)
         overviewGate.complete(Unit)
         runCurrent()
         assertTrue(viewModel.seamlessState.value.isLoading)
+        assertEquals(previousInfo, viewModel.seamlessState.value.info)
         assertEquals(SeamlessStatus.Enabled, viewModel.uiState.value.seamlessStatus)
 
         statusGate.complete(Unit)
         advanceUntilIdle()
         assertEquals(SeamlessStatus.Disabled, viewModel.uiState.value.seamlessStatus)
+        assertEquals(SeamlessStatus.Disabled, viewModel.seamlessState.value.info?.status)
     }
 
     @Test
@@ -211,6 +265,7 @@ class AppViewModelTest {
         viewModel.refreshAccountInfo()
         runCurrent()
         assertEquals(SeamlessStatus.Unknown, viewModel.uiState.value.seamlessStatus)
+        assertNull(viewModel.seamlessState.value.info)
         gate.complete(Unit)
         advanceUntilIdle()
         assertEquals("another-account", viewModel.uiState.value.accountOverview?.username)

@@ -81,10 +81,14 @@ class AppViewModel(
     private var seamlessLoadJob: Job? = null
     private var seamlessMutationJob: Job? = null
 
-    private fun invalidateSeamless() {
+    private fun invalidateSeamless(keepInfo: Boolean = false) {
         seamlessEpoch += 1
         seamlessLoadJob?.cancel()
-        _seamlessState.value = SeamlessUiState(isSubmitting = seamlessMutationJob?.isActive == true)
+        _seamlessState.value = if (keepInfo) {
+            _seamlessState.value.copy(isLoading = true)
+        } else {
+            SeamlessUiState(isSubmitting = seamlessMutationJob?.isActive == true)
+        }
     }
 
     fun refreshSeamlessInfo() {
@@ -96,7 +100,7 @@ class AppViewModel(
             return
         }
         val epoch = seamlessEpoch
-        _seamlessState.update { it.copy(isLoading = true, error = "") }
+        _seamlessState.update { it.copy(isLoading = true) }
         seamlessLoadJob = viewModelScope.launch {
             try {
                 accountOperationMutex.withLock {
@@ -124,7 +128,7 @@ class AppViewModel(
         _seamlessState.update {
             when (result) {
                 is SeamlessLoadResult.Success -> it.copy(info = result.info, isLoading = false, error = "")
-                is SeamlessLoadResult.Failure -> it.copy(info = null, isLoading = false, error = result.message)
+                is SeamlessLoadResult.Failure -> it.copy(isLoading = false, error = result.message)
             }
         }
     }
@@ -368,36 +372,42 @@ class AppViewModel(
         knownLoggedIn: Boolean = false
     ) {
         refreshGeneration += 1
-        invalidateSeamless()
+        invalidateSeamless(keepInfo = true)
         val generation = refreshGeneration
         refreshJob?.cancel()
         refreshJob = viewModelScope.launch {
-            settingsReady.await()
-            if (initialDelayMs > 0) delay(initialDelayMs)
-            repeat(attempts) { attempt ->
-                HttpLogStorage.logAccountInfoRefresh(
-                    trigger.description(strings, attempt + 1, attempts)
-                )
-                val outcome = accountOperationMutex.withLock {
-                    refreshStatusInternal(
-                        generation = generation,
-                        clearSession = clearSession && attempt == 0,
-                        showFinalError = attempt == attempts - 1,
-                        knownLoggedIn = knownLoggedIn
+            try {
+                settingsReady.await()
+                if (initialDelayMs > 0) delay(initialDelayMs)
+                repeat(attempts) { attempt ->
+                    HttpLogStorage.logAccountInfoRefresh(
+                        trigger.description(strings, attempt + 1, attempts)
                     )
+                    val outcome = accountOperationMutex.withLock {
+                        refreshStatusInternal(
+                            generation = generation,
+                            clearSession = clearSession && attempt == 0,
+                            showFinalError = attempt == attempts - 1,
+                            knownLoggedIn = knownLoggedIn
+                        )
+                    }
+                    if (outcome == RefreshAttemptOutcome.LoginSucceeded ||
+                        outcome == RefreshAttemptOutcome.LoginAlreadyOnline
+                    ) {
+                        confirmLogin(knownLoggedIn = outcome == RefreshAttemptOutcome.LoginAlreadyOnline)
+                        return@launch
+                    }
+                    if (outcome == RefreshAttemptOutcome.Complete) {
+                        return@launch
+                    }
+                    // 启动状态检查耗尽后结束本次机会，避免稍后回到前台时才自动登录。
+                    if (attempt == attempts - 1) startupAutoLoginPending = false
+                    if (attempt < attempts - 1) delay(REFRESH_RETRY_DELAY_MS)
                 }
-                if (outcome == RefreshAttemptOutcome.LoginSucceeded ||
-                    outcome == RefreshAttemptOutcome.LoginAlreadyOnline
-                ) {
-                    confirmLogin(knownLoggedIn = outcome == RefreshAttemptOutcome.LoginAlreadyOnline)
-                    return@launch
+            } finally {
+                if (generation == refreshGeneration && seamlessLoadJob?.isActive != true) {
+                    _seamlessState.update { it.copy(isLoading = false) }
                 }
-                if (outcome == RefreshAttemptOutcome.Complete) {
-                    return@launch
-                }
-                // 启动状态检查耗尽后结束本次机会，避免稍后回到前台时才自动登录。
-                if (attempt == attempts - 1) startupAutoLoginPending = false
-                if (attempt < attempts - 1) delay(REFRESH_RETRY_DELAY_MS)
             }
         }
     }
@@ -549,6 +559,11 @@ class AppViewModel(
         val networkInfo = network.fetchCurrentNetworkInfo(
             canReadWifiName = _uiState.value.hasLocationPermission
         )
+        if (generation == refreshGeneration &&
+            (networkInfo.wifiName != _uiState.value.wifiName || networkInfo.ipAddress != _uiState.value.ipAddress)
+        ) {
+            invalidateSeamless()
+        }
         if (networkInfo.isWifi) {
             settings.addAutoDetectedTargetWifi(networkInfo.wifiName)
         }
@@ -561,6 +576,7 @@ class AppViewModel(
                 startupAutoLoginPending = false
             }
             selfService.clearSession()
+            if (generation == refreshGeneration) invalidateSeamless()
             updateState(generation) {
                 copy(
                     wifiName = networkInfo.wifiName,
@@ -621,6 +637,7 @@ class AppViewModel(
                 return RefreshAttemptOutcome.RetryableFailure
             }
             selfService.clearSession()
+            if (generation == refreshGeneration) invalidateSeamless()
             updateState(generation) {
                 copy(
                     wifiName = networkInfo.wifiName,
@@ -645,6 +662,7 @@ class AppViewModel(
         val username = status.uid
         if (username.isBlank()) {
             selfService.clearSession()
+            if (generation == refreshGeneration) invalidateSeamless()
             updateState(generation) {
                 copy(
                     wifiName = networkInfo.wifiName,
@@ -662,6 +680,9 @@ class AppViewModel(
             return RefreshAttemptOutcome.Complete
         }
 
+        if (generation == refreshGeneration && _uiState.value.accountOverview?.username != username) {
+            invalidateSeamless()
+        }
         updateState(generation) {
             // 同一认证账号刷新时保留旧数据；切换账号后不得沿用上一账号的内容。
             val keepOverview = isOnline && accountOverview?.username == username

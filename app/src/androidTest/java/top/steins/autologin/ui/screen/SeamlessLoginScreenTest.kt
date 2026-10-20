@@ -148,7 +148,7 @@ class SeamlessLoginScreenTest {
     }
 
     @Test
-    fun refreshing_retainsOldCardsUntilExitCompletesThenRevealsNewData() {
+    fun refreshing_keepsPreviousStatusAndDeviceCardsUntilNewDataArrives() {
         val screenState = mutableStateOf(state(1))
         compose.setContent {
             AloginTheme(darkTheme = false) { SeamlessLoginScreen(screenState.value, {}, {}, {}) }
@@ -156,27 +156,47 @@ class SeamlessLoginScreenTest {
         compose.waitForIdle()
         compose.mainClock.autoAdvance = false
         try {
-            compose.runOnIdle { screenState.value = SeamlessUiState(isLoading = true) }
+            compose.runOnIdle { screenState.value = screenState.value.copy(isLoading = true) }
             compose.mainClock.advanceTimeBy(125)
             compose.onNodeWithText("00:11:22:33:44:01").assertExists()
             compose.onNode(isToggleable()).assertIsDisplayed().assertIsNotEnabled()
+            compose.onNode(isToggleable()).assertIsOn()
+            compose.onNodeWithText("已开启").assertIsDisplayed()
+            compose.onNodeWithText("正在查询无感知登录状态…").assertDoesNotExist()
 
             compose.mainClock.advanceTimeBy(1_000)
-            compose.onNodeWithText("00:11:22:33:44:01").assertDoesNotExist()
-            compose.onNodeWithText("添加设备").assertDoesNotExist()
+            compose.onNodeWithText("00:11:22:33:44:01").assertIsDisplayed()
+            compose.onNodeWithText("添加设备").assertIsDisplayed().assertIsNotEnabled()
             compose.onNode(isToggleable()).assertIsDisplayed()
 
             val nextInfo = state(1).info!!
             compose.runOnIdle {
-                screenState.value = SeamlessUiState(info = nextInfo.copy(deviceList = BoundDeviceList(1,
+                screenState.value = SeamlessUiState(info = nextInfo.copy(status = SeamlessStatus.Disabled, deviceList = BoundDeviceList(1,
                     listOf(nextInfo.deviceList!!.devices.single().copy(macAddress = "00:11:22:33:44:09")))))
             }
             compose.mainClock.advanceTimeBy(1_000)
             compose.onNodeWithText("00:11:22:33:44:09").assertIsDisplayed()
             compose.onNodeWithText("00:11:22:33:44:01").assertDoesNotExist()
+            compose.onNodeWithText("已关闭").assertIsDisplayed()
+            compose.onNode(isToggleable()).assertIsOff().assertIsEnabled()
         } finally {
             compose.mainClock.autoAdvance = true
         }
+    }
+
+    @Test
+    fun reentryWithCachedData_displaysPreviousStatusAndDevicesWhileLoading() {
+        compose.setContent {
+            AloginTheme(darkTheme = false) {
+                SeamlessLoginScreen(state(1).copy(isLoading = true), {}, {}, {})
+            }
+        }
+        compose.onNodeWithText("已开启").assertIsDisplayed()
+        compose.onNode(isToggleable()).assertIsOn().assertIsNotEnabled()
+        compose.onNodeWithText("已绑定 1 / 3 台").assertIsDisplayed()
+        compose.onNodeWithText("00:11:22:33:44:01").assertIsDisplayed()
+        compose.onNodeWithText("添加设备").assertIsNotEnabled()
+        capture("seamless-cached-refresh")
     }
 
     @Test
