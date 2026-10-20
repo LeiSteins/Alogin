@@ -14,11 +14,15 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -74,7 +78,7 @@ fun WifiConfigScreen(
     val resources = LocalResources.current
     val focusManager = LocalFocusManager.current
     var showScanSheet by remember { mutableStateOf(false) }
-    val scanSheetState = rememberModalBottomSheetState()
+    val scanSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
     // 已有及显示过的行再次进入视口时，直接显示，避免重复播放新增动画。
     val displayedSsids = remember { targetWifis.toMutableSet() }
     val wifiItemContainerColor = MaterialTheme.colorScheme.surfaceContainer
@@ -216,7 +220,11 @@ fun WifiConfigScreen(
         if (showScanSheet) {
             ModalBottomSheet(
                 onDismissRequest = { showScanSheet = false },
-                sheetState = scanSheetState
+                sheetState = scanSheetState,
+                containerColor = MaterialTheme.colorScheme.background,
+                contentWindowInsets = {
+                    WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)
+                }
             ) {
                 WifiScanSheetContent(
                     configuredSsids = targetWifis.toSet(),

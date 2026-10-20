@@ -9,13 +9,16 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -48,7 +51,7 @@ import top.steins.autologin.ui.theme.appCardElevation
 // ==================== WiFi 扫描结果 Sheet ====================
 
 @Composable
-private fun WifiScanResultItem(
+private fun WifiScanResultRow(
     ssid: String,
     strength: Int,
     isConnected: Boolean,
@@ -63,60 +66,47 @@ private fun WifiScanResultItem(
             .clickable { onClick() }
     }
 
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = AppCardShape,
-        colors = CardDefaults.cardColors(
-            containerColor = when {
-                isAlreadyConfigured -> MaterialTheme.colorScheme.surfaceContainerHigh
-                isConnected -> MaterialTheme.colorScheme.primaryContainer
-                else -> MaterialTheme.colorScheme.surfaceContainer
-            }
-        ),
-        elevation = appCardElevation(),
+    Row(
+        modifier = rowModifier.padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Row(
-            modifier = rowModifier.padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    val contentColor = if (isAlreadyConfigured) {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    } else {
-                        MaterialTheme.colorScheme.onSurface
-                    }
-
-                    Text(
-                        text = ssid,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = if (isConnected) FontWeight.Bold else FontWeight.Normal,
-                        color = contentColor
-                    )
-                    if (isConnected) {
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = stringResource(R.string.wifi_connected),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                val contentColor = if (isAlreadyConfigured) {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                } else {
+                    MaterialTheme.colorScheme.onSurface
                 }
-                Spacer(modifier = Modifier.height(4.dp))
+
                 Text(
-                    text = signalStrengthLabel(strength),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    text = ssid,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = if (isConnected) FontWeight.Bold else FontWeight.Normal,
+                    color = contentColor
                 )
+                if (isConnected) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = stringResource(R.string.wifi_connected),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
             }
-            if (isAlreadyConfigured) {
-                Text(
-                    text = stringResource(R.string.wifi_configured),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = signalStrengthLabel(strength),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        if (isAlreadyConfigured) {
+            Text(
+                text = stringResource(R.string.wifi_configured),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }
@@ -129,7 +119,7 @@ internal fun WifiScanSheetContent(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var scanOutcome by remember { mutableStateOf<WifiScanOutcome?>(null) }
-    var isScanning by remember { mutableStateOf(false) }
+    var isScanning by remember { mutableStateOf(true) }
 
     fun runScan() {
         scope.launch {
@@ -147,6 +137,7 @@ internal fun WifiScanSheetContent(
 
     fun refreshScan() {
         if (!hasWifiScanPermission(context)) {
+            isScanning = false
             scanOutcome = WifiScanOutcome.PermissionDenied
             permissionLauncher.launch(wifiScanPermissionsForRequest())
         } else {
@@ -159,9 +150,9 @@ internal fun WifiScanSheetContent(
     }
 
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(bottom = 32.dp)
+        // 从打开时就保留展开高度，让半屏锚点在扫描和结果切换时保持稳定。
+        // 默认停在半屏，手动上拉时沿用 BottomSheet 的拖动和展开动画。
+        modifier = Modifier.fillMaxWidth().fillMaxHeight()
     ) {
         Row(
             modifier = Modifier
@@ -290,26 +281,36 @@ internal fun WifiScanSheetContent(
                     )
                 }
                 LazyColumn(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    // 底部安全留白随列表滚动，避免固定色块提前截断列表视口。
                     contentPadding = PaddingValues(
-                        horizontal = ScreenHorizontalPadding,
-                        vertical = 8.dp
-                    ),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                        start = ScreenHorizontalPadding,
+                        top = 8.dp,
+                        end = ScreenHorizontalPadding,
+                        bottom = 16.dp + WindowInsets.safeDrawing.asPaddingValues().calculateBottomPadding()
+                    )
                 ) {
-                    items(success.results.size) { index ->
-                        val result = success.results[index]
-                        WifiScanResultItem(
-                            ssid = result.ssid,
-                            strength = result.strength,
-                            isConnected = result.isConnected,
-                            isAlreadyConfigured = result.ssid in configuredSsids,
-                            onClick = {
-                                if (result.ssid !in configuredSsids) {
-                                    onSelectWifi(result.ssid)
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = AppCardShape,
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceContainer
+                            ),
+                            elevation = appCardElevation()
+                        ) {
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                success.results.forEach { result ->
+                                    WifiScanResultRow(
+                                        ssid = result.ssid,
+                                        strength = result.strength,
+                                        isConnected = result.isConnected,
+                                        isAlreadyConfigured = result.ssid in configuredSsids,
+                                        onClick = { onSelectWifi(result.ssid) }
+                                    )
                                 }
                             }
-                        )
+                        }
                     }
                 }
             }
