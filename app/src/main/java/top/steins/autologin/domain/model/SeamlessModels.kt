@@ -1,4 +1,4 @@
-package top.steins.autologin.network
+package top.steins.autologin.domain.model
 
 const val SEAMLESS_DEVICE_LIMIT = 3
 

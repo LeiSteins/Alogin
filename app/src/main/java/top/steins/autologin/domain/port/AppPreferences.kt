@@ -1,12 +1,7 @@
-package top.steins.autologin.data
+package top.steins.autologin.domain.port
 
 import kotlinx.coroutines.flow.StateFlow
-
-enum class AppearanceMode {
-    SYSTEM,
-    LIGHT,
-    DARK
-}
+import top.steins.autologin.domain.model.AppearanceMode
 
 interface AppPreferences {
     val appearanceMode: StateFlow<AppearanceMode>

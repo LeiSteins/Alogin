@@ -23,6 +23,10 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import top.steins.autologin.BuildConfig
 import top.steins.autologin.R
+import top.steins.autologin.domain.model.UpdateDownloadFailure
+import top.steins.autologin.domain.model.UpdateDownloadState
+import top.steins.autologin.domain.model.UpdateInfo
+import top.steins.autologin.domain.model.UpdateTransfer
 
 /** 所有文件和 DownloadManager 操作在 IO 线程串行执行，重复点击不会创建重复任务。 */
 internal class UpdateDownloads(

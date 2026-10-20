@@ -3,10 +3,10 @@ package top.steins.autologin.network
 import android.content.Context
 import android.net.Network
 import androidx.annotation.StringRes
-import kotlinx.coroutines.Dispatchers
+import java.io.IOException
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.Cookie
 import okhttp3.CookieJar
@@ -17,53 +17,15 @@ import okhttp3.Request
 import org.json.JSONException
 import org.json.JSONObject
 import top.steins.autologin.R
-import java.io.IOException
-import java.util.concurrent.TimeUnit
-
-data class AccountDevice(
-    val sessionId: String,
-    val macAddress: String,
-    val ipAddress: String,
-    val ipv6Address: String = "",
-    val loginTime: String = "",
-    val useTimeSeconds: String = "",
-    val downFlow: String = "",
-    val upFlow: String = "",
-    val hostName: String = "",
-    val terminalType: String = ""
-)
-
-data class AccountOverview(
-    val username: String,
-    val usedTrafficMegabytes: String,
-    val remainingTrafficMegabytes: String,
-    val remainingMoneyYuan: String,
-    val devices: List<AccountDevice>
-)
-
-sealed interface AccountOverviewResult {
-    data class Success(
-        val overview: AccountOverview,
-        val warningMessage: String = "",
-        val isDeviceListAvailable: Boolean = true,
-        val canLogoutDevices: Boolean = true
-    ) : AccountOverviewResult
-    data class Failure(
-        val message: String,
-        val isRetryable: Boolean = false
-    ) : AccountOverviewResult
-}
-
-sealed interface DeviceLogoutResult {
-    data object Success : DeviceLogoutResult
-    data class Failure(val message: String) : DeviceLogoutResult
-    data class Indeterminate(val message: String) : DeviceLogoutResult
-}
-
-/** 仅用于应用组装和资源释放；账号与无感知功能共用同一实现。 */
-interface SelfServiceGateway : AccountSessionGateway, SeamlessGateway, AutoCloseable {
-    override fun close() = Unit
-}
+import top.steins.autologin.domain.model.AccountDevice
+import top.steins.autologin.domain.model.AccountOverview
+import top.steins.autologin.domain.model.AccountOverviewResult
+import top.steins.autologin.domain.model.DeviceLogoutResult
+import top.steins.autologin.domain.model.SeamlessAction
+import top.steins.autologin.domain.model.SeamlessActionResult
+import top.steins.autologin.domain.model.SeamlessInfo
+import top.steins.autologin.domain.model.SeamlessLoadResult
+import top.steins.autologin.domain.model.SeamlessStatus
 
 /**
  * 通过校园网关的单点登录进入自助服务系统。
@@ -78,7 +40,6 @@ class SelfServiceRepository internal constructor(
 
     private val appContext = context.applicationContext
     private val cookieJar = InMemoryCookieJar()
-    private val requestMutex = Mutex()
 
     private val clients = CampusHttpClientCache { network ->
         OkHttpClient.Builder()
@@ -96,73 +57,25 @@ class SelfServiceRepository internal constructor(
             .build()
     }
 
-    @Volatile
-    private var sessionNetwork: Network? = null
-    private var sessionAccount: String? = null
-    private var sessionGeneration = 0L
+    private val session = SelfServiceSession(
+        awaitRoute = { campusNetwork.awaitRoute(requireDns = true) },
+        isCurrent = { route: CampusRoute ->
+            campusNetwork.isCurrent(route.network) &&
+                campusNetwork.currentRoute()?.ipv4Address == route.ipv4Address
+        },
+        openSession = ::openSession,
+        clearCookies = cookieJar::clear,
+        closeResources = clients::close
+    )
 
     override suspend fun loadAccountOverview(
         lgnUsername: String
     ): AccountOverviewResult = withContext(Dispatchers.IO) {
-        requestMutex.withLock {
-            val account = lgnUsername.substringBefore("@").trim()
-            if (account.isBlank()) {
-                return@withLock AccountOverviewResult.Failure(
-                    appContext.getString(R.string.self_service_missing_account)
-                )
-            }
-            val route = campusNetwork.awaitRoute(requireDns = true)
-            if (route == null) {
-                return@withLock AccountOverviewResult.Failure(
-                    message = appContext.getString(R.string.campus_direct_network_unavailable),
-                    isRetryable = true
-                )
-            }
-            val client = clients.get(route.network)
-
-            clearSessionLocked()
-
-            var stage = AccountOverviewLoadStage.REQUEST_SSO_CREDENTIALS
-            try {
-                val ssoResponse = execute(
-                    client,
-                    buildSsoRequest(account, route.ipv4Address)
-                )
-                stage = AccountOverviewLoadStage.PARSE_SSO_CREDENTIALS
-                val ssoData = parseJsonObject(
-                    text = ssoResponse.body,
-                    marker = null,
-                    dataDescriptionRes = R.string.self_service_data_sso_credentials
-                )
-                if (ssoData.optInt("result") != 1) {
-                    val message = ssoData.optString("msg").ifBlank {
-                        appContext.getString(R.string.self_service_missing_sso_credentials)
-                    }
-                    throw SelfServiceException(message)
-                }
-
-                val authUrl = ssoData.optString("self_auth_url")
-                if (authUrl.isBlank()) {
-                    throw SelfServiceException(
-                        appContext.getString(R.string.self_service_missing_sso_url)
-                    )
-                }
-                val parsedAuthUrl = authUrl.toHttpUrlOrNull()
-                    ?: throw SelfServiceException(
-                        appContext.getString(R.string.self_service_invalid_sso_url)
-                    )
-
-                // 访问跳转地址以建立 jfself 会话；CookieJar 会保存重定向过程中的会话 Cookie。
-                stage = AccountOverviewLoadStage.OPEN_SELF_SERVICE_SESSION
-                execute(
-                    client,
-                    Request.Builder()
-                        .url(parsedAuthUrl)
-                        .get()
-                        .header("User-Agent", USER_AGENT)
-                        .build()
-                )
-
+        var stage = AccountOverviewLoadStage.REQUEST_ACCOUNT_PAGE
+        try {
+            session.withSession(lgnUsername, forceRenew = true) { handle ->
+                val account = handle.account
+                val client = clients.get(handle.route.network)
                 stage = AccountOverviewLoadStage.REQUEST_ACCOUNT_PAGE
                 val dashboardResponse = execute(
                     client,
@@ -198,6 +111,8 @@ class SelfServiceRepository internal constructor(
                     )
                 } catch (error: CancellationException) {
                     throw error
+                } catch (error: SelfServiceSessionException) {
+                    throw error
                 } catch (error: Exception) {
                     // 账号页数据已成功取得；设备列表请求或解析失败时仅隐藏设备区域。
                     DeviceListLoadResult(
@@ -210,8 +125,6 @@ class SelfServiceRepository internal constructor(
                     )
                 }
                 stage = AccountOverviewLoadStage.BUILD_ACCOUNT_OVERVIEW
-                sessionNetwork = route.network
-                sessionAccount = account
                 val warnings = buildList {
                     if (!deviceList.isAvailable) add(deviceList.errorMessage)
                 }
@@ -227,15 +140,66 @@ class SelfServiceRepository internal constructor(
                     isDeviceListAvailable = deviceList.isAvailable,
                     canLogoutDevices = deviceList.isAvailable
                 )
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Exception) {
-                clearSessionLocked()
-                AccountOverviewResult.Failure(
-                    message = error.toUserMessage(appContext, stage.unexpectedErrorMessageRes),
-                    isRetryable = error is IOException && error !is SelfServiceException
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            AccountOverviewResult.Failure(
+                message = error.toUserMessage(appContext, stage.unexpectedErrorMessageRes),
+                isRetryable = error.isRetryable()
+            )
+        }
+    }
+
+    /** 只建立 SSO Cookie 会话，不读取账号卡片或设备列表。 */
+    private suspend fun openSession(account: String, route: CampusRoute) {
+        val client = clients.get(route.network)
+        var stage = AccountOverviewLoadStage.REQUEST_SSO_CREDENTIALS
+        try {
+            val ssoResponse = execute(
+                client,
+                buildSsoRequest(account, route.ipv4Address)
+            )
+            stage = AccountOverviewLoadStage.PARSE_SSO_CREDENTIALS
+            val ssoData = parseJsonObject(
+                text = ssoResponse.body,
+                marker = null,
+                dataDescriptionRes = R.string.self_service_data_sso_credentials
+            )
+            if (ssoData.optInt("result") != 1) {
+                val message = ssoData.optString("msg").ifBlank {
+                    appContext.getString(R.string.self_service_missing_sso_credentials)
+                }
+                throw SelfServiceException(message)
+            }
+
+            val authUrl = ssoData.optString("self_auth_url")
+            if (authUrl.isBlank()) {
+                throw SelfServiceException(
+                    appContext.getString(R.string.self_service_missing_sso_url)
                 )
             }
+            val parsedAuthUrl = authUrl.toHttpUrlOrNull()
+                ?: throw SelfServiceException(
+                    appContext.getString(R.string.self_service_invalid_sso_url)
+                )
+
+            // 访问跳转地址以建立 jfself 会话；CookieJar 会保存重定向过程中的会话 Cookie。
+            stage = AccountOverviewLoadStage.OPEN_SELF_SERVICE_SESSION
+            execute(
+                client,
+                Request.Builder()
+                    .url(parsedAuthUrl)
+                    .get()
+                    .header("User-Agent", USER_AGENT)
+                    .build()
+            )
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: IOException) {
+            throw error
+        } catch (error: Exception) {
+            throw SelfServiceException(error.toUserMessage(appContext, stage.unexpectedErrorMessageRes))
         }
     }
 
@@ -244,29 +208,22 @@ class SelfServiceRepository internal constructor(
         ipAddress: String,
         macAddress: String
     ): DeviceLogoutResult = withContext(Dispatchers.IO) {
-        requestMutex.withLock {
-            val network = sessionNetwork
-            if (network == null || !campusNetwork.isCurrent(network)) {
-                clearSessionLocked()
-                return@withLock DeviceLogoutResult.Failure(
-                    appContext.getString(R.string.logout_session_expired)
-                )
-            }
-            val mac = SelfServiceParsing.canonicalMac(macAddress)
-                ?: return@withLock DeviceLogoutResult.Failure(
-                    appContext.getString(R.string.logout_invalid_mac)
-                )
-            val onlineSessionId = sessionId.trim()
-            val ip = ipAddress.trim()
-            if (onlineSessionId.isBlank() || ip.isBlank()) {
-                return@withLock DeviceLogoutResult.Failure(
-                    appContext.getString(R.string.logout_invalid_online_session)
-                )
-            }
+        try {
+            session.withExistingSession { handle ->
+                val mac = SelfServiceParsing.canonicalMac(macAddress)
+                    ?: return@withExistingSession DeviceLogoutResult.Failure(
+                        appContext.getString(R.string.logout_invalid_mac)
+                    )
+                val onlineSessionId = sessionId.trim()
+                val ip = ipAddress.trim()
+                if (onlineSessionId.isBlank() || ip.isBlank()) {
+                    return@withExistingSession DeviceLogoutResult.Failure(
+                        appContext.getString(R.string.logout_invalid_online_session)
+                    )
+                }
 
-            try {
                 val response = execute(
-                    clients.get(network),
+                    clients.get(handle.route.network),
                     Request.Builder()
                         .url(
                             dashboardUrl("tooffline").newBuilder()
@@ -292,61 +249,57 @@ class SelfServiceRepository internal constructor(
                         appContext.getString(R.string.logout_indeterminate)
                     )
                 }
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Exception) {
-                DeviceLogoutResult.Failure(
-                    error.toUserMessage(appContext, R.string.logout_failed_generic)
-                )
             }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            DeviceLogoutResult.Failure(
+                if (error is SelfServiceSessionException && error.reason == SelfServiceSessionFailure.EXPIRED) {
+                    appContext.getString(R.string.logout_session_expired)
+                } else {
+                    error.toUserMessage(appContext, R.string.logout_failed_generic)
+                }
+            )
         }
     }
 
-    override suspend fun clearSession() = withContext(Dispatchers.IO) {
-        requestMutex.withLock {
-            clearSessionLocked()
-        }
-    }
-
-    private fun clearSessionLocked() {
-        sessionNetwork = null
-        sessionAccount = null
-        sessionGeneration += 1
-        cookieJar.clear()
-    }
+    override suspend fun clearSession() = session.clear()
 
     override suspend fun loadSeamlessInfo(username: String): SeamlessLoadResult =
         withContext(Dispatchers.IO) {
-            requestMutex.withLock {
-                val network = sessionNetwork
-                if (network == null || !campusNetwork.isCurrent(network) || sessionAccount != username.substringBefore("@").trim()) {
-                    return@withLock SeamlessLoadResult.Failure(appContext.getString(R.string.seamless_session_expired))
+            try {
+                session.withSession(username) { handle ->
+                    val service = seamlessService(clients.get(handle.route.network), handle.route.network)
+                    var statusError = ""
+                    val status = try {
+                        service.readStatus()
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: SelfServiceSessionException) {
+                        throw error
+                    } catch (error: Exception) {
+                        statusError = error.toUserMessage(appContext, R.string.seamless_status_failed)
+                        SeamlessStatus.Unknown
+                    }
+                    var devicesError = ""
+                    val devices = try {
+                        service.readDevices()
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: SelfServiceSessionException) {
+                        throw error
+                    } catch (error: Exception) {
+                        devicesError = error.toUserMessage(appContext, R.string.seamless_devices_failed)
+                        null
+                    }
+                    SeamlessLoadResult.Success(SeamlessInfo(
+                        username, handle.generation, status, devices, statusError, devicesError
+                    ))
                 }
-                val service = seamlessService(clients.get(network), network)
-                var statusError = ""
-                val status = try {
-                    service.readStatus()
-                } catch (error: CancellationException) {
-                    throw error
-                } catch (error: Exception) {
-                    statusError = error.toUserMessage(appContext, R.string.seamless_status_failed)
-                    SeamlessStatus.Unknown
-                }
-                var devicesError = ""
-                val devices = try {
-                    service.readDevices()
-                } catch (error: CancellationException) {
-                    throw error
-                } catch (error: Exception) {
-                    devicesError = error.toUserMessage(appContext, R.string.seamless_devices_failed)
-                    null
-                }
-                if (!campusNetwork.isCurrent(network)) {
-                    return@withLock SeamlessLoadResult.Failure(appContext.getString(R.string.seamless_session_expired))
-                }
-                SeamlessLoadResult.Success(SeamlessInfo(
-                    username, sessionGeneration, status, devices, statusError, devicesError
-                ))
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                SeamlessLoadResult.Failure(error.toUserMessage(appContext, R.string.seamless_status_failed))
             }
         }
 
@@ -354,12 +307,14 @@ class SelfServiceRepository internal constructor(
         info: SeamlessInfo,
         action: SeamlessAction
     ): SeamlessActionResult = withContext(Dispatchers.IO) {
-        requestMutex.withLock {
-            val network = sessionNetwork
-            if (network == null || !campusNetwork.isCurrent(network) ||
-                sessionAccount != info.username.substringBefore("@").trim() || sessionGeneration != info.sessionGeneration
-            ) return@withLock SeamlessActionResult.Failure(appContext.getString(R.string.seamless_session_expired))
-            seamlessService(clients.get(network), network).perform(action)
+        try {
+            session.withExistingSession(info.username, info.sessionGeneration) { handle ->
+                seamlessService(clients.get(handle.route.network), handle.route.network).perform(action)
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            SeamlessActionResult.Failure(error.toUserMessage(appContext, R.string.seamless_operation_failed))
         }
     }
 
@@ -371,8 +326,7 @@ class SelfServiceRepository internal constructor(
     )
 
     override fun close() {
-        clearSessionLocked()
-        clients.close()
+        session.close()
     }
 
     private fun buildSsoRequest(account: String, wlanUserIp: String): Request {
@@ -422,7 +376,7 @@ class SelfServiceRepository internal constructor(
                 )
             }
             if (response.request.url.encodedPath.startsWith("/Self/login")) {
-                throw SelfServiceException(appContext.getString(R.string.seamless_session_expired))
+                throw SelfServiceSessionException(SelfServiceSessionFailure.EXPIRED)
             }
             return HttpResponse(body)
         }
@@ -467,10 +421,19 @@ class SelfServiceRepository internal constructor(
         }
     }
 
+    private fun Exception.isRetryable(): Boolean =
+        (this is IOException && this !is SelfServiceException) ||
+            (this is SelfServiceSessionException && reason == SelfServiceSessionFailure.NETWORK_UNAVAILABLE)
+
     private fun Exception.toUserMessage(
         context: Context,
         @StringRes unexpectedErrorMessageRes: Int
     ): String = when (this) {
+        is SelfServiceSessionException -> context.getString(when (reason) {
+            SelfServiceSessionFailure.MISSING_ACCOUNT -> R.string.self_service_missing_account
+            SelfServiceSessionFailure.NETWORK_UNAVAILABLE -> R.string.campus_direct_network_unavailable
+            SelfServiceSessionFailure.EXPIRED -> R.string.seamless_session_expired
+        })
         is SelfServiceException -> message
             ?: context.getString(R.string.self_service_request_failed)
 

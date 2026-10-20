@@ -10,11 +10,11 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.currentStateAsState
-import top.steins.autologin.network.update.UpdateState
 import top.steins.autologin.state.AccountStateHolder
 import top.steins.autologin.state.CampusSessionCoordinator
 import top.steins.autologin.state.HttpLogStateHolder
 import top.steins.autologin.state.SettingsStateHolder
+import top.steins.autologin.state.UpdateState
 import top.steins.autologin.state.UpdateStateHolder
 import top.steins.autologin.state.WifiScanStateHolder
 import top.steins.autologin.ui.component.CapsuleToastState

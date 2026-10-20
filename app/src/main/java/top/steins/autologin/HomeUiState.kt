@@ -1,7 +1,7 @@
 package top.steins.autologin
 
-import top.steins.autologin.network.AccountOverview
-import top.steins.autologin.network.SeamlessStatus
+import top.steins.autologin.domain.model.AccountOverview
+import top.steins.autologin.domain.model.SeamlessStatus
 
 data class HomeUiState(
     val wifiName: String = "",

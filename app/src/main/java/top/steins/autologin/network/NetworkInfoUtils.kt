@@ -16,52 +16,26 @@ import android.net.wifi.WifiManager
 import android.os.Build
 import androidx.core.content.ContextCompat
 import androidx.core.location.LocationManagerCompat
+import java.net.Inet4Address
+import java.util.Locale
+import kotlin.coroutines.resume
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import top.steins.autologin.R
-import java.net.Inet4Address
-import java.util.Locale
-import kotlin.coroutines.resume
+import top.steins.autologin.domain.model.CurrentNetworkInfo
+import top.steins.autologin.domain.model.WifiScanOutcome
+import top.steins.autologin.domain.model.WifiScanResult
 
-data class CurrentNetworkInfo(
-    val wifiName: String,
-    val ipAddress: String,
-    val isWifi: Boolean,
-    val isCellular: Boolean,
-    val isConnected: Boolean
-) {
-    companion object {
-        fun disconnected(context: Context): CurrentNetworkInfo = CurrentNetworkInfo(
-            wifiName = context.getString(R.string.network_not_connected),
-            ipAddress = context.getString(R.string.network_value_none),
-            isWifi = false,
-            isCellular = false,
-            isConnected = false
-        )
-    }
-}
-
-data class WifiScanResult(
-    val ssid: String,
-    val strength: Int,
-    val isConnected: Boolean
+private fun disconnectedNetworkInfo(context: Context) = CurrentNetworkInfo(
+    wifiName = context.getString(R.string.network_not_connected),
+    ipAddress = context.getString(R.string.network_value_none),
+    isWifi = false,
+    isCellular = false,
+    isConnected = false
 )
-
-sealed interface WifiScanOutcome {
-    data class Success(
-        val results: List<WifiScanResult>,
-        val isFreshResult: Boolean
-    ) : WifiScanOutcome
-
-    data object PermissionDenied : WifiScanOutcome
-    data object LocationDisabled : WifiScanOutcome
-    data object WifiDisabled : WifiScanOutcome
-    data object NoResults : WifiScanOutcome
-    data class Failure(val message: String) : WifiScanOutcome
-}
 
 fun formatTrafficMegabytes(trafficMegabytes: String): String {
     val value = trafficMegabytes.trim()
@@ -109,7 +83,7 @@ fun getCurrentNetworkInfo(
     } else {
         connectivityManager.activeNetwork
     }
-        ?: return CurrentNetworkInfo.disconnected(context)
+        ?: return disconnectedNetworkInfo(context)
     val capabilities = wifiCapabilities ?: connectivityManager.getNetworkCapabilities(network)
     val isWifi = capabilities.isPhysicalWifi()
     val isCellular = !isWifi &&

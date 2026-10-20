@@ -3,10 +3,7 @@ package top.steins.autologin.state
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
-import kotlinx.coroutines.cancelAndJoin
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -22,21 +19,20 @@ import top.steins.autologin.AppStrings
 import top.steins.autologin.HomeUiState
 import top.steins.autologin.R
 import top.steins.autologin.RefreshAttemptOutcome
-import top.steins.autologin.data.AccountStore
-import top.steins.autologin.data.AppPreferences
-import top.steins.autologin.data.WifiConfigStore
-import top.steins.autologin.data.WifiLoginMethod
-import top.steins.autologin.network.AccountDevice
-import top.steins.autologin.network.AccountOverviewResult
-import top.steins.autologin.network.AccountSessionGateway
-import top.steins.autologin.network.CampusAuthentication
-import top.steins.autologin.network.CampusNetworkChange
-import top.steins.autologin.network.DeviceLogoutResult
-import top.steins.autologin.network.LoginResult
-import top.steins.autologin.network.NetworkMonitor
-import top.steins.autologin.network.SeamlessAction
-import top.steins.autologin.network.SeamlessGateway
-import top.steins.autologin.network.SeamlessStatus
+import top.steins.autologin.domain.model.AccountDevice
+import top.steins.autologin.domain.model.AccountOverviewResult
+import top.steins.autologin.domain.model.CampusNetworkChange
+import top.steins.autologin.domain.model.DeviceLogoutResult
+import top.steins.autologin.domain.model.LoginResult
+import top.steins.autologin.domain.model.SeamlessAction
+import top.steins.autologin.domain.model.SeamlessStatus
+import top.steins.autologin.domain.port.AccountSessionGateway
+import top.steins.autologin.domain.port.AccountStore
+import top.steins.autologin.domain.port.AppPreferences
+import top.steins.autologin.domain.port.CampusAuthentication
+import top.steins.autologin.domain.port.NetworkMonitor
+import top.steins.autologin.domain.port.SeamlessGateway
+import top.steins.autologin.domain.port.WifiConfigStore
 
 /**
  * 协调网络变化、认证状态和自助服务会话，避免 Compose 生命周期与并发网络请求互相覆盖状态。
@@ -76,13 +72,17 @@ class CampusSessionCoordinator(
         )
     )
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
-    private var refreshGeneration = 0L
+    private val refreshRunner = SessionRefreshRunner(scope)
+    private val refreshGeneration: Long get() = refreshRunner.generation
+    private val loginExecutor = CampusLoginExecutor(strings, accounts, wifiConfig, network, authentication)
+    // 门户确认的身份独立于主页账号卡片；概览失败不应阻断其他已认证功能。
+    private var authenticatedUsername = ""
     private val seamlessSession = object : SeamlessSessionAccess {
         override fun snapshot(): CampusSessionSnapshot {
             val state = _uiState.value
             return CampusSessionSnapshot(
                 version = refreshGeneration,
-                username = state.accountOverview?.username.orEmpty(),
+                username = authenticatedUsername,
                 wifiName = state.wifiName,
                 ipAddress = state.ipAddress,
                 isOnline = state.isOnline,
@@ -113,7 +113,7 @@ class CampusSessionCoordinator(
         selfService = seamlessService,
         authentication = authentication,
         session = seamlessSession,
-        preferredWifiLoginMethod = ::preferredWifiLoginMethod,
+        preferredWifiLoginMethod = loginExecutor::preferredMethod,
         refreshNetworkStatus = { refreshStatus() }
     )
     val seamlessState = seamless.state
@@ -122,10 +122,8 @@ class CampusSessionCoordinator(
 
     fun performSeamlessAction(action: SeamlessAction) = seamless.perform(action)
 
-    private var refreshJob: Job? = null
-    private var networkRefreshDebounceJob: Job? = null
     // 只读取启动时的开关；本次运行中开启设置不会立即触发登录。
-    private var startupAutoLoginPending = autoLoginOnStartup.value
+    private val startupAutoLogin = StartupAutoLoginPolicy(autoLoginOnStartup.value)
 
     init {
         network.observeCampusNetworkChanges()
@@ -143,7 +141,7 @@ class CampusSessionCoordinator(
     }
 
     fun cancelStartupAutoLogin() {
-        startupAutoLoginPending = false
+        startupAutoLogin.cancel()
     }
 
     fun onLocationPermissionChanged() {
@@ -225,9 +223,7 @@ class CampusSessionCoordinator(
     }
 
     private fun scheduleNetworkRefresh(change: CampusNetworkChange) {
-        networkRefreshDebounceJob?.cancel()
-        networkRefreshDebounceJob = scope.launch {
-            delay(NETWORK_REFRESH_DEBOUNCE_MS)
+        refreshRunner.debounce(NETWORK_REFRESH_DEBOUNCE_MS) {
             startRefresh(
                 trigger = AccountInfoRefreshTrigger.CampusNetworkChanged(change),
                 clearSession = false,
@@ -244,42 +240,34 @@ class CampusSessionCoordinator(
         initialDelayMs: Long,
         knownLoggedIn: Boolean = false
     ) {
-        refreshGeneration += 1
-        seamless.invalidate(keepInfo = true)
-        val generation = refreshGeneration
-        refreshJob?.cancel()
-        refreshJob = scope.launch {
-            try {
-                accountsReady.await()
-                if (initialDelayMs > 0) delay(initialDelayMs)
-                repeat(attempts) { attempt ->
-                    logAccountInfoRefresh(
-                        trigger.description(strings, attempt + 1, attempts)
-                    )
-                    val outcome = accountOperationMutex.withLock {
-                        refreshStatusInternal(
-                            generation = generation,
-                            clearSession = clearSession && attempt == 0,
-                            showFinalError = attempt == attempts - 1,
-                            knownLoggedIn = knownLoggedIn
-                        )
-                    }
-                    if (outcome == RefreshAttemptOutcome.LoginSucceeded ||
-                        outcome == RefreshAttemptOutcome.LoginAlreadyOnline
-                    ) {
-                        confirmLogin(knownLoggedIn = outcome == RefreshAttemptOutcome.LoginAlreadyOnline)
-                        return@launch
-                    }
-                    if (outcome == RefreshAttemptOutcome.Complete) {
-                        return@launch
-                    }
-                    // 启动状态检查耗尽后结束本次机会，避免稍后回到前台时才自动登录。
-                    if (attempt == attempts - 1) startupAutoLoginPending = false
-                    if (attempt < attempts - 1) delay(REFRESH_RETRY_DELAY_MS)
+        refreshRunner.start(
+            attempts = attempts,
+            initialDelayMs = initialDelayMs,
+            retryDelayMs = REFRESH_RETRY_DELAY_MS,
+            prepare = { accountsReady.await() },
+            onStart = { seamless.invalidate(keepInfo = true) },
+            onFinish = { generation ->
+                if (generation == refreshGeneration && !seamless.isLoading) seamless.finishRefresh()
+            }
+        ) { generation, attempt ->
+            logAccountInfoRefresh(trigger.description(strings, attempt + 1, attempts))
+            val outcome = accountOperationMutex.withLock {
+                refreshStatusInternal(
+                    generation = generation,
+                    clearSession = clearSession && attempt == 0,
+                    showFinalError = attempt == attempts - 1,
+                    knownLoggedIn = knownLoggedIn
+                )
+            }
+            when (outcome) {
+                RefreshAttemptOutcome.LoginSucceeded, RefreshAttemptOutcome.LoginAlreadyOnline -> {
+                    confirmLogin(knownLoggedIn = outcome == RefreshAttemptOutcome.LoginAlreadyOnline)
+                    true
                 }
-            } finally {
-                if (generation == refreshGeneration && !seamless.isLoading) {
-                    seamless.finishRefresh()
+                RefreshAttemptOutcome.Complete -> true
+                RefreshAttemptOutcome.RetryableFailure -> {
+                    if (attempt == attempts - 1) startupAutoLogin.cancel()
+                    false
                 }
             }
         }
@@ -299,13 +287,13 @@ class CampusSessionCoordinator(
     private fun beginLogin(): Deferred<LoginResult> {
         loginJob?.takeIf { it.isActive }?.let { return it }
         seamless.invalidate()
-        startupAutoLoginPending = false
+        startupAutoLogin.cancel()
         onLoginStarted()
         _uiState.update { it.copy(isLoggingIn = true, loginMessage = null) }
         return scope.async {
             try {
                 accountsReady.await()
-                cancelPendingRefreshForLogin()
+                refreshRunner.cancelForLogin()
                 _uiState.update { it.copy(isAccountInfoLoading = false) }
                 val result = accountOperationMutex.withLock { loginOnCurrentNetwork() }
                 val message = when (result) {
@@ -330,44 +318,16 @@ class CampusSessionCoordinator(
         }.also { loginJob = it }
     }
 
-    private suspend fun loginOnCurrentNetwork(): LoginResult {
-        val networkInfo = network.awaitCurrentNetworkInfo(
-            canReadWifiName = _uiState.value.hasLocationPermission
-        )
-        if (networkInfo.isWifi) {
-            wifiConfig.addAutoDetectedTargetWifi(networkInfo.wifiName)
-        }
-        // 后台保存/切换账号时，读取同一份快照，避免把不同账号的用户名和密码拼在一起。
-        val account = accounts.readActiveAccount()
-        val username = account?.username.orEmpty()
-        val password = account?.password.orEmpty()
-        return when {
-            username.isBlank() || password.isBlank() ->
-                LoginResult.Failure(strings.get(R.string.login_no_credentials))
-            networkInfo.isCellular ->
-                LoginResult.Failure(strings.get(R.string.login_cellular_blocked))
-            !networkInfo.isWifi || networkInfo.wifiName !in wifiConfig.targetSsids.value ->
-                LoginResult.Failure(strings.get(R.string.login_wrong_network))
-            else -> authentication.performLogin(
-                username,
-                password,
-                preferredMethod = preferredWifiLoginMethod(networkInfo.wifiName)
-            )
-        }
-    }
-
-    private fun preferredWifiLoginMethod(ssid: String): WifiLoginMethod? =
-        wifiConfig.getWifiLoginMethod(ssid)
-            ?: WifiLoginMethod.WLGN.takeIf { ssid == "bjut_wifi" }
+    private suspend fun loginOnCurrentNetwork(): LoginResult =
+        loginExecutor.login(canReadWifiName = _uiState.value.hasLocationPermission)
 
     private suspend fun tryStartupAutoLogin(generation: Long): RefreshAttemptOutcome {
-        if (!startupAutoLoginPending) return RefreshAttemptOutcome.Complete
-        startupAutoLoginPending = false
-        if (!autoLoginOnStartup.value || !_uiState.value.hasLocationPermission ||
-            selectedAccountUsername.value.isBlank() || password.value.isBlank()
-        ) {
-            return RefreshAttemptOutcome.Complete
-        }
+        if (!startupAutoLogin.consume(
+                enabled = autoLoginOnStartup.value,
+                hasPermission = _uiState.value.hasLocationPermission,
+                hasCredentials = selectedAccountUsername.value.isNotBlank() && password.value.isNotBlank()
+            )
+        ) return RefreshAttemptOutcome.Complete
         updateState(generation) { copy(isAccountInfoLoading = true) }
         onLoginStarted()
         return when (val result = loginOnCurrentNetwork()) {
@@ -392,24 +352,6 @@ class CampusSessionCoordinator(
                 RefreshAttemptOutcome.Complete
             }
         }
-    }
-
-    /** 用户主动登录优先于后台状态刷新，避免认证请求排在刷新重试之后。 */
-    private suspend fun cancelPendingRefreshForLogin() {
-        val pendingDebounceJob = networkRefreshDebounceJob
-        pendingDebounceJob?.cancelAndJoin()
-        if (networkRefreshDebounceJob === pendingDebounceJob) {
-            networkRefreshDebounceJob = null
-        }
-
-        val pendingRefreshJob = refreshJob
-        pendingRefreshJob?.cancelAndJoin()
-        if (refreshJob === pendingRefreshJob) {
-            refreshJob = null
-        }
-
-        // 使取消前已分配的刷新代次失效，避免旧状态覆盖后续登录确认结果。
-        refreshGeneration += 1
     }
 
     /** 操作归应用生命周期持有，页面离开或重建不会取消已提交的下线请求。 */
@@ -473,6 +415,7 @@ class CampusSessionCoordinator(
         if (generation == refreshGeneration &&
             (networkInfo.wifiName != _uiState.value.wifiName || networkInfo.ipAddress != _uiState.value.ipAddress)
         ) {
+            authenticatedUsername = ""
             seamless.invalidate()
         }
         if (networkInfo.isWifi) {
@@ -482,9 +425,10 @@ class CampusSessionCoordinator(
                 networkInfo.wifiName in wifiConfig.targetSsids.value
 
         if (!isTargetWifi) {
+            if (generation == refreshGeneration) authenticatedUsername = ""
             // 初次权限弹窗期间可能读不到 SSID，保留机会直到权限结果返回。
             if (_uiState.value.hasLocationPermission || !networkInfo.isWifi) {
-                startupAutoLoginPending = false
+                startupAutoLogin.cancel()
             }
             selfService.clearSession()
             if (generation == refreshGeneration) seamless.invalidate()
@@ -512,7 +456,7 @@ class CampusSessionCoordinator(
 
         val status = authentication.fetchLoginStatus(
             knownLoggedIn = knownLoggedIn,
-            preferredMethod = preferredWifiLoginMethod(networkInfo.wifiName)
+            preferredMethod = loginExecutor.preferredMethod(networkInfo.wifiName)
         )
         if (status.error.isBlank() && status.verifiedMethod != null) {
             val current = network.fetchCurrentNetworkInfo(
@@ -547,6 +491,7 @@ class CampusSessionCoordinator(
                 }
                 return RefreshAttemptOutcome.RetryableFailure
             }
+            if (generation == refreshGeneration) authenticatedUsername = ""
             selfService.clearSession()
             if (generation == refreshGeneration) seamless.invalidate()
             updateState(generation) {
@@ -567,11 +512,12 @@ class CampusSessionCoordinator(
             return tryStartupAutoLogin(generation)
         }
 
-        startupAutoLoginPending = false
+        startupAutoLogin.cancel()
 
         // 自助服务账号必须与当前校园网认证账号一致，直接采用 lgn 注销页返回的 uid。
         val username = status.uid
         if (username.isBlank()) {
+            if (generation == refreshGeneration) authenticatedUsername = ""
             selfService.clearSession()
             if (generation == refreshGeneration) seamless.invalidate()
             updateState(generation) {
@@ -591,8 +537,9 @@ class CampusSessionCoordinator(
             return RefreshAttemptOutcome.Complete
         }
 
-        if (generation == refreshGeneration && _uiState.value.accountOverview?.username != username) {
-            seamless.invalidate()
+        if (generation == refreshGeneration) {
+            if (authenticatedUsername != username) seamless.invalidate()
+            authenticatedUsername = username
         }
         updateState(generation) {
             // 同一认证账号刷新时保留旧数据；切换账号后不得沿用上一账号的内容。
@@ -640,6 +587,9 @@ class CampusSessionCoordinator(
                         },
                         canLogoutDevices = false
                     )
+                }
+                if (generation == refreshGeneration && (!result.isRetryable || showFinalError)) {
+                    refreshSeamlessInfo()
                 }
                 if (result.isRetryable) {
                     RefreshAttemptOutcome.RetryableFailure

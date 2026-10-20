@@ -1,8 +1,8 @@
 package top.steins.autologin.state
 
-import top.steins.autologin.data.AppearanceMode
-import top.steins.autologin.data.AppPreferences
-import top.steins.autologin.data.WifiConfigStore
+import top.steins.autologin.domain.model.AppearanceMode
+import top.steins.autologin.domain.port.AppPreferences
+import top.steins.autologin.domain.port.WifiConfigStore
 
 /** 软件设置与目标 Wi-Fi 配置；跨功能通知由应用容器连接。 */
 class SettingsStateHolder(

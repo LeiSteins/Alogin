@@ -39,9 +39,9 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import top.steins.autologin.R
-import top.steins.autologin.network.AccountDevice
-import top.steins.autologin.network.AccountOverview
-import top.steins.autologin.network.SeamlessStatus
+import top.steins.autologin.domain.model.AccountDevice
+import top.steins.autologin.domain.model.AccountOverview
+import top.steins.autologin.domain.model.SeamlessStatus
 import top.steins.autologin.ui.component.ScaleFadeBox
 import top.steins.autologin.ui.theme.ScreenHorizontalPadding
 import top.steins.autologin.ui.theme.TopBarHeight

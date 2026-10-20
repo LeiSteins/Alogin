@@ -1,4 +1,11 @@
-package top.steins.autologin.network
+package top.steins.autologin.domain.port
+
+import top.steins.autologin.domain.model.AccountOverviewResult
+import top.steins.autologin.domain.model.DeviceLogoutResult
+import top.steins.autologin.domain.model.SeamlessAction
+import top.steins.autologin.domain.model.SeamlessActionResult
+import top.steins.autologin.domain.model.SeamlessInfo
+import top.steins.autologin.domain.model.SeamlessLoadResult
 
 /** 主页使用的账号会话操作，共享同一自助服务会话。 */
 interface AccountSessionGateway {

@@ -33,8 +33,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import top.steins.autologin.BuildConfig
 import top.steins.autologin.R
-import top.steins.autologin.network.update.UpdateDownloadState
-import top.steins.autologin.network.update.UpdateState
+import top.steins.autologin.domain.model.UpdateDownloadState
+import top.steins.autologin.state.UpdateState
 import top.steins.autologin.ui.component.ListItemChevron
 import top.steins.autologin.ui.component.NavigationTopBar
 import top.steins.autologin.ui.component.updateDownloadSummary

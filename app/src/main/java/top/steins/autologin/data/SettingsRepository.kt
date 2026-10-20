@@ -12,6 +12,17 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import top.steins.autologin.domain.model.AppearanceMode
+import top.steins.autologin.domain.model.CredentialSaveResult
+import top.steins.autologin.domain.model.SavedAccount
+import top.steins.autologin.domain.model.TargetWifiConfigChange
+import top.steins.autologin.domain.model.TargetWifiConfigChangeType
+import top.steins.autologin.domain.model.WifiLoginMethod
+import top.steins.autologin.domain.port.AccountStore
+import top.steins.autologin.domain.port.AppPreferences
+import top.steins.autologin.domain.port.HttpLogPreferences
+import top.steins.autologin.domain.port.UpdateCheckStore
+import top.steins.autologin.domain.port.WifiConfigStore
 
 class SettingsRepository(context: Context) :
     AccountStore, WifiConfigStore, AppPreferences, HttpLogPreferences, UpdateCheckStore {

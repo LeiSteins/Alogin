@@ -100,9 +100,10 @@ Debug APK 的默认输出位置为 `app/build/outputs/apk/debug/app-debug.apk`�
 ```text
 app/src/main/java/top/steins/autologin/
 ├── data/       # 凭据加密、多账号持久化、本地设置与目标 Wi-Fi 配置
+├── domain/     # 不依赖 Android 的共享业务模型（model）与能力契约（port）
 ├── network/    # 认证、账号服务、网络信息与更新逻辑
 ├── navigation/ # Compose 导航定义
-├── state/      # 功能状态持有者、认证与无感知共享会话协调器
+├── state/      # 功能展示状态、会话协调器、登录策略与刷新调度
 └── ui/         # Compose 页面、组件与主题
 ```
 
@@ -111,6 +112,11 @@ JVM 测试位于 `app/src/test`，设备测试位于 `app/src/androidTest`，发
 功能层按用途接收网络观察、校园网认证、账号会话与无感知服务接口，底层共享连接和自助服务会话；
 `AppViewModel` 负责组装功能并统一释放网络资源。HTTP 日志由工厂创建同一个存储实例，
 分别注入网络请求写入接口与日志管理接口，会话协调器通过回调记录刷新事件。
+
+门户确认的认证身份独立于主页账号概览，概览加载失败不会阻断无感知信息读取。
+`SelfServiceSession` 统一管理自助服务身份、Cookie 生命周期与请求串行化，
+账号或网络变化后拒绝旧会话操作；写操作不会自动重建会话后重发。
+主页状态仍由 `CampusSessionCoordinator` 统一写入，登录执行、启动登录机会和刷新调度分别由独立组件负责。
 
 ## 隐私与安全
 

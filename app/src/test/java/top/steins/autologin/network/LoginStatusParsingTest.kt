@@ -14,7 +14,8 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import top.steins.autologin.data.WifiLoginMethod
+import top.steins.autologin.domain.model.LoginStatus
+import top.steins.autologin.domain.model.WifiLoginMethod
 
 class LoginStatusParsingTest {
 

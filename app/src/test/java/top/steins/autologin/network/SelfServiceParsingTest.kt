@@ -3,6 +3,7 @@ package top.steins.autologin.network
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
+import top.steins.autologin.domain.model.AccountDevice
 
 class SelfServiceParsingTest {
 

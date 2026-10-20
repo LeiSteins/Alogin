@@ -3,6 +3,10 @@ package top.steins.autologin.network
 import org.json.JSONException
 import org.json.JSONObject
 import org.json.JSONTokener
+import top.steins.autologin.domain.model.BoundDevice
+import top.steins.autologin.domain.model.BoundDeviceList
+import top.steins.autologin.domain.model.SeamlessActionResult
+import top.steins.autologin.domain.model.SeamlessStatus
 
 /** 只解析页面数据，不执行服务器返回的 HTML 或 JavaScript。 */
 internal object SeamlessParsing {

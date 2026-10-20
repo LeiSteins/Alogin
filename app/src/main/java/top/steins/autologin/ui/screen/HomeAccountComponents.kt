@@ -30,8 +30,8 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import top.steins.autologin.R
-import top.steins.autologin.network.AccountOverview
-import top.steins.autologin.network.SeamlessStatus
+import top.steins.autologin.domain.model.AccountOverview
+import top.steins.autologin.domain.model.SeamlessStatus
 import top.steins.autologin.ui.component.AppearEasing
 import top.steins.autologin.ui.component.DismissEasing
 import top.steins.autologin.ui.theme.AppCardShape

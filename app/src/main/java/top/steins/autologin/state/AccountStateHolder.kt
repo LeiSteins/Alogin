@@ -1,6 +1,6 @@
 package top.steins.autologin.state
 
-import top.steins.autologin.data.AccountStore
+import top.steins.autologin.domain.port.AccountStore
 
 /** 账号页面及凭据恢复提示所需的状态与操作。 */
 class AccountStateHolder(private val accountStore: AccountStore) {

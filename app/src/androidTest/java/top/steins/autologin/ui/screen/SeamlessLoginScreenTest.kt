@@ -12,11 +12,11 @@ import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
 import top.steins.autologin.SeamlessUiState
-import top.steins.autologin.network.BoundDevice
-import top.steins.autologin.network.BoundDeviceList
-import top.steins.autologin.network.SeamlessAction
-import top.steins.autologin.network.SeamlessInfo
-import top.steins.autologin.network.SeamlessStatus
+import top.steins.autologin.domain.model.BoundDevice
+import top.steins.autologin.domain.model.BoundDeviceList
+import top.steins.autologin.domain.model.SeamlessAction
+import top.steins.autologin.domain.model.SeamlessInfo
+import top.steins.autologin.domain.model.SeamlessStatus
 import top.steins.autologin.ui.theme.AloginTheme
 
 class SeamlessLoginScreenTest {

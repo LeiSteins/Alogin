@@ -3,17 +3,17 @@ package top.steins.autologin.ui.screen
 import android.graphics.Bitmap
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.semantics.SemanticsProperties
-import androidx.compose.ui.text.AnnotatedString
-import androidx.test.platform.app.InstrumentationRegistry
-import kotlinx.coroutines.CompletableDeferred
-import java.io.File
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.text.AnnotatedString
+import androidx.test.platform.app.InstrumentationRegistry
+import java.io.File
+import kotlinx.coroutines.CompletableDeferred
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
-import top.steins.autologin.data.CredentialSaveResult
-import top.steins.autologin.data.SavedAccount
+import top.steins.autologin.domain.model.CredentialSaveResult
+import top.steins.autologin.domain.model.SavedAccount
 import top.steins.autologin.ui.theme.AloginTheme
 
 class AccountScreenTest {

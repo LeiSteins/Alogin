@@ -1,8 +1,9 @@
 package top.steins.autologin.network
 
+import java.util.Locale
 import org.json.JSONArray
 import org.json.JSONException
-import java.util.Locale
+import top.steins.autologin.domain.model.AccountDevice
 
 internal sealed interface JsonObjectExtraction {
     data class Found(val text: String) : JsonObjectExtraction

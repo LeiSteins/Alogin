@@ -5,7 +5,14 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import kotlinx.coroutines.flow.Flow
 import top.steins.autologin.R
-import top.steins.autologin.data.WifiLoginMethod
+import top.steins.autologin.domain.model.CampusNetworkChange
+import top.steins.autologin.domain.model.CurrentNetworkInfo
+import top.steins.autologin.domain.model.LoginResult
+import top.steins.autologin.domain.model.LoginStatus
+import top.steins.autologin.domain.model.WifiLoginMethod
+import top.steins.autologin.domain.port.CampusAuthentication
+import top.steins.autologin.domain.port.InternetConnectivity
+import top.steins.autologin.domain.port.NetworkMonitor
 
 /** 仅用于应用组装和资源释放；功能层按用途接收窄接口。 */
 interface NetworkEnvironment : NetworkMonitor, InternetConnectivity, CampusAuthentication, AutoCloseable {
@@ -88,13 +95,6 @@ class DefaultNetworkEnvironment internal constructor(
         loginClients.close()
         campusNetwork.close()
     }
-}
-
-enum class CampusNetworkChange {
-    INITIAL,
-    IP_ADDRESS_CHANGED,
-    SSID_CHANGED,
-    IP_ADDRESS_AND_SSID_CHANGED
 }
 
 internal data class NetworkRefreshSnapshot(

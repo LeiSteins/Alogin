@@ -2,17 +2,17 @@ package top.steins.autologin
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import top.steins.autologin.data.AccountStore
-import top.steins.autologin.data.AppPreferences
-import top.steins.autologin.data.HttpLogPreferences
-import top.steins.autologin.data.UpdateCheckStore
-import top.steins.autologin.data.WifiConfigStore
+import top.steins.autologin.domain.model.WifiScanOutcome
+import top.steins.autologin.domain.port.AccountStore
+import top.steins.autologin.domain.port.AppPreferences
+import top.steins.autologin.domain.port.HttpLogPreferences
+import top.steins.autologin.domain.port.UpdateCheckStore
+import top.steins.autologin.domain.port.UpdateGateway
+import top.steins.autologin.domain.port.WifiConfigStore
 import top.steins.autologin.network.HttpLogStore
 import top.steins.autologin.network.NetworkEnvironment
 import top.steins.autologin.network.SelfServiceGateway
-import top.steins.autologin.network.WifiScanOutcome
 import top.steins.autologin.network.logAccountInfoRefresh
-import top.steins.autologin.network.update.UpdateGateway
 import top.steins.autologin.state.AccountStateHolder
 import top.steins.autologin.state.CampusSessionCoordinator
 import top.steins.autologin.state.HttpLogStateHolder

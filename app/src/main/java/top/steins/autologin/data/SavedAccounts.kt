@@ -2,10 +2,7 @@ package top.steins.autologin.data
 
 import org.json.JSONArray
 import org.json.JSONObject
-
-data class SavedAccount(val username: String, val password: String) {
-    override fun toString(): String = "SavedAccount(username=$username, password=***)"
-}
+import top.steins.autologin.domain.model.SavedAccount
 
 internal data class SavedAccounts(
     val accounts: List<SavedAccount> = emptyList(),

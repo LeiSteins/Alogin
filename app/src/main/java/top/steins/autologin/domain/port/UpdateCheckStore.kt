@@ -1,4 +1,4 @@
-package top.steins.autologin.data
+package top.steins.autologin.domain.port
 
 interface UpdateCheckStore {
     fun getLastUpdateCheckAt(): Long

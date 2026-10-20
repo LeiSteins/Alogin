@@ -17,6 +17,9 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import top.steins.autologin.BuildConfig
+import top.steins.autologin.domain.model.UpdateDownloadFailure
+import top.steins.autologin.domain.model.UpdateDownloadState
+import top.steins.autologin.domain.model.UpdateInfo
 
 class UpdateDownloadsTest {
     private val target = InstrumentationRegistry.getInstrumentation().targetContext

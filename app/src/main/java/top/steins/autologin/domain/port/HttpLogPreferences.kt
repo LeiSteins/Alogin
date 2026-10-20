@@ -1,4 +1,4 @@
-package top.steins.autologin.data
+package top.steins.autologin.domain.port
 
 import kotlinx.coroutines.flow.StateFlow
 

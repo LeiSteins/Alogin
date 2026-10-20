@@ -5,6 +5,12 @@ import okhttp3.FormBody
 import okhttp3.HttpUrl
 import okhttp3.Request
 import top.steins.autologin.R
+import top.steins.autologin.domain.model.BoundDevice
+import top.steins.autologin.domain.model.BoundDeviceList
+import top.steins.autologin.domain.model.SEAMLESS_DEVICE_LIMIT
+import top.steins.autologin.domain.model.SeamlessAction
+import top.steins.autologin.domain.model.SeamlessActionResult
+import top.steins.autologin.domain.model.SeamlessStatus
 
 /** 在调用方持有自助服务会话锁期间执行；HTTP 传输可替换，便于验证真实请求顺序。 */
 internal class SeamlessService(

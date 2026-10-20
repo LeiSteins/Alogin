@@ -14,16 +14,16 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.test.platform.app.InstrumentationRegistry
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import top.steins.autologin.R
-import top.steins.autologin.network.AccountDevice
-import top.steins.autologin.network.AccountOverview
-import top.steins.autologin.network.SeamlessStatus
+import top.steins.autologin.domain.model.AccountDevice
+import top.steins.autologin.domain.model.AccountOverview
+import top.steins.autologin.domain.model.SeamlessStatus
 import top.steins.autologin.ui.theme.AloginTheme
-import java.io.File
 
 class HomeScreenTest {
     @get:Rule

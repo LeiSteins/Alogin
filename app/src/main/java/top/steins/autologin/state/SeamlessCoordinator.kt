@@ -11,13 +11,13 @@ import kotlinx.coroutines.launch
 import top.steins.autologin.AppStrings
 import top.steins.autologin.R
 import top.steins.autologin.SeamlessUiState
-import top.steins.autologin.data.WifiLoginMethod
-import top.steins.autologin.network.LoginStatusReader
-import top.steins.autologin.network.SeamlessAction
-import top.steins.autologin.network.SeamlessActionResult
-import top.steins.autologin.network.SeamlessGateway
-import top.steins.autologin.network.SeamlessLoadResult
-import top.steins.autologin.network.SeamlessStatus
+import top.steins.autologin.domain.model.SeamlessAction
+import top.steins.autologin.domain.model.SeamlessActionResult
+import top.steins.autologin.domain.model.SeamlessLoadResult
+import top.steins.autologin.domain.model.SeamlessStatus
+import top.steins.autologin.domain.model.WifiLoginMethod
+import top.steins.autologin.domain.port.LoginStatusReader
+import top.steins.autologin.domain.port.SeamlessGateway
 
 /** 通过只读快照使用会话并上报结果；主页写入和操作串行化由会话协调器负责。 */
 internal class SeamlessCoordinator(

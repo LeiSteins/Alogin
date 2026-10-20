@@ -14,11 +14,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import top.steins.autologin.R
 import top.steins.autologin.state.AccountStateHolder
 import top.steins.autologin.state.CampusSessionCoordinator
+import top.steins.autologin.state.UpdateState
 import top.steins.autologin.state.UpdateStateHolder
-import top.steins.autologin.R
-import top.steins.autologin.network.update.UpdateState
 import top.steins.autologin.ui.component.CapsuleToastState
 import top.steins.autologin.ui.component.UpdateDialog
 

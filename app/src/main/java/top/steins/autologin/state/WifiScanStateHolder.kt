@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import top.steins.autologin.AppStrings
 import top.steins.autologin.R
-import top.steins.autologin.network.WifiScanOutcome
+import top.steins.autologin.domain.model.WifiScanOutcome
 
 data class WifiScanUiState(
     val isScanning: Boolean = false,

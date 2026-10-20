@@ -34,7 +34,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import top.steins.autologin.R
-import top.steins.autologin.data.AppearanceMode
+import top.steins.autologin.domain.model.AppearanceMode
 import top.steins.autologin.ui.component.NavigationTopBar
 import top.steins.autologin.ui.component.SettingsOptionCard
 import top.steins.autologin.ui.theme.ScreenHorizontalPadding

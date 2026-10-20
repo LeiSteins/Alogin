@@ -1,8 +1,8 @@
 package top.steins.autologin
 
-import top.steins.autologin.data.TargetWifiConfigChange
-import top.steins.autologin.data.TargetWifiConfigChangeType
-import top.steins.autologin.network.CampusNetworkChange
+import top.steins.autologin.domain.model.CampusNetworkChange
+import top.steins.autologin.domain.model.TargetWifiConfigChange
+import top.steins.autologin.domain.model.TargetWifiConfigChangeType
 
 internal enum class RefreshAttemptOutcome {
     Complete,

@@ -13,7 +13,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import top.steins.autologin.R
-import top.steins.autologin.network.AccountDevice
+import top.steins.autologin.domain.model.AccountDevice
 import top.steins.autologin.ui.theme.AloginTheme
 
 class HomeDeviceComponentsTest {

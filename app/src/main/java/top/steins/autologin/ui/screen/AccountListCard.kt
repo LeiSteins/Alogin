@@ -42,7 +42,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import top.steins.autologin.R
-import top.steins.autologin.data.SavedAccount
+import top.steins.autologin.domain.model.SavedAccount
 import top.steins.autologin.ui.theme.AppCardShape
 
 private const val AccountRowAnimationDurationMillis = 250

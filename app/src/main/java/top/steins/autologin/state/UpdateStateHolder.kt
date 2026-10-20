@@ -16,14 +16,13 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import top.steins.autologin.AppStrings
 import top.steins.autologin.R
-import top.steins.autologin.data.UpdateCheckStore
+import top.steins.autologin.domain.model.UpdateDownloadFailure
+import top.steins.autologin.domain.model.UpdateDownloadState
+import top.steins.autologin.domain.model.UpdateInfo
+import top.steins.autologin.domain.model.UpdateTransfer
+import top.steins.autologin.domain.port.UpdateCheckStore
+import top.steins.autologin.domain.port.UpdateGateway
 import top.steins.autologin.network.update.SemanticVersion
-import top.steins.autologin.network.update.UpdateDownloadState
-import top.steins.autologin.network.update.UpdateDownloadFailure
-import top.steins.autologin.network.update.UpdateInfo
-import top.steins.autologin.network.update.UpdateTransfer
-import top.steins.autologin.network.update.UpdateGateway
-import top.steins.autologin.network.update.UpdateState
 
 /** 独立管理更新检查、节流和下载消息，避免这些状态挤入网络认证协调器。 */
 class UpdateStateHolder(

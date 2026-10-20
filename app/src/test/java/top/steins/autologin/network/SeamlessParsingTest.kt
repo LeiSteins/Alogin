@@ -2,6 +2,8 @@ package top.steins.autologin.network
 
 import org.junit.Assert.*
 import org.junit.Test
+import top.steins.autologin.domain.model.BoundDeviceList
+import top.steins.autologin.domain.model.SeamlessStatus
 
 class SeamlessParsingTest {
     @Test

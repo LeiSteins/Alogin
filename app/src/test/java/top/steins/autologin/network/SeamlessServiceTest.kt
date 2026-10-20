@@ -7,6 +7,9 @@ import okhttp3.Request
 import org.junit.Assert.*
 import org.junit.Test
 import top.steins.autologin.R
+import top.steins.autologin.domain.model.SeamlessAction
+import top.steins.autologin.domain.model.SeamlessActionResult
+import top.steins.autologin.domain.model.SeamlessStatus
 
 class SeamlessServiceTest {
     private val oldMacs = listOf("001122334401", "001122334402", "001122334403")

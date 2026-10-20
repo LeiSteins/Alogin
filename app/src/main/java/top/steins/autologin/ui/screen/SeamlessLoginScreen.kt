@@ -18,12 +18,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -33,10 +33,10 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import top.steins.autologin.R
 import top.steins.autologin.SeamlessUiState
-import top.steins.autologin.network.SEAMLESS_DEVICE_LIMIT
-import top.steins.autologin.network.SeamlessAction
+import top.steins.autologin.domain.model.SEAMLESS_DEVICE_LIMIT
+import top.steins.autologin.domain.model.SeamlessAction
+import top.steins.autologin.domain.model.SeamlessStatus
 import top.steins.autologin.network.SeamlessParsing
-import top.steins.autologin.network.SeamlessStatus
 import top.steins.autologin.ui.component.DeviceListCardContent
 import top.steins.autologin.ui.component.DeviceListEntry
 import top.steins.autologin.ui.component.NavigationTopBar

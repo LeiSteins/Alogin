@@ -1,17 +1,9 @@
-package top.steins.autologin.data
+package top.steins.autologin.domain.port
 
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
-
-enum class TargetWifiConfigChangeType {
-    ADDED,
-    REMOVED
-}
-
-data class TargetWifiConfigChange(
-    val type: TargetWifiConfigChangeType,
-    val ssid: String
-)
+import top.steins.autologin.domain.model.TargetWifiConfigChange
+import top.steins.autologin.domain.model.WifiLoginMethod
 
 interface WifiConfigStore {
     val targetSsids: StateFlow<List<String>>

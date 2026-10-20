@@ -23,9 +23,4 @@
 
 # HTTP 日志通过显式接口注入和直接属性访问，不依赖反射或序列化，无需保留规则。
 
-# 保留登录相关数据类
--keep class top.steins.autologin.network.LoginStatus { *; }
--keep class top.steins.autologin.network.LoginResult { *; }
--keep class top.steins.autologin.network.LoginResult$Success { *; }
--keep class top.steins.autologin.network.LoginResult$Failure { *; }
--keep class top.steins.autologin.network.LoginResult$NetworkError { *; }
+# 登录模型通过显式构造与属性访问使用，不依赖反射或序列化，无需保留规则。

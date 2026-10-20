@@ -29,42 +29,43 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TestWatcher
 import org.junit.runner.Description
-import top.steins.autologin.data.AccountStore
-import top.steins.autologin.data.AppPreferences
-import top.steins.autologin.data.AppearanceMode
-import top.steins.autologin.data.CredentialSaveResult
-import top.steins.autologin.data.HttpLogPreferences
-import top.steins.autologin.data.TargetWifiConfigChange
-import top.steins.autologin.data.UpdateCheckStore
-import top.steins.autologin.data.WifiConfigStore
-import top.steins.autologin.data.WifiLoginMethod
-import top.steins.autologin.network.AccountDevice
-import top.steins.autologin.network.AccountOverview
-import top.steins.autologin.network.AccountOverviewResult
-import top.steins.autologin.network.CampusNetworkChange
-import top.steins.autologin.network.CurrentNetworkInfo
-import top.steins.autologin.network.DeviceLogoutResult
+import top.steins.autologin.domain.model.AccountDevice
+import top.steins.autologin.domain.model.AccountOverview
+import top.steins.autologin.domain.model.AccountOverviewResult
+import top.steins.autologin.domain.model.AppearanceMode
+import top.steins.autologin.domain.model.CampusNetworkChange
+import top.steins.autologin.domain.model.CredentialSaveResult
+import top.steins.autologin.domain.model.CurrentNetworkInfo
+import top.steins.autologin.domain.model.DeviceLogoutResult
+import top.steins.autologin.domain.model.LoginResult
+import top.steins.autologin.domain.model.LoginStatus
+import top.steins.autologin.domain.model.SavedAccount
+import top.steins.autologin.domain.model.SeamlessAction
+import top.steins.autologin.domain.model.SeamlessActionResult
+import top.steins.autologin.domain.model.SeamlessInfo
+import top.steins.autologin.domain.model.SeamlessLoadResult
+import top.steins.autologin.domain.model.SeamlessStatus
+import top.steins.autologin.domain.model.TargetWifiConfigChange
+import top.steins.autologin.domain.model.UpdateDownloadFailure
+import top.steins.autologin.domain.model.UpdateDownloadState
+import top.steins.autologin.domain.model.UpdateInfo
+import top.steins.autologin.domain.model.UpdateTransfer
+import top.steins.autologin.domain.model.WifiLoginMethod
+import top.steins.autologin.domain.model.WifiScanOutcome
+import top.steins.autologin.domain.port.AccountStore
+import top.steins.autologin.domain.port.AppPreferences
+import top.steins.autologin.domain.port.HttpLogPreferences
+import top.steins.autologin.domain.port.UpdateCheckStore
+import top.steins.autologin.domain.port.UpdateGateway
+import top.steins.autologin.domain.port.WifiConfigStore
 import top.steins.autologin.network.HttpLogEntry
 import top.steins.autologin.network.HttpLogEntryType
 import top.steins.autologin.network.HttpLogStorage
-import top.steins.autologin.network.LoginResult
-import top.steins.autologin.network.LoginStatus
 import top.steins.autologin.network.NetworkEnvironment
-import top.steins.autologin.network.SeamlessAction
-import top.steins.autologin.network.SeamlessActionResult
-import top.steins.autologin.network.SeamlessInfo
-import top.steins.autologin.network.SeamlessLoadResult
-import top.steins.autologin.network.SeamlessStatus
 import top.steins.autologin.network.SelfServiceGateway
-import top.steins.autologin.network.WifiScanOutcome
-import top.steins.autologin.network.update.UpdateDownloadFailure
-import top.steins.autologin.network.update.UpdateDownloadState
-import top.steins.autologin.network.update.UpdateGateway
-import top.steins.autologin.network.update.UpdateInfo
-import top.steins.autologin.network.update.UpdateState
-import top.steins.autologin.network.update.UpdateTransfer
 import top.steins.autologin.state.CampusSessionCoordinator
 import top.steins.autologin.state.HttpLogStateHolder
+import top.steins.autologin.state.UpdateState
 import top.steins.autologin.state.UpdateStateHolder
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -135,6 +136,65 @@ class AppViewModelTest {
             )
         )
         return createViewModel().also { it.session.refreshStatus() }
+    }
+
+    @Test
+    fun seamlessQuery_initialOverviewFailureStillUsesAuthenticatedAccount() = runTest {
+        network.info = CurrentNetworkInfo("bjut_wifi", "10.1.2.3", true, false, true)
+        network.loginStatus = LoginStatus(isLoggedIn = true, uid = "2021001")
+        selfService.overviewResult = AccountOverviewResult.Failure("dashboard unavailable")
+        val viewModel = createViewModel()
+
+        viewModel.session.refreshStatus()
+        advanceUntilIdle()
+        viewModel.session.refreshSeamlessInfo()
+        advanceUntilIdle()
+
+        assertTrue(viewModel.session.uiState.value.isOnline)
+        assertNull(viewModel.session.uiState.value.accountOverview)
+        assertEquals("dashboard unavailable", viewModel.session.uiState.value.accountInfoError)
+        assertEquals("2021001", selfService.seamlessRequestedAccount)
+        assertEquals(SeamlessStatus.Enabled, viewModel.session.uiState.value.seamlessStatus)
+    }
+
+    @Test
+    fun seamlessQuery_accountChangesAndOverviewFailsNeverReusesPreviousIdentity() = runTest {
+        val viewModel = createOnlineViewModel()
+        advanceUntilIdle()
+        network.loginStatus = LoginStatus(isLoggedIn = true, uid = "another-account")
+        selfService.overviewResult = AccountOverviewResult.Failure("dashboard unavailable")
+        selfService.seamlessLoadResult = SeamlessLoadResult.Success(
+            SeamlessInfo("another-account", 2, SeamlessStatus.Disabled)
+        )
+
+        viewModel.session.refreshStatus()
+        advanceUntilIdle()
+        viewModel.session.refreshSeamlessInfo()
+        advanceUntilIdle()
+
+        assertNull(viewModel.session.uiState.value.accountOverview)
+        assertEquals("another-account", selfService.seamlessRequestedAccount)
+        assertEquals(SeamlessStatus.Disabled, viewModel.session.uiState.value.seamlessStatus)
+    }
+
+    @Test
+    fun seamlessQuery_confirmedLogoutClearsIdentityAfterOverviewFailure() = runTest {
+        network.info = CurrentNetworkInfo("bjut_wifi", "10.1.2.3", true, false, true)
+        network.loginStatus = LoginStatus(isLoggedIn = true, uid = "2021001")
+        val viewModel = createViewModel()
+        viewModel.session.refreshStatus()
+        advanceUntilIdle()
+        network.loginStatus = LoginStatus(isLoggedIn = false)
+        viewModel.session.refreshStatus()
+        advanceUntilIdle()
+        val previousLoads = selfService.seamlessLoadCount
+
+        viewModel.session.refreshSeamlessInfo()
+        advanceUntilIdle()
+
+        assertEquals(previousLoads, selfService.seamlessLoadCount)
+        assertNull(viewModel.session.seamlessState.value.info)
+        assertFalse(viewModel.session.uiState.value.isOnline)
     }
 
     @Test
@@ -1688,8 +1748,8 @@ class AppViewModelTest {
     @Test
     fun selectedAccount_isUsedByNextLogin() = runTest {
         settings.accounts.value = listOf(
-            top.steins.autologin.data.SavedAccount("alice", "a"),
-            top.steins.autologin.data.SavedAccount("bob", "b")
+            SavedAccount("alice", "a"),
+            SavedAccount("bob", "b")
         )
         network.info = CurrentNetworkInfo(
             wifiName = "bjut_wifi", ipAddress = "10.1.2.3",
@@ -1807,16 +1867,16 @@ private class FakeSettingsStore : AccountStore, WifiConfigStore, AppPreferences,
     override fun saveWifiLoginMethod(ssid: String, method: WifiLoginMethod) {
         wifiLoginMethods[ssid] = method
     }
-    override suspend fun readActiveAccount(): top.steins.autologin.data.SavedAccount? =
+    override suspend fun readActiveAccount(): SavedAccount? =
         selectedAccountUsername.value.takeIf { it.isNotBlank() }?.let {
-            top.steins.autologin.data.SavedAccount(it, password.value)
+            SavedAccount(it, password.value)
         }
     override val autoLoginOnStartup = MutableStateFlow(false)
 
     override fun setAutoLoginOnStartup(enabled: Boolean) {
         autoLoginOnStartup.value = enabled
     }
-    override val accounts = MutableStateFlow<List<top.steins.autologin.data.SavedAccount>>(emptyList())
+    override val accounts = MutableStateFlow<List<SavedAccount>>(emptyList())
     override suspend fun selectAccount(username: String): CredentialSaveResult {
         val account = accounts.value.find { it.username == username }
             ?: return CredentialSaveResult.INVALID_INPUT

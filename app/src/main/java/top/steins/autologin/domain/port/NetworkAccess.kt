@@ -1,7 +1,11 @@
-package top.steins.autologin.network
+package top.steins.autologin.domain.port
 
 import kotlinx.coroutines.flow.Flow
-import top.steins.autologin.data.WifiLoginMethod
+import top.steins.autologin.domain.model.CampusNetworkChange
+import top.steins.autologin.domain.model.CurrentNetworkInfo
+import top.steins.autologin.domain.model.LoginResult
+import top.steins.autologin.domain.model.LoginStatus
+import top.steins.autologin.domain.model.WifiLoginMethod
 
 /** 系统网络观察与当前路由信息，不承担校园网认证。 */
 interface NetworkMonitor {

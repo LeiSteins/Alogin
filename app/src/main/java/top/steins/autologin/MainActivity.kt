@@ -7,15 +7,15 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.getValue
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.withResumed
 import kotlinx.coroutines.launch
+import top.steins.autologin.domain.model.AppearanceMode
 import top.steins.autologin.network.update.UpdateInstaller
-import top.steins.autologin.data.AppearanceMode
 import top.steins.autologin.ui.theme.AloginTheme
 
 class MainActivity : ComponentActivity() {

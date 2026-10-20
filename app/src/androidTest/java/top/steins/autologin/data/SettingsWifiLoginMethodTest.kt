@@ -9,6 +9,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
+import top.steins.autologin.domain.model.WifiLoginMethod
 
 class SettingsWifiLoginMethodTest {
     private val context = object : ContextWrapper(InstrumentationRegistry.getInstrumentation().targetContext) {

@@ -14,6 +14,8 @@ import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
+import top.steins.autologin.domain.model.CredentialSaveResult
+import top.steins.autologin.domain.model.SavedAccount
 
 class SettingsAccountsTest {
     // 为测试偏好文件单独加前缀，避免覆盖已安装应用中的真实账号。

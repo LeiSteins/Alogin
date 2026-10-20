@@ -1,6 +1,6 @@
 package top.steins.autologin.state
 
-import top.steins.autologin.data.HttpLogPreferences
+import top.steins.autologin.domain.port.HttpLogPreferences
 import top.steins.autologin.network.HttpLogStore
 
 /** 集中管理日志入口解锁与开关，页面不参与认证状态管理。 */

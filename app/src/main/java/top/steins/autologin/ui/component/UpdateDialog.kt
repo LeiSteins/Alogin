@@ -6,19 +6,19 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import top.steins.autologin.BuildConfig
 import top.steins.autologin.R
-import top.steins.autologin.network.update.UpdateInfo
-import top.steins.autologin.network.update.UpdateDownloadState
-import top.steins.autologin.network.update.UpdateDownloadFailure
+import top.steins.autologin.domain.model.UpdateDownloadFailure
+import top.steins.autologin.domain.model.UpdateDownloadState
+import top.steins.autologin.domain.model.UpdateInfo
 
 @Composable
 fun UpdateDialog(

@@ -3,6 +3,7 @@ package top.steins.autologin.network.update
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import top.steins.autologin.domain.model.UpdateInfo
 
 class UpdateArchiveTest {
     private val update = UpdateInfo("0.2.0", "alogin-v0.2.0.apk", "", 20)

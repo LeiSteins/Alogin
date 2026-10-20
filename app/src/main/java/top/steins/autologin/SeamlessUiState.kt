@@ -1,6 +1,6 @@
 package top.steins.autologin
 
-import top.steins.autologin.network.SeamlessInfo
+import top.steins.autologin.domain.model.SeamlessInfo
 
 data class SeamlessUiState(
     val info: SeamlessInfo? = null,

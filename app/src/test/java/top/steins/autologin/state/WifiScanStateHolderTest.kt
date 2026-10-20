@@ -14,8 +14,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import top.steins.autologin.AppStrings
 import top.steins.autologin.R
-import top.steins.autologin.network.WifiScanOutcome
-import top.steins.autologin.network.WifiScanResult
+import top.steins.autologin.domain.model.WifiScanOutcome
+import top.steins.autologin.domain.model.WifiScanResult
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class WifiScanStateHolderTest {

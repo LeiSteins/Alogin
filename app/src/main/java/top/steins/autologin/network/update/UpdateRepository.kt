@@ -1,49 +1,21 @@
 package top.steins.autologin.network.update
 
 import android.content.Context
+import java.io.File
+import java.io.IOException
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
+import top.steins.autologin.domain.model.UpdateInfo
+import top.steins.autologin.domain.model.UpdateTransfer
+import top.steins.autologin.domain.port.UpdateGateway
 import top.steins.autologin.network.executeCancellable
-import java.io.File
-import java.io.IOException
-import java.util.concurrent.TimeUnit
 
 private const val UPDATE_BASE_URL = "https://aloginupdate.steins.top/"
-
-data class UpdateInfo(
-    val version: String,
-    val fileName: String,
-    val downloadUrl: String,
-    val versionCode: Int,
-    val releaseNotes: String = ""
-)
-
-sealed interface UpdateState {
-    data object Idle : UpdateState
-    data object Checking : UpdateState
-    data class UpToDate(val latestVersion: String) : UpdateState
-    data class Available(
-        val update: UpdateInfo,
-        val download: UpdateDownloadState = UpdateDownloadState.None
-    ) : UpdateState
-    data class Error(val message: String) : UpdateState
-}
-
-/**
- * 应用更新检查与下载的入口抽象，便于 ViewModel 单元测试注入替身。
- */
-interface UpdateGateway {
-    suspend fun fetchLatestUpdate(currentVersion: String): UpdateInfo
-
-    suspend fun downloadUpdate(update: UpdateInfo): UpdateTransfer
-    suspend fun refreshDownload(): UpdateTransfer?
-    fun observeDownloadChanges(): Flow<Unit>
-    suspend fun validatedDownload(update: UpdateInfo): File?
-}
 
 class UpdateRepository(context: Context) : UpdateGateway {
 

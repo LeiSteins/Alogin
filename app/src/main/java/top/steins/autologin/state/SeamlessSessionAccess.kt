@@ -1,6 +1,6 @@
 package top.steins.autologin.state
 
-import top.steins.autologin.network.SeamlessStatus
+import top.steins.autologin.domain.model.SeamlessStatus
 
 /** 无感知功能所需的只读会话信息，不暴露主页状态或同步原语。 */
 internal data class CampusSessionSnapshot(

@@ -1,5 +1,6 @@
 package top.steins.autologin.ui.component
 
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -9,10 +10,9 @@ import androidx.compose.ui.test.performScrollTo
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
-import top.steins.autologin.network.update.UpdateInfo
-import top.steins.autologin.network.update.UpdateDownloadState
-import top.steins.autologin.network.update.UpdateDownloadFailure
-import androidx.compose.runtime.mutableStateOf
+import top.steins.autologin.domain.model.UpdateDownloadFailure
+import top.steins.autologin.domain.model.UpdateDownloadState
+import top.steins.autologin.domain.model.UpdateInfo
 import top.steins.autologin.ui.theme.AloginTheme
 
 class UpdateDialogTest {

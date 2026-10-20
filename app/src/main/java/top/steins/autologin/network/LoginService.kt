@@ -2,6 +2,9 @@ package top.steins.autologin.network
 
 import android.content.Context
 import android.net.Network
+import java.io.IOException
+import java.nio.charset.Charset
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -10,27 +13,9 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import top.steins.autologin.R
-import top.steins.autologin.data.WifiLoginMethod
-import java.io.IOException
-import java.nio.charset.Charset
-import java.util.concurrent.TimeUnit
-
-data class LoginStatus(
-    val isLoggedIn: Boolean,
-    val uid: String = "",
-    val flow: String = "",
-    val time: String = "",
-    val v4ip: String = "",
-    val error: String = "",
-    val verifiedMethod: WifiLoginMethod? = null
-)
-
-sealed class LoginResult {
-    data object Success : LoginResult()
-    data object AlreadyOnline : LoginResult()
-    data class Failure(val message: String) : LoginResult()
-    data class NetworkError(val message: String) : LoginResult()
-}
+import top.steins.autologin.domain.model.LoginResult
+import top.steins.autologin.domain.model.LoginStatus
+import top.steins.autologin.domain.model.WifiLoginMethod
 
 internal fun createLoginClient(
     context: Context,

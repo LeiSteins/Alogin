@@ -10,15 +10,15 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import top.steins.autologin.AppStrings
-import top.steins.autologin.data.WifiLoginMethod
-import top.steins.autologin.network.LoginStatus
-import top.steins.autologin.network.LoginStatusReader
-import top.steins.autologin.network.SeamlessAction
-import top.steins.autologin.network.SeamlessActionResult
-import top.steins.autologin.network.SeamlessInfo
-import top.steins.autologin.network.SeamlessLoadResult
-import top.steins.autologin.network.SeamlessStatus
-import top.steins.autologin.network.SeamlessGateway
+import top.steins.autologin.domain.model.LoginStatus
+import top.steins.autologin.domain.model.SeamlessAction
+import top.steins.autologin.domain.model.SeamlessActionResult
+import top.steins.autologin.domain.model.SeamlessInfo
+import top.steins.autologin.domain.model.SeamlessLoadResult
+import top.steins.autologin.domain.model.SeamlessStatus
+import top.steins.autologin.domain.model.WifiLoginMethod
+import top.steins.autologin.domain.port.LoginStatusReader
+import top.steins.autologin.domain.port.SeamlessGateway
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SeamlessCoordinatorTest {

@@ -1,14 +1,8 @@
-package top.steins.autologin.data
+package top.steins.autologin.domain.port
 
 import kotlinx.coroutines.flow.StateFlow
-
-/** 凭据保存结果；加密不可用时不落盘。 */
-enum class CredentialSaveResult {
-    SAVED,
-    ENCRYPTION_UNAVAILABLE,
-    STORAGE_UNAVAILABLE,
-    INVALID_INPUT
-}
+import top.steins.autologin.domain.model.CredentialSaveResult
+import top.steins.autologin.domain.model.SavedAccount
 
 /** 账号操作共用同一初始化、加密与持久化事务边界。 */
 interface AccountStore {
