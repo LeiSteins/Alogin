@@ -34,6 +34,7 @@ import top.steins.autologin.data.AppearanceMode
 import top.steins.autologin.data.CredentialSaveResult
 import top.steins.autologin.data.SettingsGateway
 import top.steins.autologin.data.TargetWifiConfigChange
+import top.steins.autologin.data.WifiLoginMethod
 import top.steins.autologin.network.AccountDevice
 import top.steins.autologin.network.AccountOverview
 import top.steins.autologin.network.AccountOverviewResult
@@ -687,6 +688,91 @@ class AppViewModelTest {
     }
 
     @Test
+    fun refreshStatus_prefersWlgnForDefaultWifiWithoutCreatingVerificationRecord() {
+        network.info = CurrentNetworkInfo("bjut_wifi", "10.1.2.3", true, false, true)
+        val viewModel = createViewModel()
+
+        viewModel.refreshStatus()
+
+        assertEquals(listOf(WifiLoginMethod.WLGN), network.loginStatusPreferredMethods)
+        assertNull(settings.getWifiLoginMethod("bjut_wifi"))
+    }
+
+    @Test
+    fun login_prefersRememberedMethodOverDefaultWlgn() = runTest {
+        settings.setCredentials("2021001", "secret")
+        settings.saveWifiLoginMethod("bjut_wifi", WifiLoginMethod.EPORTAL)
+        network.info = CurrentNetworkInfo("bjut_wifi", "10.1.2.3", true, false, true)
+        val viewModel = createViewModel()
+
+        viewModel.login()
+
+        assertEquals(WifiLoginMethod.EPORTAL, network.loginPreferredMethod)
+    }
+
+    @Test
+    fun refreshStatus_remembersVerifiedMethodAndUsesItOnNextConnection() {
+        network.info = CurrentNetworkInfo("bjut_wifi", "10.1.2.3", true, false, true)
+        network.loginStatus = LoginStatus(false, verifiedMethod = WifiLoginMethod.WLGN)
+        val viewModel = createViewModel()
+
+        viewModel.refreshStatus()
+
+        assertEquals(WifiLoginMethod.WLGN, settings.getWifiLoginMethod("bjut_wifi"))
+        network.loginStatusPreferredMethods.clear()
+        network.info = network.info.copy(ipAddress = "10.1.2.4")
+        viewModel.refreshStatus()
+
+        assertEquals(listOf(WifiLoginMethod.WLGN), network.loginStatusPreferredMethods)
+    }
+
+    @Test
+    fun refreshStatus_updatesMethodAfterFallbackAndKeepsItOnVerificationFailure() {
+        network.info = CurrentNetworkInfo("bjut_wifi", "10.1.2.3", true, false, true)
+        settings.saveWifiLoginMethod("bjut_wifi", WifiLoginMethod.WLGN)
+        network.loginStatus = LoginStatus(false, verifiedMethod = WifiLoginMethod.EPORTAL)
+        val viewModel = createViewModel()
+        viewModel.refreshStatus()
+        assertEquals(WifiLoginMethod.EPORTAL, settings.getWifiLoginMethod("bjut_wifi"))
+
+        network.loginStatus = LoginStatus(false, error = "unavailable")
+        viewModel.refreshStatus()
+
+        assertEquals(WifiLoginMethod.EPORTAL, settings.getWifiLoginMethod("bjut_wifi"))
+    }
+
+    @Test
+    fun refreshStatus_doesNotReuseAnotherWifiMethod() {
+        network.info = CurrentNetworkInfo("bjut_wifi", "10.1.2.3", true, false, true)
+        settings.saveWifiLoginMethod("bjut_wifi", WifiLoginMethod.WLGN)
+        val viewModel = createViewModel()
+        network.loginStatusPreferredMethods.clear()
+        network.info = network.info.copy(wifiName = "bjut-sushe-1")
+
+        viewModel.refreshStatus()
+
+        assertEquals(listOf<WifiLoginMethod?>(null), network.loginStatusPreferredMethods)
+        assertNull(settings.getWifiLoginMethod("bjut-sushe-1"))
+    }
+
+    @Test
+    fun refreshStatus_doesNotRememberMethodWhenNetworkChangesDuringVerification() =
+        runTest(mainDispatcherRule.testDispatcher.scheduler) {
+            network.info = CurrentNetworkInfo("bjut_wifi", "10.1.2.3", true, false, true)
+            val viewModel = createViewModel()
+            network.loginStatus = LoginStatus(false, verifiedMethod = WifiLoginMethod.WLGN)
+            network.loginStatusGate = CompletableDeferred()
+            viewModel.refreshStatus()
+            network.info = network.info.copy(wifiName = "other_wifi")
+
+            network.loginStatusGate!!.complete(Unit)
+            runCurrent()
+
+            assertNull(settings.getWifiLoginMethod("bjut_wifi"))
+            assertNull(settings.getWifiLoginMethod("other_wifi"))
+        }
+
+    @Test
     fun refreshStatus_publishesNetworkAndAccountOverviewForLoggedInTargetWifi() {
         network.info = CurrentNetworkInfo(
             wifiName = "bjut_wifi",
@@ -997,6 +1083,7 @@ class AppViewModelTest {
         val result = viewModel.login()
 
         assertEquals(LoginResult.Success, result)
+        assertEquals(WifiLoginMethod.WLGN, network.loginPreferredMethod)
         assertEquals(
             "2021001" to "secret",
             network.performedLogin
@@ -1358,6 +1445,13 @@ class AppViewModelTest {
 }
 
 private class FakeSettingsGateway : SettingsGateway {
+    private val wifiLoginMethods = mutableMapOf<String, WifiLoginMethod>()
+
+    override fun getWifiLoginMethod(ssid: String): WifiLoginMethod? = wifiLoginMethods[ssid]
+
+    override fun saveWifiLoginMethod(ssid: String, method: WifiLoginMethod) {
+        wifiLoginMethods[ssid] = method
+    }
     override suspend fun readActiveAccount(): top.steins.autologin.data.SavedAccount? =
         username.value.takeIf { it.isNotBlank() }?.let {
             top.steins.autologin.data.SavedAccount(it, password.value)
@@ -1516,8 +1610,10 @@ private class FakeNetworkEnvironment : NetworkEnvironment {
     var loginStatus = LoginStatus(isLoggedIn = false)
     var knownOnlineLoginStatus = LoginStatus(isLoggedIn = true)
     val loginStatusKnownOnlineRequests = mutableListOf<Boolean>()
+    val loginStatusPreferredMethods = mutableListOf<WifiLoginMethod?>()
     var loginResult: LoginResult = LoginResult.Failure("")
     var performedLogin: Pair<String, String>? = null
+    var loginPreferredMethod: WifiLoginMethod? = null
     var loginCount = 0
     var loginStatusAfterLogin: LoginStatus? = null
     var validatedInternet = false
@@ -1533,19 +1629,25 @@ private class FakeNetworkEnvironment : NetworkEnvironment {
 
     override fun hasValidatedInternet(): Boolean = validatedInternet
 
-    override suspend fun fetchLoginStatus(knownLoggedIn: Boolean): LoginStatus {
+    override suspend fun fetchLoginStatus(
+        knownLoggedIn: Boolean,
+        preferredMethod: WifiLoginMethod?
+    ): LoginStatus {
         loginStatusFetchCount += 1
         loginStatusKnownOnlineRequests += knownLoggedIn
+        loginStatusPreferredMethods += preferredMethod
         loginStatusGate?.await()
         return if (knownLoggedIn) knownOnlineLoginStatus else loginStatus
     }
 
     override suspend fun performLogin(
         username: String,
-        password: String
+        password: String,
+        preferredMethod: WifiLoginMethod?
     ): LoginResult {
         loginCount += 1
         performedLogin = username to password
+        loginPreferredMethod = preferredMethod
         loginGate?.await()
         loginStatusAfterLogin?.let { loginStatus = it }
         return loginResult

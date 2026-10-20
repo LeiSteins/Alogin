@@ -14,6 +14,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import top.steins.autologin.data.WifiLoginMethod
 
 class LoginStatusParsingTest {
 
@@ -55,7 +56,7 @@ class LoginStatusParsingTest {
 
         val result = fetchLoginStatus(client)
 
-        assertEquals(LoginStatus(isLoggedIn = false), result)
+        assertEquals(LoginStatus(false, verifiedMethod = WifiLoginMethod.EPORTAL), result)
         assertEquals(
             listOf("http://10.21.221.98/", "https://wlgn.bjut.edu.cn/a79.htm"),
             requestedUrls
@@ -75,7 +76,7 @@ class LoginStatusParsingTest {
 
         val result = fetchLoginStatus(client)
 
-        assertEquals(LoginStatus(isLoggedIn = false), result)
+        assertEquals(LoginStatus(false, verifiedMethod = WifiLoginMethod.WLGN), result)
         assertEquals(
             listOf("http://10.21.221.98/", "https://wlgn.bjut.edu.cn/a79.htm"),
             requestedUrls
@@ -103,7 +104,8 @@ class LoginStatusParsingTest {
         val result = fetchLoginStatus(client)
 
         assertEquals(
-            LoginStatus(true, uid = "2021001", flow = "1024", time = "60", v4ip = "10.0.0.1"),
+            LoginStatus(true, uid = "2021001", flow = "1024", time = "60", v4ip = "10.0.0.1",
+                verifiedMethod = WifiLoginMethod.EPORTAL),
             result
         )
         assertEquals(listOf("10.21.221.98", "lgn.bjut.edu.cn"), requestedHosts)
@@ -124,7 +126,7 @@ class LoginStatusParsingTest {
 
         val result = fetchLoginStatus(client)
 
-        assertEquals(LoginStatus(isLoggedIn = true), result)
+        assertEquals(LoginStatus(true, verifiedMethod = WifiLoginMethod.WLGN), result)
         assertEquals(listOf("10.21.221.98", "wlgn.bjut.edu.cn", "lgn.bjut.edu.cn"), requestedHosts)
     }
 
@@ -143,7 +145,10 @@ class LoginStatusParsingTest {
                 }
             }
 
-            assertEquals(LoginStatus(isLoggedIn = true), fetchLoginStatus(client))
+            assertEquals(
+                LoginStatus(true, verifiedMethod = WifiLoginMethod.EPORTAL),
+                fetchLoginStatus(client)
+            )
             assertEquals(listOf("10.21.221.98", "lgn.bjut.edu.cn"), requestedHosts)
         }
     }
@@ -161,6 +166,60 @@ class LoginStatusParsingTest {
             assertNull(fetchLoginStatus(client))
             assertEquals(listOf("10.21.221.98", "wlgn.bjut.edu.cn"), requestedHosts)
         }
+    }
+
+    @Test
+    fun fetchLoginStatus_usesOnlyRememberedPortalForDefiniteOnlineOrOfflineState() = runTest {
+        for (method in WifiLoginMethod.entries) {
+            for (online in listOf(true, false)) {
+                val hosts = mutableListOf<String>()
+                val client = clientWithInterceptor { chain ->
+                    hosts += chain.request().url.host
+                    response(chain, body = if (online) "<title>注销页</title>" else "<title>上网登录页</title>")
+                }
+
+                val result = fetchLoginStatus(client, preferredMethod = method)
+
+                assertEquals(LoginStatus(online, verifiedMethod = method), result)
+                val portalHost = if (method == WifiLoginMethod.WLGN) "wlgn.bjut.edu.cn" else "10.21.221.98"
+                assertEquals(if (online) listOf(portalHost, "lgn.bjut.edu.cn") else listOf(portalHost), hosts)
+            }
+        }
+    }
+
+    @Test
+    fun fetchLoginStatus_fallsBackAndReportsNewMethodWhenRememberedPortalIsUnavailable() = runTest {
+        for (method in WifiLoginMethod.entries) {
+            for (online in listOf(true, false)) {
+                val hosts = mutableListOf<String>()
+                val preferredHost = if (method == WifiLoginMethod.WLGN) "wlgn.bjut.edu.cn" else "10.21.221.98"
+                val fallbackHost = if (method == WifiLoginMethod.WLGN) "10.21.221.98" else "wlgn.bjut.edu.cn"
+                val client = clientWithInterceptor { chain ->
+                    hosts += chain.request().url.host
+                    if (chain.request().url.host == preferredHost) throw IOException("unavailable")
+                    response(chain, body = if (online) "<title>注销页</title>" else "<title>上网登录页</title>")
+                }
+
+                val result = fetchLoginStatus(client, preferredMethod = method)
+
+                val fallback = WifiLoginMethod.entries.first { it != method }
+                assertEquals(LoginStatus(online, verifiedMethod = fallback), result)
+                val expected = listOf(preferredHost, fallbackHost) + if (online) listOf("lgn.bjut.edu.cn") else emptyList()
+                assertEquals(expected, hosts)
+            }
+        }
+    }
+
+    @Test
+    fun fetchLoginStatus_doesNotReportMethodWhenRememberedPortalAndFallbackAreUnknown() = runTest {
+        val hosts = mutableListOf<String>()
+        val client = clientWithInterceptor { chain ->
+            hosts += chain.request().url.host
+            response(chain, body = "<title>其他页面</title>")
+        }
+
+        assertNull(fetchLoginStatus(client, preferredMethod = WifiLoginMethod.WLGN))
+        assertEquals(listOf("wlgn.bjut.edu.cn", "10.21.221.98"), hosts)
     }
 
     @Test

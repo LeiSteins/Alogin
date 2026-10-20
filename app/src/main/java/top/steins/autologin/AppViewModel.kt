@@ -22,6 +22,7 @@ import kotlinx.coroutines.sync.withLock
 import top.steins.autologin.data.AppearanceMode
 import top.steins.autologin.data.CredentialSaveResult
 import top.steins.autologin.data.SettingsGateway
+import top.steins.autologin.data.WifiLoginMethod
 import top.steins.autologin.network.AccountOverviewResult
 import top.steins.autologin.network.DefaultNetworkChange
 import top.steins.autologin.network.DeviceLogoutResult
@@ -357,9 +358,17 @@ class AppViewModel(
                 LoginResult.Failure(strings.get(R.string.login_cellular_blocked))
             !networkInfo.isWifi || networkInfo.wifiName !in settings.targetWifis.value ->
                 LoginResult.Failure(strings.get(R.string.login_wrong_network))
-            else -> network.performLogin(username, password)
+            else -> network.performLogin(
+                username,
+                password,
+                preferredMethod = preferredWifiLoginMethod(networkInfo.wifiName)
+            )
         }
     }
+
+    private fun preferredWifiLoginMethod(ssid: String): WifiLoginMethod? =
+        settings.getWifiLoginMethod(ssid)
+            ?: WifiLoginMethod.WLGN.takeIf { ssid == "bjut_wifi" }
 
     private suspend fun tryStartupAutoLogin(generation: Long): RefreshAttemptOutcome {
         if (!startupAutoLoginPending) return RefreshAttemptOutcome.Complete
@@ -466,7 +475,21 @@ class AppViewModel(
             copy(isAccountInfoLoading = true, canLogoutDevices = false)
         }
 
-        val status = network.fetchLoginStatus(knownLoggedIn)
+        val status = network.fetchLoginStatus(
+            knownLoggedIn = knownLoggedIn,
+            preferredMethod = preferredWifiLoginMethod(networkInfo.wifiName)
+        )
+        if (status.error.isBlank() && status.verifiedMethod != null) {
+            val current = network.fetchCurrentNetworkInfo(
+                canReadWifiName = _uiState.value.hasLocationPermission
+            )
+            // 网络切换后返回的旧结果不能覆盖该 Wi-Fi 的验证方式。
+            if (current.isWifi && current.wifiName == networkInfo.wifiName &&
+                current.ipAddress == networkInfo.ipAddress
+            ) {
+                settings.saveWifiLoginMethod(networkInfo.wifiName, status.verifiedMethod)
+            }
+        }
         if (!status.isLoggedIn) {
             if (status.error.isNotBlank()) {
                 updateState(generation) {

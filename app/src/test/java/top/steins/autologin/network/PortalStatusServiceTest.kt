@@ -14,6 +14,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import top.steins.autologin.data.WifiLoginMethod
 
 class PortalStatusServiceTest {
     private val dynamicPage = """
@@ -47,7 +48,7 @@ class PortalStatusServiceTest {
 
         val result = fetchLoginStatus(client, wlanUserIp = "10.1.2.4")
 
-        assertEquals(LoginStatus(isLoggedIn = true, uid = "2021002"), result)
+        assertEquals(LoginStatus(true, uid = "2021002", verifiedMethod = WifiLoginMethod.EPORTAL), result)
         assertEquals(
             listOf("/", "/eportal/portal/page/loadConfig", "/eportal/portal/online_list", "/"),
             requests.map { it.url.encodedPath }
@@ -75,8 +76,48 @@ class PortalStatusServiceTest {
         val paths = mutableListOf<String>()
         val client = dynamicClient(paths, statusBody = """dr1003({"result":0});""")
 
-        assertEquals(LoginStatus(isLoggedIn = false), fetchLoginStatus(client))
+        assertEquals(LoginStatus(false, verifiedMethod = WifiLoginMethod.EPORTAL), fetchLoginStatus(client))
         assertEquals(listOf("/", "/eportal/portal/page/loadConfig", "/eportal/portal/online_list"), paths)
+    }
+
+    @Test
+    fun fetchLoginStatus_rememberedWlgnStillChecksDynamicStatusBeforeReportingState() = runTest {
+        for (online in listOf(true, false)) {
+            val hosts = mutableListOf<String>()
+            val paths = mutableListOf<String>()
+            val client = clientWithInterceptor { chain ->
+                hosts += chain.request().url.host
+                paths += chain.request().url.encodedPath
+                when (chain.request().url.encodedPath) {
+                    "/a79.htm" -> response(chain, body = dynamicPage)
+                    "/eportal/portal/page/loadConfig" -> response(chain, body = config("0"))
+                    "/drcom/chkstatus" -> response(chain, body = """{"result":${if (online) 1 else 0}}""")
+                    "/" -> response(chain, body = "<title>注销页</title>")
+                    else -> throw AssertionError("Unexpected path")
+                }
+            }
+
+            val result = fetchLoginStatus(client, preferredMethod = WifiLoginMethod.WLGN)
+
+            assertEquals(LoginStatus(online, verifiedMethod = WifiLoginMethod.WLGN), result)
+            assertFalse(hosts.contains("10.21.221.98"))
+            val expectedPaths = listOf("/a79.htm", "/eportal/portal/page/loadConfig", "/drcom/chkstatus") +
+                if (online) listOf("/") else emptyList()
+            assertEquals(expectedPaths, paths)
+        }
+    }
+
+    @Test
+    fun fetchLoginStatus_doesNotCacheOfflineTemplateWhenPreferredDynamicStatusCannotBeVerified() = runTest {
+        val client = clientWithInterceptor { chain ->
+            when {
+                chain.request().url.host == "10.21.221.98" -> response(chain, body = "<title>上网登录页</title>")
+                chain.request().url.encodedPath == "/a79.htm" -> response(chain, body = dynamicPage)
+                else -> response(chain, code = 503, body = "unavailable")
+            }
+        }
+
+        assertNull(fetchLoginStatus(client, preferredMethod = WifiLoginMethod.WLGN))
     }
 
     @Test

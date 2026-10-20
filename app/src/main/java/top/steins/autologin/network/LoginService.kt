@@ -10,6 +10,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import top.steins.autologin.R
+import top.steins.autologin.data.WifiLoginMethod
 import java.io.IOException
 import java.nio.charset.Charset
 import java.util.concurrent.TimeUnit
@@ -20,7 +21,8 @@ data class LoginStatus(
     val flow: String = "",
     val time: String = "",
     val v4ip: String = "",
-    val error: String = ""
+    val error: String = "",
+    val verifiedMethod: WifiLoginMethod? = null
 )
 
 sealed class LoginResult {
@@ -46,13 +48,14 @@ internal suspend fun login(
     client: OkHttpClient,
     username: String,
     password: String,
-    wlanUserIp: String
+    wlanUserIp: String,
+    preferredMethod: WifiLoginMethod? = null
 ): LoginResult =
     withContext(Dispatchers.IO) {
         try {
-            when (detectLoginPortal(context, client)) {
-                LoginPortal.Wlgn -> loginWithWlgn(context, client, username, password)
-                LoginPortal.Eportal ->
+            when (preferredMethod ?: detectLoginPortal(context, client)) {
+                WifiLoginMethod.WLGN -> loginWithWlgn(context, client, username, password)
+                WifiLoginMethod.EPORTAL ->
                     loginWithEportal(context, client, username, password, wlanUserIp)
             }
         } catch (error: CancellationException) {
@@ -67,12 +70,7 @@ internal suspend fun login(
         }
     }
 
-private enum class LoginPortal {
-    Wlgn,
-    Eportal
-}
-
-private suspend fun detectLoginPortal(context: Context, client: OkHttpClient): LoginPortal {
+private suspend fun detectLoginPortal(context: Context, client: OkHttpClient): WifiLoginMethod {
     val request = Request.Builder()
         .url("http://10.21.221.98/")
         .get()
@@ -85,19 +83,19 @@ private suspend fun detectLoginPortal(context: Context, client: OkHttpClient): L
             response.code in 300..399 -> {
                 val location = response.header("Location").orEmpty()
                 return if (location.contains("eportal", ignoreCase = true)) {
-                    LoginPortal.Eportal
+                    WifiLoginMethod.EPORTAL
                 } else {
-                    LoginPortal.Wlgn
+                    WifiLoginMethod.WLGN
                 }
             }
 
             response.isSuccessful -> {
                 val responseHint = response.peekBody(PORTAL_HINT_BODY_BYTES).string()
                 return when {
-                    responseHint.contains("wlgn", ignoreCase = true) -> LoginPortal.Wlgn
-                    responseHint.contains("eportal", ignoreCase = true) -> LoginPortal.Eportal
+                    responseHint.contains("wlgn", ignoreCase = true) -> WifiLoginMethod.WLGN
+                    responseHint.contains("eportal", ignoreCase = true) -> WifiLoginMethod.EPORTAL
                     // 校园网当前的成功探测页未携带明确标记时，保持既有 Eportal 兼容路径。
-                    else -> LoginPortal.Eportal
+                    else -> WifiLoginMethod.EPORTAL
                 }
             }
 
@@ -245,10 +243,11 @@ internal suspend fun checkLoginStatus(
     context: Context,
     client: OkHttpClient,
     knownLoggedIn: Boolean = false,
-    wlanUserIp: String = ""
+    wlanUserIp: String = "",
+    preferredMethod: WifiLoginMethod? = null
 ): LoginStatus = withContext(Dispatchers.IO) {
     try {
-        fetchLoginStatus(client, knownLoggedIn, wlanUserIp) ?: LoginStatus(
+        fetchLoginStatus(client, knownLoggedIn, wlanUserIp, preferredMethod) ?: LoginStatus(
             isLoggedIn = false,
             error = context.getString(R.string.status_verification_failed)
         )
@@ -269,18 +268,25 @@ internal suspend fun checkLoginStatus(
 internal suspend fun fetchLoginStatus(
     client: OkHttpClient,
     knownLoggedIn: Boolean = false,
-    wlanUserIp: String = ""
+    wlanUserIp: String = "",
+    preferredMethod: WifiLoginMethod? = null
 ): LoginStatus? {
+    var verifiedMethod: WifiLoginMethod? = null
     if (!knownLoggedIn) {
-        when (recheckLoginStatus(client, wlanUserIp)) {
-            LoginRecheckResult.LoggedOut -> return LoginStatus(isLoggedIn = false)
+        val verification = verifyLoginStatus(client, wlanUserIp, preferredMethod)
+        verifiedMethod = verification.method
+        when (verification.state) {
+            LoginRecheckResult.LoggedOut -> return LoginStatus(
+                isLoggedIn = false,
+                verifiedMethod = verifiedMethod
+            )
             LoginRecheckResult.Unknown -> return null
             LoginRecheckResult.LoggedIn -> Unit
         }
     }
 
     // 登录页或认证接口已确认在线；lgn 仅用于补充当前认证账号，失败不得改变登录状态。
-    return try {
+    val status = try {
         retryAfterDnsFailure {
             fetchAuthenticatedLoginStatus(client)
         } ?: LoginStatus(isLoggedIn = true)
@@ -289,37 +295,55 @@ internal suspend fun fetchLoginStatus(
     } catch (_: Exception) {
         LoginStatus(isLoggedIn = true)
     }
+    return status.copy(verifiedMethod = verifiedMethod)
 }
 
 internal suspend fun recheckLoginStatus(
     client: OkHttpClient,
     wlanUserIp: String = ""
-): LoginRecheckResult {
+): LoginRecheckResult = verifyLoginStatus(client, wlanUserIp).state
+
+private data class LoginVerification(
+    val state: LoginRecheckResult,
+    val method: WifiLoginMethod? = null
+)
+
+private suspend fun verifyLoginStatus(
+    client: OkHttpClient,
+    wlanUserIp: String,
+    preferredMethod: WifiLoginMethod? = null
+): LoginVerification {
     val verificationClient = client.newBuilder()
         .followRedirects(false)
         .connectTimeout(LOGIN_RECHECK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .readTimeout(LOGIN_RECHECK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .callTimeout(LOGIN_RECHECK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .build()
-    val portalUrls = listOf(
-        "http://$EPORTAL_HOST/",
-        "https://$WLGN_HOST/a79.htm"
-    )
-    var observedLoginPage = false
+    val methods = (listOfNotNull(preferredMethod) +
+        listOf(WifiLoginMethod.EPORTAL, WifiLoginMethod.WLGN)).distinct()
+    var loginPageMethod: WifiLoginMethod? = null
     var unresolvedDynamicPortal = false
-    for (url in portalUrls) {
+    for (method in methods) {
+        val url = when (method) {
+            WifiLoginMethod.EPORTAL -> "http://$EPORTAL_HOST/"
+            WifiLoginMethod.WLGN -> "https://$WLGN_HOST/a79.htm"
+        }
         val check = checkLoginPortalState(verificationClient, url, wlanUserIp)
         unresolvedDynamicPortal = unresolvedDynamicPortal || check.unresolvedDynamicPortal
         when (check.state) {
-            LoginRecheckResult.LoggedIn -> return LoginRecheckResult.LoggedIn
-            LoginRecheckResult.LoggedOut -> observedLoginPage = true
+            LoginRecheckResult.LoggedIn -> return LoginVerification(check.state, method)
+            LoginRecheckResult.LoggedOut -> {
+                // 已知门户明确确认离线时直接返回，首次探测仍检查另一门户以避免误判。
+                if (method == preferredMethod) return LoginVerification(check.state, method)
+                if (loginPageMethod == null) loginPageMethod = method
+            }
             LoginRecheckResult.Unknown -> Unit
         }
     }
-    return if (observedLoginPage && !unresolvedDynamicPortal) {
-        LoginRecheckResult.LoggedOut
+    return if (loginPageMethod != null && !unresolvedDynamicPortal) {
+        LoginVerification(LoginRecheckResult.LoggedOut, loginPageMethod)
     } else {
-        LoginRecheckResult.Unknown
+        LoginVerification(LoginRecheckResult.Unknown)
     }
 }
 

@@ -63,6 +63,10 @@ interface SettingsGateway {
 
     fun removeTargetWifi(ssid: String)
 
+    fun getWifiLoginMethod(ssid: String): WifiLoginMethod?
+
+    fun saveWifiLoginMethod(ssid: String, method: WifiLoginMethod)
+
     suspend fun saveCredentials(username: String, password: String): CredentialSaveResult
 
     suspend fun selectAccount(username: String): CredentialSaveResult
@@ -194,6 +198,7 @@ class SettingsRepository(context: Context) : SettingsGateway {
         val updatedWifis = _targetWifis.value.filterNot { it == ssid }
         if (updatedWifis == _targetWifis.value) return
         persistWifis(updatedWifis)
+        prefs.edit().remove(KEY_WIFI_LOGIN_METHOD_PREFIX + ssid).apply()
         _targetWifiConfigChanges.tryEmit(
             TargetWifiConfigChange(TargetWifiConfigChangeType.REMOVED, ssid)
         )
@@ -203,6 +208,17 @@ class SettingsRepository(context: Context) : SettingsGateway {
         val normalized = normalizeWifiList(list)
         prefs.edit().putString(KEY_TARGET_WIFIS, TargetWifiCodec.encode(normalized)).apply()
         _targetWifis.value = normalized
+    }
+
+    override fun getWifiLoginMethod(ssid: String): WifiLoginMethod? {
+        if (ssid !in _targetWifis.value) return null
+        val stored = prefs.getString(KEY_WIFI_LOGIN_METHOD_PREFIX + ssid, null)
+        return WifiLoginMethod.entries.firstOrNull { it.storageValue == stored }
+    }
+
+    override fun saveWifiLoginMethod(ssid: String, method: WifiLoginMethod) {
+        if (ssid !in _targetWifis.value || getWifiLoginMethod(ssid) == method) return
+        prefs.edit().putString(KEY_WIFI_LOGIN_METHOD_PREFIX + ssid, method.storageValue).apply()
     }
 
     private fun normalizeWifiList(values: List<String>): List<String> = values
@@ -351,6 +367,7 @@ class SettingsRepository(context: Context) : SettingsGateway {
 
     companion object {
         private const val KEY_TARGET_WIFIS = "target_wifis"
+        private const val KEY_WIFI_LOGIN_METHOD_PREFIX = "wifi_login_method_v1:"
         private const val KEY_ACCOUNTS = "saved_accounts_v1"
         private const val KEY_USERNAME = "username"
         private const val KEY_PASSWORD = "password"

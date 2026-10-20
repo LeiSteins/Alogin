@@ -5,6 +5,7 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import kotlinx.coroutines.flow.Flow
 import top.steins.autologin.R
+import top.steins.autologin.data.WifiLoginMethod
 
 /**
  * 网络状态的入口抽象，把 ViewModel 与系统 API 解耦，便于单元测试注入替身。
@@ -20,11 +21,15 @@ interface NetworkEnvironment : AutoCloseable {
     fun hasValidatedInternet(): Boolean
 
     /** knownLoggedIn 仅用于认证接口明确返回当前 IP 已在线后的账号信息刷新。 */
-    suspend fun fetchLoginStatus(knownLoggedIn: Boolean = false): LoginStatus
+    suspend fun fetchLoginStatus(
+        knownLoggedIn: Boolean = false,
+        preferredMethod: WifiLoginMethod? = null
+    ): LoginStatus
 
     suspend fun performLogin(
         username: String,
-        password: String
+        password: String,
+        preferredMethod: WifiLoginMethod? = null
     ): LoginResult
 
     override fun close() = Unit
@@ -64,7 +69,10 @@ class DefaultNetworkEnvironment internal constructor(
                 capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
     }
 
-    override suspend fun fetchLoginStatus(knownLoggedIn: Boolean): LoginStatus {
+    override suspend fun fetchLoginStatus(
+        knownLoggedIn: Boolean,
+        preferredMethod: WifiLoginMethod?
+    ): LoginStatus {
         val route = campusNetwork.awaitRoute(requireDns = false)
             ?: return LoginStatus(
                 isLoggedIn = false,
@@ -74,13 +82,15 @@ class DefaultNetworkEnvironment internal constructor(
             appContext,
             loginClients.get(route.network),
             knownLoggedIn = knownLoggedIn,
-            wlanUserIp = route.ipv4Address
+            wlanUserIp = route.ipv4Address,
+            preferredMethod = preferredMethod
         )
     }
 
     override suspend fun performLogin(
         username: String,
-        password: String
+        password: String,
+        preferredMethod: WifiLoginMethod?
     ): LoginResult {
         val route = campusNetwork.awaitRoute(requireDns = true)
             ?: return LoginResult.NetworkError(
@@ -91,7 +101,8 @@ class DefaultNetworkEnvironment internal constructor(
             client = loginClients.get(route.network),
             username = username,
             password = password,
-            wlanUserIp = route.ipv4Address
+            wlanUserIp = route.ipv4Address,
+            preferredMethod = preferredMethod
         )
     }
 
