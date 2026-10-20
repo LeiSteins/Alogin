@@ -112,7 +112,7 @@ fun AboutScreen(
                         textAlign = TextAlign.Center
                     )
 
-                    Spacer(modifier = Modifier.height(24.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
                     Card(
                         modifier = Modifier.fillMaxWidth(),

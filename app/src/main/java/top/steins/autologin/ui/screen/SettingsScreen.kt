@@ -53,12 +53,14 @@ fun SettingsScreen(
     onHttpLogEntryAnimationFinished: () -> Unit = {}
 ) {
     val httpLogVisibility = remember {
-        MutableTransitionState(httpLogEnabled && !animateHttpLogEntry)
+        MutableTransitionState(if (animateHttpLogEntry) !httpLogEnabled else httpLogEnabled)
     }
     val currentOnAnimationFinished by rememberUpdatedState(onHttpLogEntryAnimationFinished)
     LaunchedEffect(httpLogEnabled, animateHttpLogEntry, isPageResumed) {
-        // 等页面返回转场结束后再插入，避免在关于页背后提前播放。
-        httpLogVisibility.targetState = httpLogEnabled && (!animateHttpLogEntry || isPageResumed)
+        // 等页面返回转场结束后再插入或移除，避免在其他页面背后提前播放。
+        if (!animateHttpLogEntry || isPageResumed) {
+            httpLogVisibility.targetState = httpLogEnabled
+        }
     }
     LaunchedEffect(
         httpLogVisibility.isIdle,
@@ -67,8 +69,8 @@ fun SettingsScreen(
         animateHttpLogEntry,
         isPageResumed
     ) {
-        if (httpLogEnabled && animateHttpLogEntry && isPageResumed &&
-            httpLogVisibility.isIdle && httpLogVisibility.currentState
+        if (animateHttpLogEntry && isPageResumed &&
+            httpLogVisibility.isIdle && httpLogVisibility.currentState == httpLogEnabled
         ) {
             currentOnAnimationFinished()
         }
