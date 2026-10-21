@@ -289,7 +289,7 @@
     <string name="seamless_refresh">刷新</string>
     <string name="seamless_account">当前认证账号：%1$s</string>
     <string name="seamless_count">已绑定 %1$d / %2$d 台</string>
-    <string name="seamless_limit_hint">最多保留 3 台无感知设备。满额后仍可添加，新设备会替换最后一台设备。</string>
+    <string name="seamless_limit_hint">最多保留 3 台无感知设备。满额后仍可添加，新设备会替换最早记录的设备。</string>
     <string name="seamless_empty">暂无无感知绑定设备</string>
     <string name="seamless_add">添加设备</string>
     <string name="seamless_bind">绑定设备</string>
@@ -306,7 +306,7 @@
     <string name="seamless_disable_title">关闭无感知登录？</string>
     <string name="seamless_disable_message">关闭无感知可能导致设备下线，是否继续？</string>
     <string name="seamless_replace_title">替换已有设备？</string>
-    <string name="seamless_replace_message">已达到 3 台设备。继续绑定 %1$s 会由校园网替换最后一台设备，是否继续？</string>
+    <string name="seamless_replace_message">已达到 3 台设备。继续绑定 %1$s 会由校园网替换最早记录的设备，是否继续？</string>
     <string name="seamless_confirm">确认</string>
     <string name="seamless_submitting">正在提交并核实操作结果…</string>
     <string name="seamless_requires_login">请连接目标校园网并完成认证后再管理无感知登录。</string>

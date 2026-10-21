@@ -148,7 +148,8 @@ fun SeamlessLoginScreen(
                         }
                         StaggeredCard(visible = lowerCardsVisible, initiallyVisible = showLowerCardsImmediately, index = 1) {
                             DeviceListCardContent(
-                                devices = lowerInfo.deviceList.devices.map { device ->
+                                // 倒序展示记录，让新设备在上、满额时被替换的最早记录在下。
+                                devices = lowerInfo.deviceList.devices.asReversed().map { device ->
                                     DeviceListEntry(
                                         id = device.macAddress,
                                         macAddress = device.macAddress,

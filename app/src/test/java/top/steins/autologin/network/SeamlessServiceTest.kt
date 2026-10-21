@@ -25,7 +25,7 @@ class SeamlessServiceTest {
     @Test
     fun addingFourthDevice_postsNewMacWithoutPreemptivelyUnbindingAnyDevice() = runTest {
         val requests = mutableListOf<Request>()
-        val responses = ArrayDeque(listOf(list(oldMacs), page, """{"state":"success"}""", list(oldMacs.take(2) + newMac)))
+        val responses = ArrayDeque(listOf(list(oldMacs), page, """{"state":"success"}""", list(oldMacs.drop(1) + newMac)))
         val result = service({ requests += it; responses.removeFirst() })
             .perform(SeamlessAction.Bind("aa:bb:cc:11:22:33", allowReplacement = true))
 

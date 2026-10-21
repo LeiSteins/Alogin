@@ -67,7 +67,7 @@ class SeamlessLoginScreenTest {
         compose.onNodeWithText("解除设备绑定？").assertIsDisplayed()
         compose.runOnIdle { assertNull(submitted) }
         compose.onNodeWithText("确认").performClick()
-        compose.runOnIdle { assertEquals(SeamlessAction.Unbind("00:11:22:33:44:01"), submitted) }
+        compose.runOnIdle { assertEquals(SeamlessAction.Unbind("00:11:22:33:44:03"), submitted) }
     }
 
     @Test

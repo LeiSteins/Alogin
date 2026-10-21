@@ -54,7 +54,7 @@ internal class SeamlessService(
                     if (action is SeamlessAction.Unbind && !exists) {
                         return SeamlessActionResult.Failure(message(R.string.seamless_device_changed))
                     }
-                    // 三台时由服务端替换最后一台，客户端不预先删除已有设备。
+                    // 三台时由服务端替换最早记录的设备，客户端不预先删除已有设备。
                     val page = execute(seamlessRequest("service/myMac").build())
                     val token = SeamlessParsing.parseUnbindToken(page)
                         ?: throw SeamlessProtocolException(message(R.string.seamless_token_missing))
