@@ -33,6 +33,7 @@ import top.steins.autologin.domain.model.AccountDevice
 import top.steins.autologin.domain.model.AccountOverview
 import top.steins.autologin.domain.model.AccountOverviewResult
 import top.steins.autologin.domain.model.AppearanceMode
+import top.steins.autologin.domain.model.BoundDeviceList
 import top.steins.autologin.domain.model.CampusNetworkChange
 import top.steins.autologin.domain.model.CredentialSaveResult
 import top.steins.autologin.domain.model.CurrentNetworkInfo
@@ -149,6 +150,70 @@ class AppViewModelTest {
         advanceUntilIdle()
 
         assertEquals("10.1.2.99", viewModel.seamless.localIpAddress.value)
+    }
+
+    @Test
+    fun seamlessDevices_homeRefreshOnlyReadsStatusUntilManagementPageRequestsDevices() = runTest {
+        val devices = BoundDeviceList(0, emptyList())
+        selfService.seamlessLoadResult = SeamlessLoadResult.Success(
+            SeamlessInfo("2021001", 1, SeamlessStatus.Enabled, deviceList = devices)
+        )
+        val viewModel = createOnlineViewModel()
+        advanceUntilIdle()
+
+        assertEquals(listOf(false), selfService.seamlessDeviceRequests)
+        assertEquals(SeamlessStatus.Enabled, viewModel.session.uiState.value.seamlessStatus)
+        assertNull(viewModel.seamless.state.value.info?.deviceList)
+
+        viewModel.seamless.refresh()
+        advanceUntilIdle()
+        assertEquals(listOf(false, true), selfService.seamlessDeviceRequests)
+        assertEquals(devices, viewModel.seamless.state.value.info?.deviceList)
+
+        viewModel.session.refreshAccountInfo()
+        advanceUntilIdle()
+        assertEquals(listOf(false, true, false), selfService.seamlessDeviceRequests)
+        assertEquals(devices, viewModel.seamless.state.value.info?.deviceList)
+
+        viewModel.seamless.refreshSession()
+        advanceUntilIdle()
+        assertEquals(listOf(false, true, false, true), selfService.seamlessDeviceRequests)
+        assertEquals(devices, viewModel.seamless.state.value.info?.deviceList)
+    }
+
+    @Test
+    fun seamlessDevices_enteringDuringStatusQueryLoadsDevicesAfterStatusCompletes() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        selfService.seamlessLoadGate = gate
+        val viewModel = createOnlineViewModel()
+        runCurrent()
+        assertEquals(listOf(false), selfService.seamlessDeviceRequests)
+
+        viewModel.seamless.refresh()
+        runCurrent()
+        assertEquals(listOf(false), selfService.seamlessDeviceRequests)
+
+        gate.complete(Unit)
+        advanceUntilIdle()
+        assertEquals(listOf(false, true), selfService.seamlessDeviceRequests)
+        assertFalse(viewModel.seamless.state.value.isLoading)
+    }
+
+    @Test
+    fun seamlessDevices_enteringDuringAccountRefreshDefersDeviceQueryUntilSessionIsReady() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        selfService.overviewGate = gate
+        val viewModel = createOnlineViewModel()
+        runCurrent()
+
+        viewModel.seamless.refresh()
+        runCurrent()
+        assertTrue(selfService.seamlessDeviceRequests.isEmpty())
+
+        gate.complete(Unit)
+        advanceUntilIdle()
+        assertEquals(listOf(true), selfService.seamlessDeviceRequests)
+        assertFalse(viewModel.seamless.state.value.isLoading)
     }
 
     @Test
@@ -2002,16 +2067,21 @@ private class FakeSelfServiceGateway : SelfServiceGateway {
     var seamlessActionGate: CompletableDeferred<Unit>? = null
     var seamlessLoadResult: SeamlessLoadResult = SeamlessLoadResult.Success(SeamlessInfo("2021001", 1, SeamlessStatus.Enabled))
     var seamlessLoadCount = 0
+    val seamlessDeviceRequests = mutableListOf<Boolean>()
     var seamlessActionCount = 0
     var seamlessRequestedAccount: String? = null
     var lastSeamlessAction: SeamlessAction? = null
     var onSeamlessAction: () -> Unit = {}
 
-    override suspend fun loadSeamlessInfo(username: String): SeamlessLoadResult {
+    override suspend fun loadSeamlessInfo(username: String, includeDevices: Boolean): SeamlessLoadResult {
         seamlessLoadCount += 1
+        seamlessDeviceRequests += includeDevices
         seamlessRequestedAccount = username
         seamlessLoadGate?.await()
-        return seamlessLoadResult
+        val result = seamlessLoadResult
+        return if (!includeDevices && result is SeamlessLoadResult.Success) {
+            result.copy(info = result.info.copy(deviceList = null, devicesError = ""))
+        } else result
     }
 
     override suspend fun performSeamlessAction(info: SeamlessInfo, action: SeamlessAction): SeamlessActionResult {

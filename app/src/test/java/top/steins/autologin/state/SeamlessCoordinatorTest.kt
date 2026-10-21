@@ -160,7 +160,7 @@ private class TestSelfService : SeamlessGateway {
         SeamlessInfo("2021001", 1, SeamlessStatus.Enabled)
     )
 
-    override suspend fun loadSeamlessInfo(username: String): SeamlessLoadResult {
+    override suspend fun loadSeamlessInfo(username: String, includeDevices: Boolean): SeamlessLoadResult {
         loadCount++
         requestedUsername = username
         loadGate?.await()

@@ -36,10 +36,14 @@ internal class SeamlessCoordinator(
     private var seamlessEpoch = 0L
     private var seamlessLoadJob: Job? = null
     private var seamlessMutationJob: Job? = null
+    private var deviceRefreshPending = false
+    private var isLoadingDevices = false
 
     fun invalidate(keepInfo: Boolean = false) {
         seamlessEpoch += 1
+        if (isLoadingDevices) requestDeviceRefresh()
         seamlessLoadJob?.cancel()
+        isLoadingDevices = false
         _seamlessState.value = if (keepInfo) {
             _seamlessState.value.copy(isLoading = true)
         } else {
@@ -51,29 +55,55 @@ internal class SeamlessCoordinator(
         _seamlessState.update { it.copy(isLoading = false) }
     }
 
-    fun refresh() {
-        if (seamlessMutationJob?.isActive == true || seamlessLoadJob?.isActive == true) return
+    fun requestDeviceRefresh() {
+        deviceRefreshPending = true
+    }
+
+    fun refresh(includeDevices: Boolean = true) {
+        if (seamlessMutationJob?.isActive == true) return
+        if (includeDevices && !isLoadingDevices) requestDeviceRefresh()
+        if (seamlessLoadJob?.isActive == true) return
         val snapshot = session.snapshot()
         if (snapshot.isRefreshing) return
         if (!snapshot.isOnline || snapshot.username.isBlank()) {
+            deviceRefreshPending = false
             _seamlessState.value = SeamlessUiState(error = strings.get(R.string.seamless_requires_login))
             return
         }
         val epoch = seamlessEpoch
+        val loadDevices = deviceRefreshPending
+        deviceRefreshPending = false
+        isLoadingDevices = loadDevices
         _seamlessState.update { it.copy(isLoading = true) }
         seamlessLoadJob = scope.launch {
             try {
                 session.withSession(snapshot) {
-                    if (epoch == seamlessEpoch) loadSeamlessLocked(snapshot, epoch)
+                    if (epoch == seamlessEpoch) {
+                        loadSeamlessLocked(snapshot, epoch, includeDevices = loadDevices)
+                        // 进入管理页时若状态查询尚未结束，随后补取设备，避免丢失页面请求。
+                        if (!loadDevices && deviceRefreshPending && epoch == seamlessEpoch && session.isCurrent(snapshot)) {
+                            deviceRefreshPending = false
+                            isLoadingDevices = true
+                            _seamlessState.update { it.copy(isLoading = true) }
+                            loadSeamlessLocked(snapshot, epoch)
+                        }
+                    }
                 }
             } finally {
-                if (epoch == seamlessEpoch) _seamlessState.update { it.copy(isLoading = false) }
+                if (epoch == seamlessEpoch) {
+                    isLoadingDevices = false
+                    _seamlessState.update { it.copy(isLoading = false) }
+                }
             }
         }
     }
 
-    private suspend fun loadSeamlessLocked(snapshot: CampusSessionSnapshot, epoch: Long) {
-        val result = selfService.loadSeamlessInfo(snapshot.username)
+    private suspend fun loadSeamlessLocked(
+        snapshot: CampusSessionSnapshot,
+        epoch: Long,
+        includeDevices: Boolean = true
+    ) {
+        val result = selfService.loadSeamlessInfo(snapshot.username, includeDevices)
         if (epoch != seamlessEpoch || !session.isCurrent(snapshot)) return
         if (result is SeamlessLoadResult.Success && result.info.status != SeamlessStatus.Unknown &&
             result.info.username.substringBefore("@").trim() == snapshot.username.substringBefore("@").trim()
@@ -83,7 +113,14 @@ internal class SeamlessCoordinator(
         }
         _seamlessState.update {
             when (result) {
-                is SeamlessLoadResult.Success -> it.copy(info = result.info, isLoading = false, error = "")
+                is SeamlessLoadResult.Success -> {
+                    val previous = it.info?.takeIf { previous -> previous.username == result.info.username }
+                    val info = if (includeDevices) result.info else result.info.copy(
+                        deviceList = previous?.deviceList,
+                        devicesError = previous?.devicesError.orEmpty()
+                    )
+                    it.copy(info = info, isLoading = false, error = if (includeDevices) "" else it.error)
+                }
                 is SeamlessLoadResult.Failure -> it.copy(isLoading = false, error = result.message)
             }
         }

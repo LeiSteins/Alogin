@@ -20,6 +20,7 @@ interface AccountSessionGateway {
 
 /** 无感知功能不能清理会话或操作在线设备列表。 */
 interface SeamlessGateway {
-    suspend fun loadSeamlessInfo(username: String): SeamlessLoadResult
+    /** 主页只查询状态；管理页才读取绑定设备列表。 */
+    suspend fun loadSeamlessInfo(username: String, includeDevices: Boolean = true): SeamlessLoadResult
     suspend fun performSeamlessAction(info: SeamlessInfo, action: SeamlessAction): SeamlessActionResult
 }

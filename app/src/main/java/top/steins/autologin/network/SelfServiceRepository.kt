@@ -267,7 +267,7 @@ class SelfServiceRepository internal constructor(
 
     override suspend fun clearSession() = session.clear()
 
-    override suspend fun loadSeamlessInfo(username: String): SeamlessLoadResult =
+    override suspend fun loadSeamlessInfo(username: String, includeDevices: Boolean): SeamlessLoadResult =
         withContext(Dispatchers.IO) {
             try {
                 session.withSession(username) { handle ->
@@ -284,16 +284,18 @@ class SelfServiceRepository internal constructor(
                         SeamlessStatus.Unknown
                     }
                     var devicesError = ""
-                    val devices = try {
-                        service.readDevices()
-                    } catch (error: CancellationException) {
-                        throw error
-                    } catch (error: SelfServiceSessionException) {
-                        throw error
-                    } catch (error: Exception) {
-                        devicesError = error.toUserMessage(appContext, R.string.seamless_devices_failed)
-                        null
-                    }
+                    val devices = if (includeDevices) {
+                        try {
+                            service.readDevices()
+                        } catch (error: CancellationException) {
+                            throw error
+                        } catch (error: SelfServiceSessionException) {
+                            throw error
+                        } catch (error: Exception) {
+                            devicesError = error.toUserMessage(appContext, R.string.seamless_devices_failed)
+                            null
+                        }
+                    } else null
                     SeamlessLoadResult.Success(SeamlessInfo(
                         username, handle.generation, status, devices, statusError, devicesError
                     ))

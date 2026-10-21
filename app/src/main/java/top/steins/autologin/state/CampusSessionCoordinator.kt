@@ -126,7 +126,10 @@ class CampusSessionCoordinator(
             .stateIn(scope, SharingStarted.Eagerly, uiState.value.ipAddress)
 
         override fun refresh() = seamlessCoordinator.refresh()
-        override fun refreshSession() = refreshAccountInfo()
+        override fun refreshSession() {
+            seamlessCoordinator.requestDeviceRefresh()
+            refreshAccountInfo()
+        }
         override fun perform(action: SeamlessAction) = seamlessCoordinator.perform(action)
     }
     private val refreshLoader = SessionRefreshLoader(
@@ -442,7 +445,9 @@ class CampusSessionCoordinator(
             is SessionRefreshResult.AccountLoaded -> {
                 updateState(generation) { accountOverviewLoaded(result.result, showFinalError) }
                 val retryable = (result.result as? AccountOverviewResult.Failure)?.isRetryable == true
-                if (generation == refreshGeneration && (!retryable || showFinalError)) seamlessCoordinator.refresh()
+                if (generation == refreshGeneration && (!retryable || showFinalError)) {
+                    seamlessCoordinator.refresh(includeDevices = false)
+                }
                 if (retryable) RefreshAttemptOutcome.RetryableFailure else RefreshAttemptOutcome.Complete
             }
         }
