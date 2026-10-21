@@ -121,7 +121,7 @@ fun SeamlessLoginScreen(
                             Switch(
                                 modifier = Modifier.semantics { contentDescription = switchLabel },
                                 checked = info?.status == SeamlessStatus.Enabled,
-                                enabled = state.canManage && info?.status != SeamlessStatus.Unknown,
+                                enabled = state.canPrepareAction && info?.status != SeamlessStatus.Unknown,
                                 onCheckedChange = { info?.let { pendingAction = SeamlessAction.Toggle(it.status) } }
                             )
                         }
@@ -142,7 +142,7 @@ fun SeamlessLoginScreen(
                                     Text(stringResource(R.string.seamless_limit_hint), style = MaterialTheme.typography.bodyMedium,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     Button(onClick = { macInput = ""; invalidMac = false; showEditor = true },
-                                        enabled = state.canManage && lowerCardsVisible) { Text(stringResource(R.string.seamless_add)) }
+                                        enabled = state.canPrepareAction && lowerCardsVisible) { Text(stringResource(R.string.seamless_add)) }
                                 }
                             }
                         }
@@ -171,7 +171,7 @@ fun SeamlessLoginScreen(
                                 title = stringResource(R.string.seamless_count, lowerInfo.deviceList.total, SEAMLESS_DEVICE_LIMIT),
                                 emptyText = stringResource(R.string.seamless_empty),
                                 animationDurationMillis = CardAnimationDurationMillis,
-                                enabled = state.canManage && lowerCardsVisible,
+                                enabled = state.canPrepareAction && lowerCardsVisible,
                                 onRemoveDevice = { pendingAction = SeamlessAction.Unbind(it.macAddress) }
                             )
                         }

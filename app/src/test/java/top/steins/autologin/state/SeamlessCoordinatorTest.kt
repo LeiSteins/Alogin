@@ -86,6 +86,31 @@ class SeamlessCoordinatorTest {
     }
 
     @Test
+    fun mutation_cachedInfoIsRefreshing_rejectsSubmissionUntilReadCompletes() = runTest {
+        val coordinator = SeamlessCoordinator(
+            backgroundScope, strings, service, network, session, { null }, {}
+        )
+        coordinator.refresh()
+        runCurrent()
+        val gate = CompletableDeferred<Unit>()
+        service.loadGate = gate
+        coordinator.refresh()
+        runCurrent()
+
+        assertTrue(coordinator.state.value.canPrepareAction)
+        val action = SeamlessAction.Toggle(SeamlessStatus.Enabled)
+        coordinator.perform(action)
+        runCurrent()
+        assertEquals(0, service.actionCount)
+
+        gate.complete(Unit)
+        runCurrent()
+        coordinator.perform(action)
+        runCurrent()
+        assertEquals(1, service.actionCount)
+    }
+
+    @Test
     fun mutation_sessionChangesDuringAuthentication_doesNotSubmit() = runTest {
         val coordinator = SeamlessCoordinator(
             backgroundScope, strings, service, network, session, { null }, {}

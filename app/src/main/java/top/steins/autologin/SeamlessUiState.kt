@@ -9,5 +9,7 @@ data class SeamlessUiState(
     val error: String = "",
     val operationMessage: String = ""
 ) {
-    val canManage: Boolean get() = info != null && !isLoading && !isSubmitting && error.isBlank()
+    // 已有数据时，后台刷新仍允许打开操作弹窗；实际提交需等待刷新完成。
+    val canPrepareAction: Boolean get() = info != null && !isSubmitting && error.isBlank()
+    val canManage: Boolean get() = canPrepareAction && !isLoading
 }
