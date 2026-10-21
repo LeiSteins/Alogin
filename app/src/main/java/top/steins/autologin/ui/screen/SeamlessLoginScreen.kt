@@ -69,6 +69,8 @@ fun SeamlessLoginScreen(
     var invalidMac by rememberSaveable(info?.username, info?.sessionGeneration) { mutableStateOf(false) }
     var pendingAction by remember(info?.username, info?.sessionGeneration) { mutableStateOf<SeamlessAction?>(null) }
     val lowerCardsVisible = list != null
+    // 当前会话已有列表时直接恢复卡片，首次加载仍播放入场动画。
+    var showLowerCardsImmediately by remember { mutableStateOf(lowerCardsVisible) }
     var retainedInfo by remember { mutableStateOf(info) }
     var retainLowerCards by remember { mutableStateOf(lowerCardsVisible) }
 
@@ -77,6 +79,7 @@ fun SeamlessLoginScreen(
             retainedInfo = info
             retainLowerCards = true
         } else if (retainLowerCards) {
+            showLowerCardsImmediately = false
             // 与主页一致：退出期间保留快照，完整播放动画后才清理卡片。
             withFrameNanos { }
             delay(CardAnimationDurationMillis.toLong())
@@ -133,7 +136,7 @@ fun SeamlessLoginScreen(
             if ((lowerCardsVisible || retainLowerCards) && lowerInfo?.deviceList != null) {
                 item(key = "seamless-devices") {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        StaggeredCard(visible = lowerCardsVisible, initiallyVisible = false, index = 0) {
+                        StaggeredCard(visible = lowerCardsVisible, initiallyVisible = showLowerCardsImmediately, index = 0) {
                             SettingsOptionCard {
                                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Text(stringResource(R.string.seamless_limit_hint), style = MaterialTheme.typography.bodyMedium,
@@ -143,7 +146,7 @@ fun SeamlessLoginScreen(
                                 }
                             }
                         }
-                        StaggeredCard(visible = lowerCardsVisible, initiallyVisible = false, index = 1) {
+                        StaggeredCard(visible = lowerCardsVisible, initiallyVisible = showLowerCardsImmediately, index = 1) {
                             DeviceListCardContent(
                                 devices = lowerInfo.deviceList.devices.map { device ->
                                     DeviceListEntry(
