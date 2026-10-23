@@ -129,7 +129,9 @@ fun SeamlessLoginScreen(
                             style = MaterialTheme.typography.bodyMedium)
                         if (state.error.isNotBlank()) Text(state.error, color = MaterialTheme.colorScheme.error)
                         if (!info?.statusError.isNullOrBlank()) Text(info.statusError, color = MaterialTheme.colorScheme.error)
-                        if (!info?.devicesError.isNullOrBlank()) Text(info.devicesError, color = MaterialTheme.colorScheme.error)
+                        if (info?.status != SeamlessStatus.Disabled && !info?.devicesError.isNullOrBlank()) {
+                            Text(info.devicesError, color = MaterialTheme.colorScheme.error)
+                        }
                     }
                 }
             }

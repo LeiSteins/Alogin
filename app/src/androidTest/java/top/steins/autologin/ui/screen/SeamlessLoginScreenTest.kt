@@ -117,6 +117,21 @@ class SeamlessLoginScreenTest {
     }
 
     @Test
+    fun disabledSeamless_hidesDeviceListReadErrorAndKeepsEnableAvailable() {
+        compose.setContent {
+            AloginTheme(darkTheme = false) {
+                SeamlessLoginScreen(SeamlessUiState(info = SeamlessInfo(
+                    "student", 1, SeamlessStatus.Disabled, devicesError = "无法读取绑定设备列表，请刷新重试。"
+                )), {}, {}, {})
+            }
+        }
+        compose.onNodeWithText("已关闭").assertIsDisplayed()
+        compose.onNode(isToggleable()).assertIsOff().assertIsEnabled()
+        compose.onNodeWithText("无法读取绑定设备列表，请刷新重试。").assertDoesNotExist()
+        capture("seamless-disabled-without-devices")
+    }
+
+    @Test
     fun missingList_doesNotExposeAnEmptyQuotaOrAllowBinding() {
         compose.setContent {
             AloginTheme(darkTheme = false) {
