@@ -1,4 +1,5 @@
 pub mod http;
+pub mod icon;
 pub mod network;
 
 pub fn wide(text: &str) -> Vec<u16> {

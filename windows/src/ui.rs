@@ -18,6 +18,7 @@ use windows_sys::Win32::{
     },
 };
 use zeroize::Zeroizing;
+mod theme;
 
 const HOST_CLASS: &str = "Alogin.Windows.Host";
 const WINDOW_CLASS: &str = "Alogin.Windows.Window";
@@ -26,6 +27,7 @@ const UI_MESSAGE: u32 = WM_APP + 4;
 const OPEN_MESSAGE: u32 = WM_APP + 5;
 const CLOSE_MESSAGE: u32 = WM_APP + 6;
 const DPI_MESSAGE: u32 = WM_APP + 7;
+const THEME_MESSAGE: u32 = WM_APP + 8;
 const DEBOUNCE_TIMER: usize = 1;
 const ID_LOGIN: usize = 101;
 const ID_REFRESH: usize = 102;
@@ -47,6 +49,7 @@ impl Drop for Mutex {
 
 struct Controls {
     status: HWND,
+    account_info: HWND,
     login: HWND,
     refresh: HWND,
     accounts: HWND,
@@ -100,7 +103,10 @@ pub fn run() -> Result<(), String> {
         return Err(strings::SINGLE_INSTANCE.into());
     }
     let instance = unsafe { GetModuleHandleW(ptr::null()) };
-    let icon = unsafe { LoadIconW(ptr::null_mut(), IDI_APPLICATION) };
+    let icon = crate::platform::icon::load(false);
+    if icon.is_null() {
+        return Err(strings::ICON_FAILED.into());
+    }
     for (name, proc) in [
         (
             HOST_CLASS,
@@ -200,7 +206,7 @@ impl App {
         let mut data = self.tray_data();
         data.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
         data.uCallbackMessage = TRAY_MESSAGE;
-        data.hIcon = unsafe { LoadIconW(ptr::null_mut(), IDI_APPLICATION) };
+        data.hIcon = crate::platform::icon::load(true);
         let tip = wide(strings::APP);
         data.szTip[..tip.len()].copy_from_slice(&tip);
         self.tray = unsafe { Shell_NotifyIconW(NIM_ADD, &data) } != 0;
@@ -255,6 +261,8 @@ impl App {
             return Err(strings::WINDOW_FAILED.into());
         }
         self.controls = Some(Controls::new(self.window)?);
+        crate::platform::icon::apply(self.window);
+        theme::refresh(self.window);
         self.resize_for_dpi();
         self.render(true);
         unsafe {
@@ -284,7 +292,7 @@ impl App {
         let mut bounds = RECT {
             left: 0,
             top: 0,
-            right: scale(540, dpi),
+            right: scale(860, dpi),
             bottom: scale(688, dpi),
         };
         unsafe {
@@ -316,10 +324,18 @@ impl App {
         let Some(worker) = &self.worker else {
             return;
         };
+        let invalidates_info = matches!(
+            command,
+            Command::Login | Command::Refresh | Command::NetworkChanged
+        );
         match worker.commands.try_send(command) {
             Ok(()) => {
                 self.busy = true;
                 self.view.message = strings::BUSY.into();
+                if invalidates_info {
+                    self.view.account_info = Default::default();
+                    self.view.online = Online::Unknown;
+                }
             }
             Err(TrySendError::Disconnected(_)) => {
                 self.view.message = strings::THREAD_STOPPED.into();
@@ -389,6 +405,10 @@ impl App {
             ),
         );
         set_text(c.message, &self.view.message);
+        set_text(
+            c.account_info,
+            &strings::account_info(&self.view.account_info, self.view.online),
+        );
         if sync_form {
             unsafe {
                 SendMessageW(c.accounts, CB_RESETCONTENT, 0, 0);
@@ -517,19 +537,40 @@ fn tray_menu(host: HWND, disabled: bool) {
     if menu.is_null() {
         return;
     }
+    // Keep the menu background brush alive until DestroyMenu below.
+    let menu_theme = theme::MenuTheme::new(menu);
+    let dark = menu_theme.dark();
     for (id, label) in [
         (ID_SHOW, strings::SHOW),
         (ID_LOGIN, strings::LOGIN),
         (ID_REFRESH, strings::REFRESH),
         (ID_EXIT, strings::EXIT),
     ] {
-        let flags = if (id == ID_LOGIN || id == ID_REFRESH) && disabled {
+        let mut flags = if (id == ID_LOGIN || id == ID_REFRESH) && disabled {
             MF_STRING | MF_GRAYED
         } else {
             MF_STRING
         };
+        if dark {
+            flags |= MF_OWNERDRAW;
+        }
         unsafe {
-            AppendMenuW(menu, flags, id, wide(label).as_ptr());
+            let mut text = wide(label);
+            AppendMenuW(
+                menu,
+                flags,
+                id,
+                if dark { ptr::null() } else { text.as_ptr() },
+            );
+            if dark {
+                let info = MENUITEMINFOW {
+                    cbSize: std::mem::size_of::<MENUITEMINFOW>() as u32,
+                    fMask: MIIM_STRING,
+                    dwTypeData: text.as_mut_ptr(),
+                    ..Default::default()
+                };
+                SetMenuItemInfoW(menu, id as u32, 0, &info);
+            }
         }
     }
     let mut point = POINT::default();
@@ -573,7 +614,7 @@ impl Controls {
                     if class == "EDIT" { WS_EX_CLIENTEDGE } else { 0 },
                     wide(class).as_ptr(),
                     wide(label).as_ptr(),
-                    WS_CHILD | WS_VISIBLE | style,
+                    WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | style,
                     0,
                     0,
                     0,
@@ -587,10 +628,21 @@ impl Controls {
             if control.is_null() {
                 return Err(strings::CONTROL_FAILED.into());
             }
+            theme::install_control(control, parent, class)?;
             children.push((control, rect));
             Ok(control)
         };
         let status = add("STATIC", "", 0, 0, [24, 20, 492, 74])?;
+        // Earlier siblings sit above later ones. Keep the text above the group
+        // box so WS_CLIPSIBLINGS cannot clip it out of the visible region.
+        let account_info = add("STATIC", "", 0, 0, [556, 54, 264, 150])?;
+        add(
+            "BUTTON",
+            strings::ACCOUNT_TITLE,
+            0,
+            BS_GROUPBOX as u32,
+            [540, 20, 296, 204],
+        )?;
         let login = add(
             "BUTTON",
             strings::LOGIN,
@@ -678,6 +730,7 @@ impl Controls {
         }
         Ok(Self {
             status,
+            account_info,
             login,
             refresh,
             accounts,
@@ -741,6 +794,11 @@ unsafe extern "system" fn host_proc(
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
+    if (message == WM_DRAWITEM || message == WM_MEASUREITEM) && lparam != 0 {
+        if let Some(result) = theme::menu_message(message, lparam) {
+            return result;
+        }
+    }
     if message == WM_NCCREATE {
         let create = unsafe { &*(lparam as *const CREATESTRUCTW) };
         unsafe {
@@ -793,6 +851,22 @@ unsafe extern "system" fn host_proc(
         DPI_MESSAGE => {
             unsafe {
                 (*app).resize_for_dpi();
+                if !(*app).window.is_null() {
+                    crate::platform::icon::apply((*app).window);
+                }
+            }
+            0
+        }
+        WM_SETTINGCHANGE | WM_THEMECHANGED | WM_SYSCOLORCHANGE => {
+            unsafe {
+                PostMessageW(window, THEME_MESSAGE, 0, 0);
+            }
+            0
+        }
+        THEME_MESSAGE => {
+            let visible = unsafe { (*app).window };
+            if !visible.is_null() {
+                theme::refresh(visible);
             }
             0
         }
@@ -844,13 +918,25 @@ unsafe extern "system" fn window_proc(
 ) -> LRESULT {
     if message == WM_NCCREATE {
         let create = unsafe { &*(lparam as *const CREATESTRUCTW) };
-        unsafe {
-            SetWindowLongPtrW(window, GWLP_USERDATA, create.lpCreateParams as isize);
-        }
+        theme::attach(window, create.lpCreateParams.cast());
         return 1;
     }
-    let host = unsafe { GetWindowLongPtrW(window, GWLP_USERDATA) } as HWND;
+    if message == WM_NCDESTROY {
+        let result = unsafe { DefWindowProcW(window, message, wparam, lparam) };
+        theme::detach(window);
+        return result;
+    }
+    if let Some(result) = theme::message(window, message, wparam, lparam) {
+        return result;
+    }
+    let host = theme::host(window);
     match message {
+        WM_SETTINGCHANGE | WM_THEMECHANGED | WM_SYSCOLORCHANGE => {
+            unsafe {
+                PostMessageW(host, THEME_MESSAGE, 0, 0);
+            }
+            0
+        }
         WM_COMMAND => {
             unsafe {
                 PostMessageW(host, UI_MESSAGE, wparam, lparam);

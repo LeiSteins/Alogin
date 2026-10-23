@@ -31,6 +31,7 @@ pub struct View {
     pub preferences: Preferences,
     pub network: Network,
     pub online: Online,
+    pub account_info: AccountInfo,
     pub message: String,
     pub fatal: bool,
 }
@@ -42,6 +43,7 @@ impl Default for View {
             preferences: Preferences::default(),
             network: Network::default(),
             online: Online::Unknown,
+            account_info: AccountInfo::default(),
             message: strings::LOADING.into(),
             fatal: false,
         }
@@ -83,6 +85,7 @@ impl Worker {
                     settings,
                     network: Network::default(),
                     online: Online::Unknown,
+                    account_info: AccountInfo::default(),
                     last_auto: None,
                 };
                 let initial = session.handle(Command::NetworkChanged);
@@ -116,6 +119,7 @@ struct Session {
     settings: Settings,
     network: Network,
     online: Online,
+    account_info: AccountInfo,
     last_auto: Option<(Network, String)>,
 }
 
@@ -127,6 +131,7 @@ impl Session {
             preferences: self.settings.preferences.clone(),
             network: self.network.clone(),
             online: self.online,
+            account_info: self.account_info.clone(),
             message,
             fatal: false,
         }
@@ -158,29 +163,7 @@ impl Session {
                 Ok(strings::SAVED.into())
             }
             Command::NetworkChanged => self.network_changed(),
-            Command::Refresh => {
-                self.network = snapshot();
-                self.online = Online::Unknown;
-                self.online = if usable_ipv4(&self.network.ipv4) {
-                    Campus::new()?.status(&self.network)
-                } else {
-                    Online::Unknown
-                };
-                if snapshot() != self.network {
-                    self.online = Online::Unknown;
-                    return Err(strings::NETWORK_CHANGED.into());
-                }
-                Ok(if self.network.ipv4.is_empty() {
-                    strings::NO_NETWORK
-                } else {
-                    match self.online {
-                        Online::Yes => strings::LOGGED_IN,
-                        Online::No => strings::LOGGED_OUT,
-                        Online::Unknown => strings::UNKNOWN,
-                    }
-                }
-                .into())
-            }
+            Command::Refresh => self.refresh(),
             Command::Shutdown => Ok(String::new()),
         }
     }
@@ -198,13 +181,19 @@ impl Session {
 
     fn network_changed(&mut self) -> Result<String, String> {
         let network = snapshot();
-        if network != self.network {
+        let changed = network != self.network;
+        if changed {
             self.last_auto = None;
             self.online = Online::Unknown;
+            self.account_info = AccountInfo::default();
         }
         self.network = network;
         if !self.settings.preferences.allows_auto_login(&self.network) {
-            return Ok(strings::READY.into());
+            return if changed {
+                self.refresh()
+            } else {
+                Ok(strings::READY.into())
+            };
         }
         let Some(username) = self.settings.selected.clone() else {
             return Ok(strings::NO_ACCOUNT.into());
@@ -220,11 +209,15 @@ impl Session {
         if current != self.network {
             self.network = current;
             self.online = Online::Unknown;
+            self.account_info = AccountInfo::default();
             return Err(strings::NETWORK_CHANGED.into());
         }
         // An unknown result must not trigger repeated credential submissions.
         match self.online {
-            Online::Yes => Ok(strings::LOGGED_IN.into()),
+            Online::Yes => {
+                self.load_account()?;
+                Ok(strings::LOGGED_IN.into())
+            }
             Online::Unknown => Ok(strings::UNKNOWN.into()),
             Online::No => self.login(Some(self.network.clone())),
         }
@@ -233,6 +226,7 @@ impl Session {
     fn login(&mut self, expected: Option<Network>) -> Result<String, String> {
         let network = snapshot();
         self.online = Online::Unknown;
+        self.account_info = AccountInfo::default();
         if expected.as_ref().is_some_and(|previous| {
             previous != &network || !self.settings.preferences.allows_auto_login(&network)
         }) {
@@ -253,10 +247,12 @@ impl Session {
         match result {
             LoginResult::Success => {
                 self.online = Online::Yes;
+                self.load_account()?;
                 Ok(strings::AUTHENTICATED.into())
             }
             LoginResult::AlreadyOnline => {
                 self.online = Online::Yes;
+                self.load_account()?;
                 Ok(strings::ALREADY_ONLINE.into())
             }
             LoginResult::Failure(reason) => {
@@ -275,6 +271,49 @@ impl Session {
                 .into())
             }
             LoginResult::Unknown => Err(strings::UNKNOWN_RESPONSE.into()),
+        }
+    }
+
+    fn refresh(&mut self) -> Result<String, String> {
+        self.network = snapshot();
+        self.online = Online::Unknown;
+        self.account_info = AccountInfo::default();
+        if usable_ipv4(&self.network.ipv4) {
+            self.online = Campus::new()?.status(&self.network);
+        }
+        self.ensure_current()?;
+        self.load_account()?;
+        Ok(if self.network.ipv4.is_empty() {
+            strings::NO_NETWORK
+        } else {
+            match self.online {
+                Online::Yes => strings::LOGGED_IN,
+                Online::No => strings::LOGGED_OUT,
+                Online::Unknown => strings::UNKNOWN,
+            }
+        }
+        .into())
+    }
+
+    fn load_account(&mut self) -> Result<(), String> {
+        self.ensure_current()?;
+        self.account_info = if self.online == Online::Yes {
+            crate::account::load(&self.network)
+        } else {
+            AccountInfo::default()
+        };
+        self.ensure_current()
+    }
+
+    fn ensure_current(&mut self) -> Result<(), String> {
+        let current = snapshot();
+        if current != self.network {
+            self.network = current;
+            self.online = Online::Unknown;
+            self.account_info = AccountInfo::default();
+            Err(strings::NETWORK_CHANGED.into())
+        } else {
+            Ok(())
         }
     }
 }
@@ -301,6 +340,7 @@ mod tests {
             settings,
             network: Network::default(),
             online: Online::Unknown,
+            account_info: AccountInfo::default(),
             last_auto: None,
         };
         session

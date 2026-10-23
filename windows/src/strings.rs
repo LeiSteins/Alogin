@@ -1,4 +1,5 @@
 pub const APP: &str = "Alogin · 校园网认证";
+pub const ICON_FAILED: &str = "无法加载应用图标资源。";
 pub const SHOW: &str = "打开 Alogin";
 pub const LOGIN: &str = "登录";
 pub const REFRESH: &str = "刷新状态";
@@ -52,6 +53,53 @@ pub const APP_DATA_FAILED: &str = "无法找到 Windows 本地应用数据目录
 pub const READ_FAILED: &str = "无法读取本地配置，请检查文件权限。";
 pub const SUBSCRIBE_FAILED: &str = "无法订阅 Windows 网络变化通知。";
 pub const REQUEST_TIMEOUT: &str = "门户请求超时，请稍后重试。";
+pub const ACCOUNT_TITLE: &str = "当前在线账号";
+pub const ACCOUNT_OFFLINE: &str = "认证后显示当前账号、已用流量、剩余流量和余额。";
+pub const ACCOUNT_UNKNOWN: &str = "请刷新状态以读取当前在线账号信息。";
+pub const ACCOUNT_FAILED: &str = "账号概览暂时无法读取，请稍后刷新。";
+pub const IDENTITY_FAILED: &str = "已认证，暂时无法确认在线账号，请稍后刷新。";
+pub const SSO_FAILED: &str = "自助服务会话建立失败，请稍后刷新。";
+pub const SSO_URL_INVALID: &str = "自助服务返回了不受信任的跳转地址。";
+pub const ACCOUNT_MISMATCH: &str = "自助服务返回的账号与当前在线账号不一致，请刷新。";
+pub const ACCOUNT_EXPIRED: &str = "自助服务会话已过期，请刷新。";
+
+pub fn account_info(info: &crate::domain::AccountInfo, online: crate::domain::Online) -> String {
+    use crate::domain::Online;
+    if online != Online::Yes {
+        return if online == Online::No {
+            ACCOUNT_OFFLINE
+        } else {
+            ACCOUNT_UNKNOWN
+        }
+        .into();
+    }
+    let Some(username) = &info.username else {
+        return info.error.as_deref().unwrap_or(IDENTITY_FAILED).into();
+    };
+    let Some(overview) = &info.overview else {
+        return format!(
+            "在线账号：{username}\r\n{}",
+            info.error.as_deref().unwrap_or(ACCOUNT_FAILED)
+        );
+    };
+    format!(
+        "在线账号：{username}\r\n已用流量：{}\r\n剩余流量：{}\r\n账户余额：{}",
+        traffic(overview.used_megabytes),
+        traffic(overview.remaining_megabytes),
+        overview
+            .money_yuan
+            .map(|value| format!("¥ {value:.2}"))
+            .unwrap_or_else(|| "—".into())
+    )
+}
+
+fn traffic(value: Option<f64>) -> String {
+    match value {
+        Some(value) if value >= 1024.0 => format!("{:.1} GB", value / 1024.0),
+        Some(value) => format!("{value:.1} MB"),
+        None => "—".into(),
+    }
+}
 
 pub fn network_status(ssid: &str, ipv4: &str, online: &str) -> String {
     format!("网络：{ssid}\r\nIPv4：{ipv4}\r\n认证：{online}")
@@ -64,4 +112,42 @@ pub fn detection_error(status: u32) -> String {
 }
 pub fn login_http_error(status: u32) -> String {
     format!("认证服务返回 HTTP {status}。")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::{AccountInfo, AccountOverview, Online};
+
+    #[test]
+    fn overview_formats_traffic_balance_and_unknown_fields() {
+        let info = AccountInfo {
+            username: Some("student".into()),
+            overview: Some(AccountOverview {
+                used_megabytes: Some(2048.0),
+                remaining_megabytes: None,
+                money_yuan: Some(-2.5),
+            }),
+            error: None,
+        };
+        let text = account_info(&info, Online::Yes);
+        assert!(text.contains("2.0 GB"));
+        assert!(text.contains("剩余流量：—"));
+        assert!(text.contains("¥ -2.50"));
+        assert!(!account_info(&info, Online::No).contains("student"));
+        assert!(!account_info(&info, Online::Unknown).contains("student"));
+    }
+
+    #[test]
+    fn failed_overview_still_displays_confirmed_identity() {
+        let info = AccountInfo {
+            username: Some("student".into()),
+            overview: None,
+            error: Some(ACCOUNT_EXPIRED.into()),
+        };
+        let text = account_info(&info, Online::Yes);
+        assert!(text.contains("student"));
+        assert!(text.contains(ACCOUNT_EXPIRED));
+        assert!(!text.contains("0.0 MB"));
+    }
 }

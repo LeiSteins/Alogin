@@ -7,10 +7,12 @@ use std::{
 use windows_sys::Win32::Networking::WinHttp::*;
 use zeroize::Zeroizing;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Host {
     Eportal,
     Wlgn,
+    Lgn,
+    SelfService,
 }
 
 impl Host {
@@ -18,6 +20,8 @@ impl Host {
         match self {
             Self::Eportal => "10.21.221.98",
             Self::Wlgn => "wlgn.bjut.edu.cn",
+            Self::Lgn => "lgn.bjut.edu.cn",
+            Self::SelfService => "jfself.bjut.edu.cn",
         }
     }
     pub fn secure(self) -> bool {
@@ -134,9 +138,14 @@ impl Http {
             )?;
         }
         let headers = wide(&format!(
-            "Accept: */*\r\nCache-Control: no-cache\r\nReferer: {}://{}/\r\n",
+            "Accept: */*\r\nCache-Control: no-cache\r\nReferer: {}://{}{}\r\n",
             if host.secure() { "https" } else { "http" },
-            host.name()
+            host.name(),
+            if host == Host::SelfService {
+                "/Self/"
+            } else {
+                "/"
+            }
         ));
         if unsafe {
             WinHttpSendRequest(

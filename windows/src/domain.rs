@@ -15,6 +15,20 @@ pub enum Online {
     Unknown,
 }
 
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct AccountInfo {
+    pub username: Option<String>,
+    pub overview: Option<AccountOverview>,
+    pub error: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct AccountOverview {
+    pub used_megabytes: Option<f64>,
+    pub remaining_megabytes: Option<f64>,
+    pub money_yuan: Option<f64>,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum LoginResult {
     Success,
