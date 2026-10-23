@@ -35,6 +35,8 @@ Thumbs.db
 Desktop.ini
 
 # Misc
+.tools/
+windows/target/
 __pycache__/
 RELEASING.md
 *.log

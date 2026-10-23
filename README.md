@@ -6,6 +6,8 @@
 
 一款 Android 网络认证助手，用于在已配置的目标 Wi-Fi 上完成认证，并查看网络与账号状态。
 
+Windows 原生客户端正在开发，采用 Rust + Win32，首版支持托盘、多账号加密保存和校园网认证。构建与功能范围见 [Windows 客户端说明](windows/README.md)。
+
 官网：[https://steins.top/alogin/](https://steins.top/alogin/)
 
 ## 功能
