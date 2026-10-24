@@ -15,6 +15,22 @@ pub enum Online {
     Unknown,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HomeAction {
+    Login,
+    Refresh,
+}
+
+impl HomeAction {
+    pub fn for_session(online: Online) -> Self {
+        if online == Online::Yes {
+            Self::Refresh
+        } else {
+            Self::Login
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct AccountInfo {
     pub username: Option<String>,
@@ -146,6 +162,18 @@ pub fn page_variable(page: &str, name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn home_action_allows_manual_login_when_offline_or_unknown() {
+        for online in [Online::No, Online::Unknown] {
+            assert_eq!(HomeAction::for_session(online), HomeAction::Login);
+        }
+    }
+
+    #[test]
+    fn home_action_refreshes_an_authenticated_session() {
+        assert_eq!(HomeAction::for_session(Online::Yes), HomeAction::Refresh);
+    }
 
     #[test]
     fn login_response_preserves_failure_and_distinguishes_account_from_ip() {

@@ -16,19 +16,28 @@ use windows_sys::Win32::{
     },
 };
 
+pub const CARD: &str = "Alogin.Card";
+pub const CARD_TEXT: &str = "Alogin.CardText";
+const CARD_KIND: usize = 3;
+const CARD_TEXT_KIND: usize = 4;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Palette {
     dark: bool,
     high_contrast: bool,
     background: COLORREF,
     surface: COLORREF,
+    card: COLORREF,
+    card_text: COLORREF,
     text: COLORREF,
     disabled: COLORREF,
     border: COLORREF,
     button: COLORREF,
+    button_text: COLORREF,
     hover: COLORREF,
     pressed: COLORREF,
     accent: COLORREF,
+    accent_text: COLORREF,
 }
 
 const fn rgb(r: u8, g: u8, b: u8) -> COLORREF {
@@ -76,13 +85,33 @@ impl Palette {
                     high_contrast,
                     background: GetSysColor(COLOR_WINDOW),
                     surface: GetSysColor(COLOR_WINDOW),
+                    card: if high_contrast {
+                        GetSysColor(COLOR_BTNFACE)
+                    } else {
+                        rgb(245, 246, 248)
+                    },
+                    card_text: if high_contrast {
+                        GetSysColor(COLOR_BTNTEXT)
+                    } else {
+                        GetSysColor(COLOR_WINDOWTEXT)
+                    },
                     text: GetSysColor(COLOR_WINDOWTEXT),
                     disabled: GetSysColor(COLOR_GRAYTEXT),
                     border: GetSysColor(COLOR_WINDOWFRAME),
                     button: GetSysColor(COLOR_BTNFACE),
-                    hover: GetSysColor(COLOR_HIGHLIGHT),
-                    pressed: GetSysColor(COLOR_HIGHLIGHT),
+                    button_text: GetSysColor(COLOR_BTNTEXT),
+                    hover: if high_contrast {
+                        GetSysColor(COLOR_HIGHLIGHT)
+                    } else {
+                        rgb(226, 230, 236)
+                    },
+                    pressed: if high_contrast {
+                        GetSysColor(COLOR_HIGHLIGHT)
+                    } else {
+                        rgb(213, 219, 227)
+                    },
                     accent: GetSysColor(COLOR_HIGHLIGHT),
+                    accent_text: GetSysColor(COLOR_HIGHLIGHTTEXT),
                 }
             }
         }
@@ -93,13 +122,17 @@ impl Palette {
             high_contrast: false,
             background: rgb(32, 32, 32),
             surface: rgb(43, 43, 43),
+            card: rgb(43, 43, 43),
+            card_text: rgb(245, 245, 245),
             text: rgb(245, 245, 245),
             disabled: rgb(160, 160, 160),
             border: rgb(115, 115, 115),
             button: rgb(52, 52, 52),
+            button_text: rgb(245, 245, 245),
             hover: rgb(68, 68, 68),
             pressed: rgb(42, 42, 42),
             accent: rgb(134, 185, 255),
+            accent_text: rgb(32, 32, 32),
         }
     }
 }
@@ -108,6 +141,7 @@ struct Theme {
     palette: Palette,
     background: HBRUSH,
     surface: HBRUSH,
+    card: HBRUSH,
 }
 impl Theme {
     fn new(palette: Palette) -> Self {
@@ -115,6 +149,7 @@ impl Theme {
             palette,
             background: unsafe { CreateSolidBrush(palette.background) },
             surface: unsafe { CreateSolidBrush(palette.surface) },
+            card: unsafe { CreateSolidBrush(palette.card) },
         }
     }
 }
@@ -123,6 +158,7 @@ impl Drop for Theme {
         unsafe {
             DeleteObject(self.background);
             DeleteObject(self.surface);
+            DeleteObject(self.card);
         }
     }
 }
@@ -200,6 +236,8 @@ pub fn install_control(window: HWND, parent: HWND, class: &str) -> Result<(), St
     let kind = match class {
         "BUTTON" => 1,
         "COMBOBOX" => 2,
+        CARD => CARD_KIND,
+        CARD_TEXT => CARD_TEXT_KIND,
         _ => 0,
     };
     if kind != 0
@@ -257,11 +295,22 @@ pub fn message(window: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> Op
             Some(1)
         }
         WM_CTLCOLORSTATIC | WM_CTLCOLOREDIT | WM_CTLCOLORLISTBOX | WM_CTLCOLORBTN => {
+            let dc = wparam as HDC;
+            let child = lparam as HWND;
+            let mut data = 0;
+            let card_text =
+                unsafe { GetWindowSubclass(child, Some(control_proc), CARD_TEXT_KIND, &mut data) }
+                    != 0;
+            if card_text {
+                unsafe {
+                    SetTextColor(dc, theme.palette.card_text);
+                    SetBkColor(dc, theme.palette.card);
+                }
+                return Some(theme.card as isize);
+            }
             if theme.palette.high_contrast {
                 return None;
             }
-            let dc = wparam as HDC;
-            let child = lparam as HWND;
             // Disabled edits send WM_CTLCOLORSTATIC; preserve their input surface.
             let mut class = [0u16; 32];
             let len = unsafe { GetClassNameW(child, class.as_mut_ptr(), class.len() as i32) };
@@ -311,7 +360,16 @@ unsafe extern "system" fn control_proc(
         return unsafe { DefSubclassProc(window, message, wparam, lparam) };
     }
     let state = data as *const WindowState;
-    if !state.is_null() && unsafe { (*state).theme.palette.dark } {
+    let style = unsafe { GetWindowLongPtrW(window, GWL_STYLE) } as u32;
+    let button_type = style & BS_TYPEMASK as u32;
+    let rounded_button = kind == 1
+        && (button_type == BS_PUSHBUTTON as u32
+            || button_type == BS_DEFPUSHBUTTON as u32
+            || style & BS_PUSHLIKE as u32 != 0);
+    if !state.is_null()
+        && (rounded_button || kind == CARD_KIND || unsafe { (*state).theme.palette.dark })
+        && kind != CARD_TEXT_KIND
+    {
         match message {
             WM_PAINT => {
                 let mut paint = PAINTSTRUCT::default();
@@ -329,6 +387,15 @@ unsafe extern "system" fn control_proc(
                 return 0;
             }
             WM_ERASEBKGND => return 1,
+            WM_SETFOCUS | WM_KILLFOCUS | WM_ENABLE | WM_UPDATEUISTATE | BM_SETCHECK
+            | BM_SETSTATE | WM_MOUSEMOVE | WM_MOUSELEAVE => {
+                // Let the native button update its input/accessibility state first.
+                let result = unsafe { DefSubclassProc(window, message, wparam, lparam) };
+                unsafe {
+                    InvalidateRect(window, ptr::null(), 0);
+                }
+                return result;
+            }
             _ => (),
         }
     }
@@ -362,7 +429,56 @@ fn draw_control(window: HWND, dc: HDC, kind: usize, palette: Palette) {
     let count = unsafe { GetWindowTextW(window, label.as_mut_ptr(), label.len() as i32) };
     let dpi = unsafe { GetDpiForWindow(window) }.max(96);
     let unit = |n| super::scale(n, dpi);
-    if kind == 2 {
+    if kind == CARD_KIND {
+        fill(dc, &rect, palette.background);
+        if palette.high_contrast {
+            rounded_fill(dc, &rect, palette.border, unit(12));
+            let mut interior = rect;
+            unsafe {
+                InflateRect(&mut interior, -unit(1).max(1), -unit(1).max(1));
+            }
+            rounded_fill(dc, &interior, palette.card, unit(11));
+        } else {
+            rounded_fill(dc, &rect, palette.card, unit(12));
+        }
+        let mut caption = RECT {
+            left: unit(20),
+            top: unit(18),
+            right: rect.right - unit(20),
+            bottom: unit(42),
+        };
+        let mut title_font = ptr::null_mut();
+        let mut old_font = ptr::null_mut();
+        let mut description = LOGFONTW::default();
+        if unsafe {
+            GetObjectW(
+                GetCurrentObject(dc, OBJ_FONT as u32),
+                mem::size_of::<LOGFONTW>() as i32,
+                (&mut description as *mut LOGFONTW).cast(),
+            )
+        } != 0
+        {
+            description.lfWeight = FW_SEMIBOLD as i32;
+            title_font = unsafe { CreateFontIndirectW(&description) };
+            if !title_font.is_null() {
+                old_font = unsafe { SelectObject(dc, title_font) };
+            }
+        }
+        unsafe {
+            SetTextColor(dc, palette.card_text);
+            DrawTextW(
+                dc,
+                label.as_ptr(),
+                count,
+                &mut caption,
+                DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS,
+            );
+            if !title_font.is_null() {
+                SelectObject(dc, old_font);
+                DeleteObject(title_font);
+            }
+        }
+    } else if kind == 2 {
         fill(dc, &rect, palette.surface);
         border(
             dc,
@@ -507,30 +623,54 @@ fn draw_control(window: HWND, dc: HDC, kind: usize, palette: Palette) {
             }
             focus(window, dc, &caption);
         } else {
+            let navigation = style == BS_AUTORADIOBUTTON as u32;
+            let selected = navigation
+                && unsafe { SendMessageW(window, BM_GETCHECK, 0, 0) } == BST_CHECKED as isize;
             let pressed = button_state & BST_PUSHED != 0;
             let hot = button_state & BST_HOT != 0;
-            fill(
-                dc,
-                &rect,
-                if pressed {
-                    palette.pressed
-                } else if hot {
-                    palette.hover
-                } else {
-                    palette.button
-                },
-            );
-            border(
-                dc,
-                &rect,
-                if style == BS_DEFPUSHBUTTON as u32 || unsafe { GetFocus() } == window {
-                    palette.accent
-                } else {
-                    palette.border
-                },
-            );
+            let keyboard_focus = unsafe { GetFocus() } == window
+                && unsafe { SendMessageW(window, WM_QUERYUISTATE, 0, 0) } & UISF_HIDEFOCUS as isize
+                    == 0;
+            let idle_background = if navigation {
+                palette.background
+            } else {
+                palette.button
+            };
+            let (background, foreground) = if !enabled {
+                (idle_background, palette.disabled)
+            } else if pressed || hot && !selected && !keyboard_focus {
+                (
+                    if pressed {
+                        palette.pressed
+                    } else {
+                        palette.hover
+                    },
+                    if palette.high_contrast {
+                        palette.accent_text
+                    } else {
+                        palette.button_text
+                    },
+                )
+            } else if selected || keyboard_focus {
+                (palette.accent, palette.accent_text)
+            } else {
+                (
+                    idle_background,
+                    if navigation {
+                        palette.text
+                    } else {
+                        palette.button_text
+                    },
+                )
+            };
+            // Clear the corners before painting a solid shape without an outline.
+            fill(dc, &rect, palette.background);
+            if background != palette.background {
+                rounded_fill(dc, &rect, background, unit(8));
+            }
             let mut caption = rect;
             unsafe {
+                SetTextColor(dc, foreground);
                 DrawTextW(
                     dc,
                     label.as_ptr(),
@@ -539,10 +679,6 @@ fn draw_control(window: HWND, dc: HDC, kind: usize, palette: Palette) {
                     DT_CENTER | DT_SINGLELINE | DT_VCENTER,
                 );
             }
-            unsafe {
-                InflateRect(&mut caption, -unit(4), -unit(4));
-            }
-            focus(window, dc, &caption);
         }
     }
     unsafe {
@@ -563,6 +699,25 @@ fn fill(dc: HDC, rect: &RECT, color: COLORREF) {
     unsafe {
         let brush = CreateSolidBrush(color);
         FillRect(dc, rect, brush);
+        DeleteObject(brush);
+    }
+}
+fn rounded_fill(dc: HDC, rect: &RECT, color: COLORREF, radius: i32) {
+    unsafe {
+        let brush = CreateSolidBrush(color);
+        let old_brush = SelectObject(dc, brush);
+        let old_pen = SelectObject(dc, GetStockObject(NULL_PEN));
+        RoundRect(
+            dc,
+            rect.left,
+            rect.top,
+            rect.right,
+            rect.bottom,
+            radius * 2,
+            radius * 2,
+        );
+        SelectObject(dc, old_pen);
+        SelectObject(dc, old_brush);
         DeleteObject(brush);
     }
 }

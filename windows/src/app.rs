@@ -11,6 +11,7 @@ use zeroize::Zeroizing;
 
 pub const RESULT_MESSAGE: u32 = WM_APP + 1;
 pub enum Command {
+    HomeAction,
     Login,
     Refresh,
     NetworkChanged,
@@ -33,6 +34,7 @@ pub struct View {
     pub online: Online,
     pub account_info: AccountInfo,
     pub message: String,
+    pub failed: bool,
     pub fatal: bool,
 }
 impl Default for View {
@@ -45,6 +47,7 @@ impl Default for View {
             online: Online::Unknown,
             account_info: AccountInfo::default(),
             message: strings::LOADING.into(),
+            failed: false,
             fatal: false,
         }
     }
@@ -74,6 +77,7 @@ impl Worker {
                     Err(error) => {
                         publish(View {
                             fatal: true,
+                            failed: true,
                             message: error,
                             ..View::default()
                         });
@@ -89,13 +93,13 @@ impl Worker {
                     last_auto: None,
                 };
                 let initial = session.handle(Command::NetworkChanged);
-                publish(session.view(initial.unwrap_or_else(|error| error)));
+                publish(session.view(initial));
                 while let Ok(command) = receiver.recv() {
                     if matches!(command, Command::Shutdown) {
                         break;
                     }
-                    let message = session.handle(command).unwrap_or_else(|error| error);
-                    publish(session.view(message));
+                    let result = session.handle(command);
+                    publish(session.view(result));
                 }
             })
             .map_err(|_| strings::THREAD_FAILED)?;
@@ -124,7 +128,8 @@ struct Session {
 }
 
 impl Session {
-    fn view(&self, message: String) -> View {
+    fn view(&self, result: Result<String, String>) -> View {
+        let failed = result.is_err();
         View {
             accounts: self.settings.usernames(),
             selected: self.settings.selected.clone(),
@@ -132,14 +137,27 @@ impl Session {
             network: self.network.clone(),
             online: self.online,
             account_info: self.account_info.clone(),
-            message,
+            message: result.unwrap_or_else(|error| error),
+            failed,
             fatal: false,
         }
     }
 
     fn handle(&mut self, command: Command) -> Result<String, String> {
         match command {
-            Command::Login => self.login(None),
+            Command::HomeAction => {
+                let network = snapshot();
+                let online = if network == self.network {
+                    self.online
+                } else {
+                    Online::Unknown
+                };
+                match HomeAction::for_session(online) {
+                    HomeAction::Login => self.login(Some(network), false),
+                    HomeAction::Refresh => self.refresh(),
+                }
+            }
+            Command::Login => self.login(None, false),
             Command::SaveAccount { username, password } => {
                 self.update(|settings| settings.upsert(username, &password))?;
                 Ok(strings::SAVED.into())
@@ -219,16 +237,17 @@ impl Session {
                 Ok(strings::LOGGED_IN.into())
             }
             Online::Unknown => Ok(strings::UNKNOWN.into()),
-            Online::No => self.login(Some(self.network.clone())),
+            Online::No => self.login(Some(self.network.clone()), true),
         }
     }
 
-    fn login(&mut self, expected: Option<Network>) -> Result<String, String> {
+    fn login(&mut self, expected: Option<Network>, automatic: bool) -> Result<String, String> {
         let network = snapshot();
         self.online = Online::Unknown;
         self.account_info = AccountInfo::default();
         if expected.as_ref().is_some_and(|previous| {
-            previous != &network || !self.settings.preferences.allows_auto_login(&network)
+            previous != &network
+                || automatic && !self.settings.preferences.allows_auto_login(&network)
         }) {
             self.network = network;
             return Err(strings::NETWORK_CHANGED.into());
@@ -351,14 +370,14 @@ mod tests {
             .unwrap();
         // A directory at the staging path forces a genuine filesystem write failure.
         fs::create_dir(path.with_extension("json.tmp")).unwrap();
-        assert!(
-            session
-                .update(|settings| {
-                    settings.preferences.auto_login = false;
-                    Ok(())
-                })
-                .is_err()
-        );
+        let result = session.handle(Command::SavePreferences(Preferences {
+            auto_login: false,
+            ..Preferences::default()
+        }));
+        assert!(result.is_err());
+        let view = session.view(result);
+        assert!(view.failed);
+        assert!(view.preferences.auto_login);
         assert!(session.settings.preferences.auto_login);
         assert!(Store::at(path.clone()).unwrap().1.preferences.auto_login);
         fs::remove_dir(path.with_extension("json.tmp")).unwrap();

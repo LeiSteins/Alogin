@@ -1,6 +1,6 @@
 use crate::{
     app::{Command, RESULT_MESSAGE, View, Worker},
-    domain::{Online, Preferences},
+    domain::{HomeAction, Online, Preferences},
     platform::{
         network::{NETWORK_MESSAGE, NetworkEvents},
         wide,
@@ -13,7 +13,10 @@ use windows_sys::Win32::{
     Graphics::Gdi::*,
     System::{LibraryLoader::GetModuleHandleW, Threading::CreateMutexW},
     UI::{
-        Controls::*, HiDpi::GetDpiForWindow, Input::KeyboardAndMouse::EnableWindow, Shell::*,
+        Controls::*,
+        HiDpi::GetDpiForWindow,
+        Input::KeyboardAndMouse::{EnableWindow, GetFocus, SetFocus},
+        Shell::*,
         WindowsAndMessaging::*,
     },
 };
@@ -28,6 +31,7 @@ const OPEN_MESSAGE: u32 = WM_APP + 5;
 const CLOSE_MESSAGE: u32 = WM_APP + 6;
 const DPI_MESSAGE: u32 = WM_APP + 7;
 const THEME_MESSAGE: u32 = WM_APP + 8;
+const ERROR_MESSAGE: u32 = WM_APP + 9;
 const DEBOUNCE_TIMER: usize = 1;
 const ID_LOGIN: usize = 101;
 const ID_REFRESH: usize = 102;
@@ -35,8 +39,25 @@ const ID_ACCOUNTS: usize = 103;
 const ID_SAVE: usize = 104;
 const ID_DELETE: usize = 105;
 const ID_SETTINGS: usize = 106;
+const ID_HOME_PAGE: usize = 107;
+const ID_ACCOUNTS_PAGE: usize = 108;
+const ID_NETWORK_PAGE: usize = 109;
+const ID_HOME_ACTION: usize = 110;
 const ID_SHOW: usize = 201;
 const ID_EXIT: usize = 202;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Page {
+    Home,
+    Accounts,
+    Network,
+}
+
+struct ChildControl {
+    window: HWND,
+    rect: [i32; 4],
+    page: Option<Page>,
+}
 
 struct Mutex(HANDLE);
 impl Drop for Mutex {
@@ -48,10 +69,10 @@ impl Drop for Mutex {
 }
 
 struct Controls {
+    navigation: [(Page, HWND); 3],
     status: HWND,
     account_info: HWND,
-    login: HWND,
-    refresh: HWND,
+    home_action: HWND,
     accounts: HWND,
     delete: HWND,
     username: HWND,
@@ -60,9 +81,8 @@ struct Controls {
     targets: HWND,
     auto: HWND,
     settings: HWND,
-    message: HWND,
     font: HFONT,
-    children: Vec<(HWND, [i32; 4])>,
+    children: Vec<ChildControl>,
 }
 
 struct App {
@@ -75,6 +95,8 @@ struct App {
     busy: bool,
     dirty_network: bool,
     initialized: bool,
+    user_action: bool,
+    pending_error: Option<String>,
     tray: bool,
     taskbar_created: u32,
 }
@@ -141,6 +163,8 @@ pub fn run() -> Result<(), String> {
         busy: true,
         dirty_network: false,
         initialized: false,
+        user_action: false,
+        pending_error: None,
         tray: false,
         taskbar_created: unsafe { RegisterWindowMessageW(wide("TaskbarCreated").as_ptr()) },
     });
@@ -268,6 +292,9 @@ impl App {
         unsafe {
             ShowWindow(self.window, SW_SHOW);
             SetForegroundWindow(self.window);
+            if self.pending_error.is_some() {
+                PostMessageW(self.host, ERROR_MESSAGE, 0, 0);
+            }
         }
         Ok(())
     }
@@ -293,7 +320,7 @@ impl App {
             left: 0,
             top: 0,
             right: scale(860, dpi),
-            bottom: scale(688, dpi),
+            bottom: scale(386, dpi),
         };
         unsafe {
             windows_sys::Win32::UI::HiDpi::AdjustWindowRectExForDpi(
@@ -326,11 +353,13 @@ impl App {
         };
         let invalidates_info = matches!(
             command,
-            Command::Login | Command::Refresh | Command::NetworkChanged
+            Command::HomeAction | Command::Login | Command::Refresh | Command::NetworkChanged
         );
+        let user_action = !matches!(command, Command::NetworkChanged);
         match worker.commands.try_send(command) {
             Ok(()) => {
                 self.busy = true;
+                self.user_action = user_action;
                 self.view.message = strings::BUSY.into();
                 if invalidates_info {
                     self.view.account_info = Default::default();
@@ -340,6 +369,7 @@ impl App {
             Err(TrySendError::Disconnected(_)) => {
                 self.view.message = strings::THREAD_STOPPED.into();
                 self.view.fatal = true;
+                self.report_error(strings::THREAD_STOPPED.into());
             }
             Err(TrySendError::Full(_)) => {
                 self.dirty_network = true;
@@ -363,15 +393,26 @@ impl App {
             || self.view.selected != view.selected
             || self.view.preferences.target_ssids != view.preferences.target_ssids
             || self.view.preferences.auto_login != view.preferences.auto_login;
+        let error = (view.failed && (self.user_action || view.fatal)).then(|| view.message.clone());
+        self.user_action = false;
         self.view = view;
         self.busy = false;
         self.initialized = true;
         self.render(sync_form);
+        if let Some(error) = error {
+            self.report_error(error);
+        }
         if self.dirty_network {
             self.dirty_network = false;
             unsafe {
                 SetTimer(self.host, DEBOUNCE_TIMER, 1200, None);
             }
+        }
+    }
+    fn report_error(&mut self, error: String) {
+        self.pending_error = Some(error);
+        unsafe {
+            PostMessageW(self.host, ERROR_MESSAGE, 0, 0);
         }
     }
     fn render(&self, sync_form: bool) {
@@ -404,7 +445,17 @@ impl App {
                 online,
             ),
         );
-        set_text(c.message, &self.view.message);
+        set_text(
+            c.home_action,
+            if self.busy {
+                strings::BUSY
+            } else {
+                match HomeAction::for_session(self.view.online) {
+                    HomeAction::Login => strings::LOGIN,
+                    HomeAction::Refresh => strings::REFRESH,
+                }
+            },
+        );
         set_text(
             c.account_info,
             &strings::account_info(&self.view.account_info, self.view.online),
@@ -444,8 +495,15 @@ impl App {
         }
         let enabled = !self.busy && !self.view.fatal && self.initialized;
         for control in [
-            c.login, c.refresh, c.accounts, c.delete, c.username, c.password, c.save, c.targets,
-            c.auto, c.settings,
+            c.home_action,
+            c.accounts,
+            c.delete,
+            c.username,
+            c.password,
+            c.save,
+            c.targets,
+            c.auto,
+            c.settings,
         ] {
             unsafe {
                 EnableWindow(control, enabled as i32);
@@ -453,7 +511,6 @@ impl App {
         }
         if self.view.selected.is_none() {
             unsafe {
-                EnableWindow(c.login, 0);
                 EnableWindow(c.delete, 0);
             }
         }
@@ -471,10 +528,23 @@ impl App {
             }
             return;
         }
+        let page = match id {
+            ID_HOME_PAGE => Some(Page::Home),
+            ID_ACCOUNTS_PAGE => Some(Page::Accounts),
+            ID_NETWORK_PAGE => Some(Page::Network),
+            _ => None,
+        };
+        if let Some(page) = page {
+            if let Some(c) = &self.controls {
+                c.show_page(page);
+            }
+            return;
+        }
         if self.busy || self.view.fatal {
             return;
         }
         match id {
+            ID_HOME_ACTION => self.submit(Command::HomeAction),
             ID_LOGIN => self.submit(Command::Login),
             ID_REFRESH => self.submit(Command::Refresh),
             ID_SAVE => {
@@ -510,8 +580,7 @@ impl App {
                         .filter(|s| !s.is_empty())
                     {
                         if line.len() > 32 {
-                            self.view.message = strings::SSID_TOO_LONG.into();
-                            self.render(false);
+                            self.report_error(strings::SSID_TOO_LONG.into());
                             return;
                         }
                         if !target_ssids.iter().any(|existing| existing == line) {
@@ -607,14 +676,20 @@ impl Controls {
                        label: &str,
                        id: usize,
                        style: u32,
-                       rect: [i32; 4]|
+                       rect: [i32; 4],
+                       page: Option<Page>|
          -> Result<HWND, String> {
+            let native_class = match class {
+                theme::CARD => "BUTTON",
+                theme::CARD_TEXT => "STATIC",
+                _ => class,
+            };
             let control = unsafe {
                 CreateWindowExW(
                     if class == "EDIT" { WS_EX_CLIENTEDGE } else { 0 },
-                    wide(class).as_ptr(),
+                    wide(native_class).as_ptr(),
                     wide(label).as_ptr(),
-                    WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | style,
+                    WS_CHILD | WS_CLIPSIBLINGS | style,
                     0,
                     0,
                     0,
@@ -629,73 +704,145 @@ impl Controls {
                 return Err(strings::CONTROL_FAILED.into());
             }
             theme::install_control(control, parent, class)?;
-            children.push((control, rect));
+            children.push(ChildControl {
+                window: control,
+                rect,
+                page,
+            });
             Ok(control)
         };
-        let status = add("STATIC", "", 0, 0, [24, 20, 492, 74])?;
-        // Earlier siblings sit above later ones. Keep the text above the group
-        // box so WS_CLIPSIBLINGS cannot clip it out of the visible region.
-        let account_info = add("STATIC", "", 0, 0, [556, 54, 264, 150])?;
-        add(
-            "BUTTON",
-            strings::ACCOUNT_TITLE,
-            0,
-            BS_GROUPBOX as u32,
-            [540, 20, 296, 204],
-        )?;
-        let login = add(
-            "BUTTON",
-            strings::LOGIN,
-            ID_LOGIN,
-            WS_TABSTOP | BS_DEFPUSHBUTTON as u32,
-            [24, 104, 118, 34],
-        )?;
-        let refresh = add(
+        // A native radio group gives the sidebar selection and arrow-key semantics.
+        let mut navigation = [(Page::Home, ptr::null_mut()); 3];
+        for (index, (page, id, label)) in [
+            (Page::Home, ID_HOME_PAGE, strings::HOME_PAGE),
+            (Page::Accounts, ID_ACCOUNTS_PAGE, strings::ACCOUNTS_PAGE),
+            (Page::Network, ID_NETWORK_PAGE, strings::NETWORK_PAGE),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            navigation[index] = (
+                page,
+                add(
+                    "BUTTON",
+                    label,
+                    id,
+                    BS_AUTORADIOBUTTON as u32
+                        | BS_PUSHLIKE as u32
+                        | if index == 0 { WS_GROUP | WS_TABSTOP } else { 0 },
+                    [24, 20 + index as i32 * 48, 138, 36],
+                    None,
+                )?,
+            );
+        }
+        let home = Some(Page::Home);
+        let mut card_bodies = [ptr::null_mut(); 2];
+        for (index, (title, x)) in [(strings::NETWORK_TITLE, 186), (strings::ACCOUNT_TITLE, 522)]
+            .into_iter()
+            .enumerate()
+        {
+            // Earlier siblings sit above later ones. Keep card text above its
+            // background so WS_CLIPSIBLINGS cannot hide the visible content.
+            card_bodies[index] = add(
+                theme::CARD_TEXT,
+                "",
+                0,
+                WS_GROUP,
+                [x + 20, 78, 274, 82],
+                home,
+            )?;
+            add(
+                theme::CARD,
+                title,
+                0,
+                BS_GROUPBOX as u32,
+                [x, 20, 314, 160],
+                home,
+            )?;
+        }
+        let [status, account_info] = card_bodies;
+        let home_action = add(
             "BUTTON",
             strings::REFRESH,
-            ID_REFRESH,
-            WS_TABSTOP,
-            [154, 104, 118, 34],
+            ID_HOME_ACTION,
+            WS_TABSTOP | BS_DEFPUSHBUTTON as u32,
+            [688, 326, 148, 36],
+            home,
         )?;
-        add("STATIC", strings::ACCOUNTS, 0, 0, [24, 158, 350, 22])?;
+        let account_page = Some(Page::Accounts);
+        add(
+            "STATIC",
+            strings::ACCOUNTS,
+            0,
+            WS_GROUP,
+            [186, 24, 650, 22],
+            account_page,
+        )?;
         let accounts = add(
             "COMBOBOX",
             "",
             ID_ACCOUNTS,
             WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST as u32,
-            [24, 184, 358, 180],
+            [186, 52, 488, 180],
+            account_page,
         )?;
         let delete = add(
             "BUTTON",
             strings::DELETE,
             ID_DELETE,
             WS_TABSTOP,
-            [394, 182, 122, 30],
+            [686, 50, 150, 36],
+            account_page,
         )?;
-        add("STATIC", strings::USERNAME, 0, 0, [24, 230, 210, 20])?;
-        add("STATIC", strings::PASSWORD, 0, 0, [254, 230, 262, 20])?;
+        add(
+            "STATIC",
+            strings::USERNAME,
+            0,
+            0,
+            [186, 106, 314, 22],
+            account_page,
+        )?;
+        add(
+            "STATIC",
+            strings::PASSWORD,
+            0,
+            0,
+            [516, 106, 320, 22],
+            account_page,
+        )?;
         let username = add(
             "EDIT",
             "",
             0,
             WS_TABSTOP | ES_AUTOHSCROLL as u32,
-            [24, 254, 216, 30],
+            [186, 134, 314, 30],
+            account_page,
         )?;
         let password = add(
             "EDIT",
             "",
             0,
             WS_TABSTOP | ES_AUTOHSCROLL as u32 | ES_PASSWORD as u32,
-            [254, 254, 262, 30],
+            [516, 134, 320, 30],
+            account_page,
         )?;
         let save = add(
             "BUTTON",
             strings::SAVE,
             ID_SAVE,
             WS_TABSTOP,
-            [24, 296, 148, 32],
+            [186, 186, 148, 36],
+            account_page,
         )?;
-        add("STATIC", strings::TARGETS, 0, 0, [24, 350, 492, 22])?;
+        let network_page = Some(Page::Network);
+        add(
+            "STATIC",
+            strings::TARGETS,
+            0,
+            WS_GROUP,
+            [186, 24, 650, 22],
+            network_page,
+        )?;
         let targets = add(
             "EDIT",
             "",
@@ -705,34 +852,35 @@ impl Controls {
                 | ES_MULTILINE as u32
                 | ES_AUTOVSCROLL as u32
                 | ES_WANTRETURN as u32,
-            [24, 378, 492, 78],
+            [186, 52, 650, 220],
+            network_page,
         )?;
         let auto = add(
             "BUTTON",
             strings::AUTO,
             0,
             WS_TABSTOP | BS_AUTOCHECKBOX as u32,
-            [24, 470, 492, 26],
+            [186, 286, 650, 26],
+            network_page,
         )?;
         let settings = add(
             "BUTTON",
             strings::SAVE_SETTINGS,
             ID_SETTINGS,
             WS_TABSTOP,
-            [24, 510, 148, 32],
+            [186, 326, 148, 36],
+            network_page,
         )?;
-        let message = add("STATIC", "", 0, 0, [24, 564, 492, 56])?;
-        add("STATIC", strings::FOOTER, 0, 0, [24, 644, 492, 24])?;
         unsafe {
             SendMessageW(username, EM_SETLIMITTEXT, 128, 0);
             SendMessageW(password, EM_SETLIMITTEXT, 1024, 0);
             SendMessageW(targets, EM_SETLIMITTEXT, 8192, 0);
         }
-        Ok(Self {
+        let controls = Self {
+            navigation,
             status,
             account_info,
-            login,
-            refresh,
+            home_action,
             accounts,
             delete,
             username,
@@ -741,10 +889,64 @@ impl Controls {
             targets,
             auto,
             settings,
-            message,
             font: ptr::null_mut(),
             children,
-        })
+        };
+        controls.show_page(Page::Home);
+        Ok(controls)
+    }
+    fn show_page(&self, page: Page) {
+        // Keep controls alive so changing pages does not discard form drafts.
+        // Hide the old page before exposing controls at the same coordinates.
+        let focus = unsafe { GetFocus() };
+        if self
+            .children
+            .iter()
+            .any(|child| child.window == focus && child.page.is_some_and(|owner| owner != page))
+        {
+            if let Some((_, button)) = self.navigation.iter().find(|(owner, _)| *owner == page) {
+                unsafe {
+                    SetFocus(*button);
+                }
+            }
+        }
+        for child in &self.children {
+            if child.page.is_some_and(|owner| owner != page) {
+                unsafe {
+                    ShowWindow(child.window, SW_HIDE);
+                }
+            }
+        }
+        for child in &self.children {
+            if child.page.is_none_or(|owner| owner == page) {
+                unsafe {
+                    ShowWindow(child.window, SW_SHOWNA);
+                }
+            }
+        }
+        for (owner, button) in self.navigation {
+            let selected = owner == page;
+            unsafe {
+                SendMessageW(
+                    button,
+                    BM_SETCHECK,
+                    if selected { BST_CHECKED } else { BST_UNCHECKED } as usize,
+                    0,
+                );
+                // Only the selected navigation item participates in Tab traversal.
+                let style = GetWindowLongW(button, GWL_STYLE) as u32;
+                SetWindowLongW(
+                    button,
+                    GWL_STYLE,
+                    if selected {
+                        style | WS_TABSTOP
+                    } else {
+                        style & !WS_TABSTOP
+                    } as i32,
+                );
+                InvalidateRect(button, ptr::null(), 1);
+            }
+        }
     }
     fn layout(&mut self, dpi: u32) {
         let font = unsafe {
@@ -765,18 +967,20 @@ impl Controls {
                 wide("Microsoft YaHei UI").as_ptr(),
             )
         };
-        for (control, [x, y, width, height]) in &self.children {
+        for child in &self.children {
+            let control = child.window;
+            let [x, y, width, height] = child.rect;
             unsafe {
                 SetWindowPos(
-                    *control,
+                    control,
                     ptr::null_mut(),
-                    scale(*x, dpi),
-                    scale(*y, dpi),
-                    scale(*width, dpi),
-                    scale(*height, dpi),
+                    scale(x, dpi),
+                    scale(y, dpi),
+                    scale(width, dpi),
+                    scale(height, dpi),
                     SWP_NOZORDER | SWP_NOACTIVATE,
                 );
-                SendMessageW(*control, WM_SETFONT, font as usize, 1);
+                SendMessageW(control, WM_SETFONT, font as usize, 1);
             }
         }
         if !self.font.is_null() {
@@ -867,6 +1071,17 @@ unsafe extern "system" fn host_proc(
             let visible = unsafe { (*app).window };
             if !visible.is_null() {
                 theme::refresh(visible);
+            }
+            0
+        }
+        ERROR_MESSAGE => {
+            // MessageBox runs a nested loop; release all App borrows first.
+            let visible = unsafe { (*app).window };
+            if !visible.is_null() {
+                let error = unsafe { (*app).pending_error.take() };
+                if let Some(error) = error {
+                    show_window_error(visible, &error);
+                }
             }
             0
         }
@@ -984,9 +1199,12 @@ fn text(control: HWND) -> Zeroizing<String> {
     Zeroizing::new(String::from_utf16_lossy(&buffer[..read.max(0) as usize]))
 }
 pub fn show_error(message: &str) {
+    show_window_error(ptr::null_mut(), message);
+}
+fn show_window_error(owner: HWND, message: &str) {
     unsafe {
         MessageBoxW(
-            ptr::null_mut(),
+            owner,
             wide(message).as_ptr(),
             wide(strings::APP).as_ptr(),
             MB_OK | MB_ICONERROR,

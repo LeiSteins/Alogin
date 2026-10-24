@@ -31,7 +31,7 @@ pub fn apply(window: HWND) {
 mod tests {
     use super::*;
     #[test]
-    fn android_icon_resource_is_embedded_for_title_bar_and_tray() {
+    fn application_icon_resource_is_embedded_for_title_bar_and_tray() {
         assert!(!load(false).is_null());
         assert!(!load(true).is_null());
     }
