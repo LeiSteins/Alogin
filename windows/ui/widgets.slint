@@ -1,0 +1,358 @@
+import { ScrollView } from "std-widgets.slint";
+import { AppTheme } from "theme.slint";
+
+// Slint's built-in Fluent palette has no system high-contrast override. Keep
+// application controls in one place and use the Windows colors for every state.
+export component ProgressBar inherits Rectangle {
+    in property <float> progress;
+    in property <bool> known: true;
+    in property <string> label;
+    private property <length> inset: AppTheme.high-contrast ? 1px : 0px;
+    height: 10px;
+    vertical-stretch: 0;
+    border-radius: 5px;
+    border-width: root.inset;
+    border-color: AppTheme.text;
+    background: AppTheme.high-contrast ? AppTheme.background : AppTheme.hover;
+    accessible-role: progress-indicator;
+    accessible-label: root.label;
+    accessible-value: root.known ? min(1, max(0, root.progress)) * 100 : "";
+    accessible-value-minimum: 0;
+    accessible-value-maximum: 100;
+    Rectangle {
+        x: root.inset;
+        y: root.inset;
+        width: (parent.width - 2 * root.inset) * min(1, max(0, root.progress));
+        height: parent.height - 2 * root.inset;
+        border-radius: 5px - root.inset;
+        background: AppTheme.accent;
+    }
+}
+
+export component NavigationItem inherits Rectangle {
+    in property <string> text;
+    in property <string> icon;
+    in property <bool> selected;
+    in property <bool> compact;
+    in property <bool> checkable: true;
+    private property <bool> pointer-focus;
+    private property <bool> keyboard-focused: focus.has-focus && !root.pointer-focus;
+    private property <bool> highlighted: AppTheme.high-contrast && (touch.has-hover || touch.pressed);
+    callback clicked();
+    height: 46px;
+    vertical-stretch: 0;
+    border-radius: 6px;
+    background: touch.pressed ? AppTheme.pressed
+        : touch.has-hover ? AppTheme.hover
+        : root.selected ? AppTheme.navigation-selected : transparent;
+    border-width: root.keyboard-focused || (AppTheme.high-contrast && root.selected) ? 1px : 0px;
+    border-color: AppTheme.accent;
+    forward-focus: focus;
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-checkable: root.checkable;
+    accessible-checked: root.selected;
+    accessible-action-default => { root.clicked(); }
+    Rectangle {
+        x: 0px;
+        y: (parent.height - self.height) / 2;
+        width: 3px;
+        height: 20px;
+        border-radius: 2px;
+        background: AppTheme.accent;
+        visible: root.selected;
+    }
+    Path {
+        x: 16px;
+        y: (parent.height - self.height) / 2;
+        width: 20px;
+        height: 20px;
+        commands: root.icon;
+        stroke: root.highlighted ? AppTheme.accent-text : root.selected ? AppTheme.accent : AppTheme.muted;
+        stroke-width: 1.5px;
+    }
+    Text {
+        x: 52px;
+        width: max(0px, parent.width - 64px);
+        height: parent.height;
+        visible: !root.compact;
+        text: root.text;
+        color: root.highlighted ? AppTheme.accent-text : root.selected ? AppTheme.text : AppTheme.muted;
+        vertical-alignment: center;
+        overflow: elide;
+        accessible-role: none;
+    }
+    focus := FocusScope {
+        changed has-focus => { if !self.has-focus { root.pointer-focus = false; } }
+        key-pressed(event) => {
+            root.pointer-focus = false;
+            if event.text == " " || event.text == "\n" {
+                root.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    touch := TouchArea { clicked => { root.pointer-focus = true; focus.focus(); root.clicked(); } }
+}
+
+export component Button inherits Rectangle {
+    in property <string> text;
+    in property <bool> enabled: true;
+    in property <bool> primary;
+    in property <bool> checkable;
+    in-out property <bool> checked;
+    private property <bool> pointer-focus;
+    private property <bool> keyboard-focused: root.enabled && focus.has-focus && !root.pointer-focus;
+    callback clicked();
+    min-width: max(80px, label.preferred-width + 24px);
+    min-height: 36px;
+    horizontal-stretch: 0;
+    vertical-stretch: 0;
+    border-radius: 8px;
+    border-width: root.keyboard-focused || AppTheme.high-contrast ? 1px : 0px;
+    border-color: root.keyboard-focused ? AppTheme.accent : AppTheme.border;
+    background: root.enabled && (root.primary || root.checked) ? AppTheme.accent
+        : touch.pressed && root.enabled ? AppTheme.pressed
+        : touch.has-hover && root.enabled ? AppTheme.hover
+        : root.checkable ? transparent : AppTheme.button;
+    forward-focus: focus;
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-enabled: root.enabled;
+    accessible-checkable: root.checkable;
+    accessible-checked: root.checked;
+    accessible-action-default => { root.activate(); }
+    function activate() {
+        if root.enabled { root.clicked(); }
+    }
+    label := Text {
+        text: root.text;
+        color: !root.enabled ? AppTheme.muted : root.primary || root.checked ? AppTheme.accent-text : AppTheme.button-text;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        accessible-role: none;
+    }
+    focus := FocusScope {
+        enabled: root.enabled;
+        changed has-focus => { if !self.has-focus { root.pointer-focus = false; } }
+        key-pressed(event) => {
+            root.pointer-focus = false;
+            if event.text == " " || event.text == "\n" {
+                root.activate();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => { root.pointer-focus = true; focus.focus(); root.activate(); }
+    }
+}
+
+export component CheckBox inherits Rectangle {
+    in property <string> text;
+    in property <bool> enabled: true;
+    in-out property <bool> checked;
+    min-height: 32px;
+    vertical-stretch: 0;
+    forward-focus: focus;
+    accessible-role: checkbox;
+    accessible-label: root.text;
+    accessible-enabled: root.enabled;
+    accessible-checkable: true;
+    accessible-checked <=> root.checked;
+    accessible-action-default => { root.toggle(); }
+    function toggle() { if root.enabled { root.checked = !root.checked; } }
+    HorizontalLayout {
+        spacing: 10px;
+        Rectangle {
+            width: 20px;
+            height: 20px;
+            y: (parent.height - self.height) / 2;
+            border-radius: 4px;
+            border-width: focus.has-focus ? 2px : 1px;
+            border-color: !root.enabled ? AppTheme.muted : focus.has-focus ? AppTheme.accent : AppTheme.border;
+            background: root.checked ? AppTheme.accent : AppTheme.input;
+            Text {
+                text: root.checked ? "✓" : "";
+                color: root.enabled ? AppTheme.accent-text : AppTheme.muted;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+        Text {
+            text: root.text;
+            color: root.enabled ? AppTheme.text : AppTheme.muted;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+    }
+    focus := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == " " { root.toggle(); return accept; }
+            return reject;
+        }
+    }
+    TouchArea { enabled: root.enabled; clicked => { focus.focus(); root.toggle(); } }
+}
+
+export component LineEdit inherits Rectangle {
+    in property <string> label;
+    in property <bool> enabled: true;
+    in property <InputType> input-type: InputType.text;
+    in-out property <string> text <=> input.text;
+    callback accepted();
+    min-width: 120px;
+    min-height: 34px;
+    vertical-stretch: 0;
+    border-radius: 6px;
+    background: AppTheme.input;
+    border-width: input.has-focus ? 2px : 1px;
+    border-color: input.has-focus ? AppTheme.accent : AppTheme.border;
+    forward-focus: input;
+    input := TextInput {
+        accessible-label: root.label;
+        x: 10px;
+        y: 6px;
+        width: parent.width - 20px;
+        height: parent.height - 12px;
+        enabled: root.enabled;
+        input-type: root.input-type;
+        single-line: true;
+        color: root.enabled ? AppTheme.text : AppTheme.muted;
+        selection-background-color: AppTheme.accent;
+        selection-foreground-color: AppTheme.accent-text;
+        accepted => { root.accepted(); }
+    }
+}
+
+export component TextEdit inherits Rectangle {
+    in property <string> label;
+    in property <bool> enabled: true;
+    in-out property <string> text <=> input.text;
+    min-height: 90px;
+    border-radius: 6px;
+    background: AppTheme.input;
+    border-width: input.has-focus ? 2px : 1px;
+    border-color: input.has-focus ? AppTheme.accent : AppTheme.border;
+    forward-focus: input;
+    ScrollView {
+        x: 6px;
+        y: 6px;
+        width: parent.width - 12px;
+        height: parent.height - 12px;
+        content-height: max(self.visible-height, input.preferred-height);
+        content-width: self.visible-width;
+        input := TextInput {
+            accessible-label: root.label;
+            enabled: root.enabled;
+            width: parent.width;
+            height: max(parent.height, self.preferred-height);
+            single-line: false;
+            wrap: word-wrap;
+            color: root.enabled ? AppTheme.text : AppTheme.muted;
+            selection-background-color: AppTheme.accent;
+            selection-foreground-color: AppTheme.accent-text;
+            cursor-position-changed(position) => {
+                if position.y + parent.content-y < 0px {
+                    parent.content-y = -position.y;
+                }
+                if position.y + 20px + parent.content-y > parent.visible-height {
+                    parent.content-y = parent.visible-height - position.y - 20px;
+                }
+            }
+        }
+    }
+}
+
+export component ComboBox inherits Rectangle {
+    in property <string> label;
+    in property <[string]> model;
+    in property <bool> enabled: true;
+    in-out property <int> current-index: -1;
+    callback selected();
+    min-width: 120px;
+    min-height: 36px;
+    vertical-stretch: 0;
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: focus.has-focus ? AppTheme.accent : AppTheme.border;
+    background: AppTheme.input;
+    forward-focus: focus;
+    accessible-role: combobox;
+    accessible-label: root.label;
+    accessible-enabled: root.enabled;
+    accessible-expandable: true;
+    accessible-value: root.current-index >= 0 ? root.model[root.current-index] : "";
+    accessible-action-expand => { if root.enabled { popup.show(); } }
+    function move-selection(delta: int) {
+        if root.enabled && root.model.length > 0 {
+            root.current-index = min(root.model.length - 1, max(0, root.current-index + delta));
+            root.selected();
+        }
+    }
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        Text {
+            text: root.current-index >= 0 ? root.model[root.current-index] : "";
+            color: root.enabled ? AppTheme.text : AppTheme.muted;
+            horizontal-stretch: 1;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        Rectangle {
+            width: 16px;
+            Path {
+                x: 2px;
+                y: (parent.height - 8px) / 2;
+                width: 12px;
+                height: 8px;
+                commands: "M 1 1 L 6 6 L 11 1";
+                stroke: root.enabled ? AppTheme.text : AppTheme.muted;
+                stroke-width: 1.5px;
+            }
+        }
+    }
+    focus := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == Key.UpArrow { root.move-selection(-1); return accept; }
+            if event.text == Key.DownArrow { root.move-selection(1); return accept; }
+            if event.text == " " || event.text == "\n" { popup.show(); return accept; }
+            return reject;
+        }
+    }
+    TouchArea { enabled: root.enabled; clicked => { focus.focus(); popup.show(); } }
+    popup := PopupWindow {
+        x: 0;
+        y: root.height + 4px;
+        width: root.width;
+        height: min(6, root.model.length) * 36px + 8px;
+        Rectangle {
+            background: AppTheme.input;
+            border-radius: 6px;
+            border-width: 1px;
+            border-color: AppTheme.border;
+            ScrollView {
+                x: 4px;
+                y: 4px;
+                width: parent.width - 8px;
+                height: parent.height - 8px;
+                VerticalLayout {
+                    spacing: 0;
+                    for account[index] in root.model: Button {
+                        text: account;
+                        checked: index == root.current-index;
+                        checkable: true;
+                        horizontal-stretch: 1;
+                        clicked => { root.current-index = index; popup.close(); root.selected(); }
+                    }
+                }
+            }
+        }
+    }
+}

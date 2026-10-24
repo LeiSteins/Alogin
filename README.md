@@ -8,7 +8,7 @@
 
 Android 客户端及其 Gradle 工程、发布脚本和版本说明位于 `android/`，使用 Android Studio 时打开该目录。
 
-Windows 原生客户端正在开发，采用 Rust + Win32，首版支持托盘、多账号加密保存和校园网认证。构建与功能范围见 [Windows 客户端说明](windows/README.md)。
+Windows 原生客户端正在开发，采用 Rust + Slint，首版支持托盘、多账号加密保存和校园网认证。构建与功能范围见 [Windows 客户端说明](windows/README.md)。
 
 官网：[https://steins.top/alogin/](https://steins.top/alogin/)
 
@@ -105,7 +105,7 @@ Debug APK 相对仓库根目录的默认输出位置为 `android/app/build/outpu
 
 ```text
 android/       # Android 客户端、Gradle 工程、scripts 与 release-notes
-windows/       # Rust + Win32 Windows 客户端
+windows/       # Rust + Slint Windows 客户端
 .github/       # 构建和发布工作流
 docs/          # 项目文档资源
 ```

@@ -1,63 +1,53 @@
 use crate::{
     app::{Command, RESULT_MESSAGE, View, Worker},
-    domain::{HomeAction, Online, Preferences},
+    domain::{HomeAction, NetworkKind, Online, Preferences},
     platform::{
         network::{NETWORK_MESSAGE, NetworkEvents},
         wide,
     },
     strings,
 };
-use std::{ptr, sync::mpsc::TrySendError};
-use windows_sys::Win32::{
-    Foundation::*,
-    Graphics::Gdi::*,
-    System::{LibraryLoader::GetModuleHandleW, Threading::CreateMutexW},
-    UI::{
-        Controls::*,
-        HiDpi::GetDpiForWindow,
-        Input::KeyboardAndMouse::{EnableWindow, GetFocus, SetFocus},
-        Shell::*,
-        WindowsAndMessaging::*,
+use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+use slint::winit_030::{EventResult, WinitWindowAccessor};
+use slint::{ComponentHandle, ModelRc, VecModel};
+use std::{
+    cell::RefCell,
+    ptr,
+    rc::Rc,
+    sync::{
+        atomic::{AtomicU32, Ordering},
+        mpsc::TrySendError,
     },
 };
+use windows_sys::Win32::{
+    Foundation::*,
+    System::{LibraryLoader::GetModuleHandleW, Threading::CreateMutexW},
+    UI::{Shell::*, WindowsAndMessaging::*},
+};
 use zeroize::Zeroizing;
+#[cfg(test)]
+mod tests;
 mod theme;
-
+slint::include_modules!();
 const HOST_CLASS: &str = "Alogin.Windows.Host";
-const WINDOW_CLASS: &str = "Alogin.Windows.Window";
 const TRAY_MESSAGE: u32 = WM_APP + 3;
 const UI_MESSAGE: u32 = WM_APP + 4;
 const OPEN_MESSAGE: u32 = WM_APP + 5;
 const CLOSE_MESSAGE: u32 = WM_APP + 6;
-const DPI_MESSAGE: u32 = WM_APP + 7;
 const THEME_MESSAGE: u32 = WM_APP + 8;
 const ERROR_MESSAGE: u32 = WM_APP + 9;
 const DEBOUNCE_TIMER: usize = 1;
+const NETWORK_REFRESH_DEBOUNCE_MS: u32 = 250;
 const ID_LOGIN: usize = 101;
 const ID_REFRESH: usize = 102;
 const ID_ACCOUNTS: usize = 103;
 const ID_SAVE: usize = 104;
 const ID_DELETE: usize = 105;
 const ID_SETTINGS: usize = 106;
-const ID_HOME_PAGE: usize = 107;
-const ID_ACCOUNTS_PAGE: usize = 108;
-const ID_NETWORK_PAGE: usize = 109;
 const ID_HOME_ACTION: usize = 110;
 const ID_SHOW: usize = 201;
 const ID_EXIT: usize = 202;
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Page {
-    Home,
-    Accounts,
-    Network,
-}
-
-struct ChildControl {
-    window: HWND,
-    rect: [i32; 4],
-    page: Option<Page>,
-}
+static TASKBAR_CREATED: AtomicU32 = AtomicU32::new(0);
 
 struct Mutex(HANDLE);
 impl Drop for Mutex {
@@ -68,29 +58,16 @@ impl Drop for Mutex {
     }
 }
 
-struct Controls {
-    navigation: [(Page, HWND); 3],
-    status: HWND,
-    account_info: HWND,
-    home_action: HWND,
-    accounts: HWND,
-    delete: HWND,
-    username: HWND,
-    password: HWND,
-    save: HWND,
-    targets: HWND,
-    auto: HWND,
-    settings: HWND,
-    font: HFONT,
-    children: Vec<ChildControl>,
+// Native callbacks enqueue work instead of borrowing UI state during reentrant
+// Windows dispatch (window creation, painting, message boxes and popup menus).
+thread_local! {
+    static APP: RefCell<std::rc::Weak<RefCell<App>>> = const { RefCell::new(std::rc::Weak::new()) };
 }
-
 struct App {
     host: HWND,
-    window: HWND,
+    window: Option<MainWindow>,
     worker: Option<Worker>,
     events: Option<NetworkEvents>,
-    controls: Option<Controls>,
     view: View,
     busy: bool,
     dirty_network: bool,
@@ -98,9 +75,7 @@ struct App {
     user_action: bool,
     pending_error: Option<String>,
     tray: bool,
-    taskbar_created: u32,
 }
-
 pub fn run() -> Result<(), String> {
     let mutex = unsafe {
         CreateMutexW(
@@ -129,36 +104,27 @@ pub fn run() -> Result<(), String> {
     if icon.is_null() {
         return Err(strings::ICON_FAILED.into());
     }
-    for (name, proc) in [
-        (
-            HOST_CLASS,
-            Some(host_proc as unsafe extern "system" fn(_, _, _, _) -> _),
-        ),
-        (
-            WINDOW_CLASS,
-            Some(window_proc as unsafe extern "system" fn(_, _, _, _) -> _),
-        ),
-    ] {
-        let name = wide(name);
-        let class = WNDCLASSW {
-            lpfnWndProc: proc,
-            hInstance: instance,
-            hIcon: icon,
-            hCursor: unsafe { LoadCursorW(ptr::null_mut(), IDC_ARROW) },
-            hbrBackground: (COLOR_WINDOW + 1) as usize as _,
-            lpszClassName: name.as_ptr(),
-            ..Default::default()
-        };
-        if unsafe { RegisterClassW(&class) } == 0 {
-            return Err(strings::REGISTER_WINDOW_FAILED.into());
-        }
+    slint::BackendSelector::new()
+        .backend_name("winit".into())
+        .renderer_name("software".into())
+        .select()
+        .map_err(|_| strings::WINDOW_FAILED)?;
+    let name = wide(HOST_CLASS);
+    let class = WNDCLASSW {
+        lpfnWndProc: Some(host_proc),
+        hInstance: instance,
+        hIcon: icon,
+        lpszClassName: name.as_ptr(),
+        ..Default::default()
+    };
+    if unsafe { RegisterClassW(&class) } == 0 {
+        return Err(strings::REGISTER_WINDOW_FAILED.into());
     }
-    let mut app = Box::new(App {
+    let app = Rc::new(RefCell::new(App {
         host: ptr::null_mut(),
-        window: ptr::null_mut(),
+        window: None,
         worker: None,
         events: None,
-        controls: None,
         view: View::default(),
         busy: true,
         dirty_network: false,
@@ -166,8 +132,7 @@ pub fn run() -> Result<(), String> {
         user_action: false,
         pending_error: None,
         tray: false,
-        taskbar_created: unsafe { RegisterWindowMessageW(wide("TaskbarCreated").as_ptr()) },
-    });
+    }));
     let host = unsafe {
         CreateWindowExW(
             0,
@@ -181,38 +146,36 @@ pub fn run() -> Result<(), String> {
             ptr::null_mut(),
             ptr::null_mut(),
             instance,
-            (&mut *app as *mut App).cast(),
+            ptr::null(),
         )
     };
     if host.is_null() {
         return Err(strings::HOST_FAILED.into());
     }
-    app.host = host;
+    app.borrow_mut().host = host;
+    TASKBAR_CREATED.store(
+        unsafe { RegisterWindowMessageW(wide("TaskbarCreated").as_ptr()) },
+        Ordering::Relaxed,
+    );
+    APP.with(|slot| *slot.borrow_mut() = Rc::downgrade(&app));
     let result = (|| {
-        app.add_tray()?;
-        app.worker = Some(Worker::start(host as usize)?);
-        app.events = Some(NetworkEvents::subscribe(host)?);
-        if !std::env::args().any(|arg| arg == "--background") {
-            app.open_window()?;
-        }
-        let mut message = MSG::default();
-        loop {
-            let result = unsafe { GetMessageW(&mut message, ptr::null_mut(), 0, 0) };
-            if result == -1 {
-                return Err(strings::MESSAGE_LOOP_FAILED.into());
-            }
-            if result == 0 {
-                break;
-            }
-            if app.window.is_null() || unsafe { IsDialogMessageW(app.window, &message) } == 0 {
-                unsafe {
-                    TranslateMessage(&message);
-                    DispatchMessageW(&message);
-                }
+        {
+            let mut app = app.borrow_mut();
+            app.add_tray()?;
+            app.worker = Some(Worker::start(host as usize)?);
+            app.events = Some(NetworkEvents::subscribe(host)?);
+            if !std::env::args().any(|arg| arg == "--background") {
+                // Winit creates native windows only while its event loop is
+                // active. Use the same path as tray/second-instance opens so
+                // the HWND exists before applying the icon and caption colors.
+                post(host, OPEN_MESSAGE, 0);
             }
         }
-        Ok(())
+        // Keep tray and network subscriptions alive without a visible window.
+        slint::run_event_loop_until_quit().map_err(|_| strings::MESSAGE_LOOP_FAILED.into())
     })();
+    APP.with(|slot| *slot.borrow_mut() = std::rc::Weak::new());
+    let mut app = app.borrow_mut();
     app.events.take();
     if let Some(mut worker) = app.worker.take() {
         worker.shutdown();
@@ -220,7 +183,9 @@ pub fn run() -> Result<(), String> {
     app.close_window();
     app.remove_tray();
     unsafe {
+        KillTimer(host, DEBOUNCE_TIMER);
         DestroyWindow(host);
+        UnregisterClassW(wide(HOST_CLASS).as_ptr(), instance);
     }
     result
 }
@@ -257,95 +222,56 @@ impl App {
         }
     }
     fn open_window(&mut self) -> Result<(), String> {
-        if !self.window.is_null() {
+        if let Some(window) = &self.window {
+            let native = native_window(window);
             unsafe {
-                ShowWindow(self.window, SW_RESTORE);
-                SetForegroundWindow(self.window);
+                ShowWindow(native, SW_RESTORE);
+                SetForegroundWindow(native);
             }
             return Ok(());
         }
-        let instance = unsafe { GetModuleHandleW(ptr::null()) };
-        self.window = unsafe {
-            CreateWindowExW(
-                WS_EX_CONTROLPARENT,
-                wide(WINDOW_CLASS).as_ptr(),
-                wide(strings::APP).as_ptr(),
-                WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-                CW_USEDEFAULT,
-                CW_USEDEFAULT,
-                570,
-                780,
-                ptr::null_mut(),
-                ptr::null_mut(),
-                instance,
-                self.host.cast(),
-            )
-        };
-        if self.window.is_null() {
-            return Err(strings::WINDOW_FAILED.into());
-        }
-        self.controls = Some(Controls::new(self.window)?);
-        crate::platform::icon::apply(self.window);
-        theme::refresh(self.window);
-        self.resize_for_dpi();
-        self.render(true);
-        unsafe {
-            ShowWindow(self.window, SW_SHOW);
-            SetForegroundWindow(self.window);
-            if self.pending_error.is_some() {
-                PostMessageW(self.host, ERROR_MESSAGE, 0, 0);
+        let window = MainWindow::new().map_err(|_| strings::WINDOW_FAILED)?;
+        set_labels(&window);
+        theme::refresh(&window);
+        let host = self.host as usize;
+        window.on_home_action(move || post(host as _, UI_MESSAGE, ID_HOME_ACTION));
+        window.on_save_account(move || post(host as _, UI_MESSAGE, ID_SAVE));
+        window.on_delete_account(move || post(host as _, UI_MESSAGE, ID_DELETE));
+        window.on_select_account(move || post(host as _, UI_MESSAGE, ID_ACCOUNTS));
+        window.on_save_settings(move || post(host as _, UI_MESSAGE, ID_SETTINGS));
+        window.window().on_close_requested(move || {
+            post(host as _, CLOSE_MESSAGE, 0);
+            slint::CloseRequestResponse::KeepWindowShown
+        });
+        let weak = window.as_weak();
+        let mut native_initialized = false;
+        window.window().on_winit_window_event(move |_, _| {
+            // show() can return before Winit creates the HWND, even when it is
+            // called from the event loop. Initialize on the first native event
+            // instead of silently sending icon/theme updates to a null handle.
+            if !native_initialized && let Some(window) = weak.upgrade() {
+                native_initialized = initialize_native_window(&window);
             }
+            EventResult::Propagate
+        });
+        self.window = Some(window);
+        self.render(true, true);
+        let window = self.window.as_ref().unwrap();
+        window.show().map_err(|_| strings::WINDOW_FAILED)?;
+        if self.pending_error.is_some() {
+            post(self.host, ERROR_MESSAGE, 0);
         }
         Ok(())
     }
     fn close_window(&mut self) {
-        if !self.window.is_null() {
-            unsafe {
-                DestroyWindow(self.window);
-            }
-            self.window = ptr::null_mut();
-        }
-        if let Some(controls) = self.controls.take() {
-            unsafe {
-                DeleteObject(controls.font);
-            }
-        }
-    }
-    fn resize_for_dpi(&mut self) {
-        if self.window.is_null() {
-            return;
-        }
-        let dpi = unsafe { GetDpiForWindow(self.window) }.max(96);
-        let mut bounds = RECT {
-            left: 0,
-            top: 0,
-            right: scale(860, dpi),
-            bottom: scale(386, dpi),
-        };
-        unsafe {
-            windows_sys::Win32::UI::HiDpi::AdjustWindowRectExForDpi(
-                &mut bounds,
-                WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-                0,
-                WS_EX_CONTROLPARENT,
-                dpi,
-            );
-            SetWindowPos(
-                self.window,
-                ptr::null_mut(),
-                0,
-                0,
-                bounds.right - bounds.left,
-                bounds.bottom - bounds.top,
-                SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
-            );
-        }
-        if let Some(controls) = &mut self.controls {
-            controls.layout(dpi);
+        if let Some(window) = self.window.take() {
+            window.set_password("".into());
+            let _ = window.hide();
+            // Dropping the component releases its native window and form drafts.
         }
     }
     fn submit(&mut self, command: Command) {
-        if self.busy || self.view.fatal {
+        if self.busy || self.view.fatal || !self.initialized {
             return;
         }
         let Some(worker) = &self.worker else {
@@ -375,7 +301,7 @@ impl App {
                 self.dirty_network = true;
             }
         }
-        self.render(false);
+        self.render(false, false);
     }
     fn result(&mut self) {
         let Some(worker) = &self.worker else {
@@ -388,9 +314,10 @@ impl App {
         let Some(view) = latest else {
             return;
         };
-        let sync_form = !self.initialized
+        let sync_accounts = !self.initialized
             || self.view.accounts != view.accounts
-            || self.view.selected != view.selected
+            || self.view.selected != view.selected;
+        let sync_preferences = !self.initialized
             || self.view.preferences.target_ssids != view.preferences.target_ssids
             || self.view.preferences.auto_login != view.preferences.auto_login;
         let error = (view.failed && (self.user_action || view.fatal)).then(|| view.message.clone());
@@ -398,33 +325,31 @@ impl App {
         self.view = view;
         self.busy = false;
         self.initialized = true;
-        self.render(sync_form);
+        self.render(sync_accounts, sync_preferences);
         if let Some(error) = error {
             self.report_error(error);
         }
         if self.dirty_network {
             self.dirty_network = false;
             unsafe {
-                SetTimer(self.host, DEBOUNCE_TIMER, 1200, None);
+                SetTimer(self.host, DEBOUNCE_TIMER, NETWORK_REFRESH_DEBOUNCE_MS, None);
             }
         }
     }
     fn report_error(&mut self, error: String) {
         self.pending_error = Some(error);
-        unsafe {
-            PostMessageW(self.host, ERROR_MESSAGE, 0, 0);
-        }
+        post(self.host, ERROR_MESSAGE, 0);
     }
-    fn render(&self, sync_form: bool) {
-        let Some(c) = &self.controls else {
-            return;
-        };
+    fn render(&self, sync_accounts: bool, sync_preferences: bool) {
+        let Some(window) = &self.window else { return };
         let network = &self.view.network;
         let ssid = network
             .ssid
             .as_deref()
             .unwrap_or(if network.ipv4.is_empty() {
                 strings::DISCONNECTED
+            } else if network.kind == NetworkKind::Ethernet {
+                strings::ETHERNET
             } else {
                 strings::SSID_UNAVAILABLE
             });
@@ -433,9 +358,8 @@ impl App {
             Online::No => strings::LOGGED_OUT,
             Online::Unknown => strings::UNKNOWN,
         };
-        set_text(
-            c.status,
-            &strings::network_status(
+        window.set_network_status(
+            strings::network_status(
                 ssid,
                 if network.ipv4.is_empty() {
                     "—"
@@ -443,108 +367,61 @@ impl App {
                     &network.ipv4
                 },
                 online,
-            ),
+            )
+            .replace("\r\n", "\n")
+            .into(),
         );
-        set_text(
-            c.home_action,
+        let account = strings::account_card(&self.view.account_info, self.view.online);
+        window.set_show_account(self.view.online == Online::Yes);
+        window.set_account_name(account.username.into());
+        window.set_account_balance(account.balance.into());
+        window.set_account_error(account.error.into());
+        window.set_has_overview(account.has_overview);
+        window.set_show_traffic(account.progress.is_some());
+        window.set_traffic_progress(account.progress.unwrap_or_default());
+        window.set_traffic_used_percent(account.used_percent.into());
+        window.set_traffic_used(account.used.into());
+        window.set_traffic_remaining(account.remaining.into());
+        window.set_action_label(
             if self.busy {
                 strings::BUSY
             } else {
-                match HomeAction::for_session(
-                    self.view.online,
-                    &self.view.network,
-                    &self.view.preferences,
-                ) {
+                match HomeAction::for_session(self.view.online, network, &self.view.preferences) {
                     HomeAction::Login => strings::LOGIN,
                     HomeAction::Refresh => strings::REFRESH,
                 }
-            },
+            }
+            .into(),
         );
-        set_text(
-            c.account_info,
-            &strings::account_info(&self.view.account_info, self.view.online),
-        );
-        if sync_form {
-            unsafe {
-                SendMessageW(c.accounts, CB_RESETCONTENT, 0, 0);
-            }
-            for account in &self.view.accounts {
-                unsafe {
-                    SendMessageW(c.accounts, CB_ADDSTRING, 0, wide(account).as_ptr() as isize);
-                }
-            }
-            let selected = self
-                .view
-                .selected
-                .as_ref()
-                .and_then(|name| self.view.accounts.iter().position(|a| a == name));
-            unsafe {
-                SendMessageW(c.accounts, CB_SETCURSEL, selected.unwrap_or(usize::MAX), 0);
-            }
-            set_text(c.username, self.view.selected.as_deref().unwrap_or(""));
-            set_text(c.password, "");
-            set_text(c.targets, &self.view.preferences.target_ssids.join("\r\n"));
-            unsafe {
-                SendMessageW(
-                    c.auto,
-                    BM_SETCHECK,
-                    if self.view.preferences.auto_login {
-                        BST_CHECKED
-                    } else {
-                        BST_UNCHECKED
-                    } as usize,
-                    0,
-                );
-            }
+        window.set_ready(!self.busy && !self.view.fatal && self.initialized);
+        let index = self
+            .view
+            .selected
+            .as_ref()
+            .and_then(|name| self.view.accounts.iter().position(|s| s == name));
+        window.set_account_index(index.map_or(-1, |i| i as i32));
+        if sync_accounts {
+            window.set_accounts(ModelRc::new(VecModel::from(
+                self.view
+                    .accounts
+                    .iter()
+                    .map(|s| s.as_str().into())
+                    .collect::<Vec<_>>(),
+            )));
+            window.set_username(self.view.selected.as_deref().unwrap_or("").into());
+            window.set_password("".into());
         }
-        let enabled = !self.busy && !self.view.fatal && self.initialized;
-        for control in [
-            c.home_action,
-            c.accounts,
-            c.delete,
-            c.username,
-            c.password,
-            c.save,
-            c.targets,
-            c.auto,
-            c.settings,
-        ] {
-            unsafe {
-                EnableWindow(control, enabled as i32);
-            }
-        }
-        if self.view.selected.is_none() {
-            unsafe {
-                EnableWindow(c.delete, 0);
-            }
+        if sync_preferences {
+            window.set_targets(self.view.preferences.target_ssids.join("\n").into());
+            window.set_auto_login(self.view.preferences.auto_login);
         }
     }
-    fn command(&mut self, id: usize, notification: u16) {
-        if id == ID_SHOW {
-            if let Err(error) = self.open_window() {
-                show_error(&error);
-            }
-            return;
-        }
+    fn command(&mut self, id: usize) {
         if id == ID_EXIT {
-            unsafe {
-                PostQuitMessage(0);
-            }
+            let _ = slint::quit_event_loop();
             return;
         }
-        let page = match id {
-            ID_HOME_PAGE => Some(Page::Home),
-            ID_ACCOUNTS_PAGE => Some(Page::Accounts),
-            ID_NETWORK_PAGE => Some(Page::Network),
-            _ => None,
-        };
-        if let Some(page) = page {
-            if let Some(c) = &self.controls {
-                c.show_page(page);
-            }
-            return;
-        }
-        if self.busy || self.view.fatal {
+        if self.busy || self.view.fatal || !self.initialized {
             return;
         }
         match id {
@@ -552,58 +429,206 @@ impl App {
             ID_LOGIN => self.submit(Command::Login),
             ID_REFRESH => self.submit(Command::Refresh),
             ID_SAVE => {
-                if let Some(c) = &self.controls {
-                    let username = text(c.username).trim().to_owned();
-                    let password = text(c.password);
-                    set_text(c.password, "");
+                if let Some(window) = &self.window {
+                    let username = window.get_username().trim().to_owned();
+                    let password = Zeroizing::new(window.get_password().to_string());
+                    window.set_password("".into());
                     self.submit(Command::SaveAccount { username, password });
                 }
             }
             ID_DELETE => {
                 if let Some(name) = &self.view.selected {
-                    // Explicit user action and recoverable by re-adding the account.
                     self.submit(Command::DeleteAccount(name.clone()));
                 }
             }
-            ID_ACCOUNTS if notification == CBN_SELCHANGE as u16 => {
-                if let Some(c) = &self.controls {
-                    let index = unsafe { SendMessageW(c.accounts, CB_GETCURSEL, 0, 0) };
-                    if index >= 0 {
-                        if let Some(name) = self.view.accounts.get(index as usize) {
-                            self.submit(Command::SelectAccount(name.clone()));
-                        }
+            ID_ACCOUNTS => {
+                if let Some(window) = &self.window {
+                    let index = window.get_account_index();
+                    if index >= 0
+                        && let Some(name) = self.view.accounts.get(index as usize)
+                    {
+                        self.submit(Command::SelectAccount(name.clone()));
                     }
                 }
             }
             ID_SETTINGS => {
-                if let Some(c) = &self.controls {
-                    let mut target_ssids = Vec::new();
-                    for line in text(c.targets)
-                        .lines()
-                        .map(str::trim)
-                        .filter(|s| !s.is_empty())
-                    {
-                        if line.len() > 32 {
-                            self.report_error(strings::SSID_TOO_LONG.into());
-                            return;
-                        }
-                        if !target_ssids.iter().any(|existing| existing == line) {
-                            target_ssids.push(line.to_owned());
-                        }
+                if let Some(window) = &self.window {
+                    match preferences(&window.get_targets(), window.get_auto_login()) {
+                        Ok(preferences) => self.submit(Command::SavePreferences(preferences)),
+                        Err(error) => self.report_error(error),
                     }
-                    let auto_login =
-                        unsafe { SendMessageW(c.auto, BM_GETCHECK, 0, 0) } == BST_CHECKED as isize;
-                    self.submit(Command::SavePreferences(Preferences {
-                        target_ssids,
-                        auto_login,
-                    }));
                 }
             }
             _ => (),
         }
     }
 }
-
+fn preferences(targets: &str, auto_login: bool) -> Result<Preferences, String> {
+    let mut target_ssids = Vec::new();
+    for line in targets.lines().map(str::trim).filter(|s| !s.is_empty()) {
+        if line.len() > 32 {
+            return Err(strings::SSID_TOO_LONG.into());
+        }
+        if !target_ssids.iter().any(|existing| existing == line) {
+            target_ssids.push(line.to_owned());
+        }
+    }
+    Ok(Preferences {
+        target_ssids,
+        auto_login,
+    })
+}
+fn set_labels(window: &MainWindow) {
+    let labels = window.global::<Labels>();
+    labels.set_app(strings::APP.into());
+    labels.set_home(strings::HOME_PAGE.into());
+    labels.set_accounts_page(strings::ACCOUNTS_PAGE.into());
+    labels.set_network_page(strings::NETWORK_PAGE.into());
+    labels.set_toggle_navigation(strings::TOGGLE_NAVIGATION.into());
+    labels.set_network_title(strings::NETWORK_TITLE.into());
+    labels.set_account_title(strings::ACCOUNT_TITLE.into());
+    labels.set_account_username(strings::ACCOUNT_USERNAME.into());
+    labels.set_remaining_money(strings::REMAINING_MONEY.into());
+    labels.set_retry_fetch(strings::RETRY_FETCH.into());
+    labels.set_traffic_progress(strings::TRAFFIC_PROGRESS.into());
+    labels.set_accounts(strings::ACCOUNTS.into());
+    labels.set_username(strings::USERNAME.into());
+    labels.set_password(strings::PASSWORD.into());
+    labels.set_save(strings::SAVE.into());
+    labels.set_delete(strings::DELETE.into());
+    labels.set_targets(strings::TARGETS.into());
+    labels.set_auto(strings::AUTO.into());
+    labels.set_save_settings(strings::SAVE_SETTINGS.into());
+}
+fn native_window(window: &MainWindow) -> HWND {
+    window
+        .window()
+        .window_handle()
+        .window_handle()
+        .ok()
+        .map(|h| h.as_raw())
+        .and_then(|handle| match handle {
+            RawWindowHandle::Win32(handle) => Some(handle.hwnd.get() as HWND),
+            _ => None,
+        })
+        .unwrap_or(ptr::null_mut())
+}
+fn initialize_native_window(window: &MainWindow) -> bool {
+    let native = native_window(window);
+    if native.is_null() {
+        return false;
+    }
+    crate::platform::icon::apply(native);
+    theme::title_bar(native, window);
+    unsafe {
+        SetForegroundWindow(native);
+    }
+    true
+}
+fn post(host: HWND, message: u32, id: usize) {
+    unsafe {
+        PostMessageW(host, message, id, 0);
+    }
+}
+fn enqueue(action: impl FnOnce(Rc<RefCell<App>>) + Send + 'static) {
+    let _ = slint::invoke_from_event_loop(move || {
+        APP.with(|slot| {
+            if let Some(app) = slot.borrow().upgrade() {
+                action(app);
+            }
+        });
+    });
+}
+fn open_app_window(app: Rc<RefCell<App>>) {
+    let result = app.borrow_mut().open_window();
+    if let Err(error) = result {
+        show_error(&error);
+    }
+}
+unsafe extern "system" fn host_proc(
+    window: HWND,
+    message: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    if (message == WM_DRAWITEM || message == WM_MEASUREITEM)
+        && lparam != 0
+        && let Some(result) = theme::menu_message(message, lparam)
+    {
+        return result;
+    }
+    match message {
+        RESULT_MESSAGE => enqueue(|app| app.borrow_mut().result()),
+        NETWORK_MESSAGE => unsafe {
+            SetTimer(window, DEBOUNCE_TIMER, NETWORK_REFRESH_DEBOUNCE_MS, None);
+        },
+        WM_TIMER if wparam == DEBOUNCE_TIMER => {
+            unsafe {
+                KillTimer(window, DEBOUNCE_TIMER);
+            }
+            enqueue(|app| {
+                let mut app = app.borrow_mut();
+                if app.busy {
+                    app.dirty_network = true;
+                } else {
+                    app.submit(Command::NetworkChanged);
+                }
+            });
+        }
+        OPEN_MESSAGE => enqueue(open_app_window),
+        CLOSE_MESSAGE => enqueue(|app| app.borrow_mut().close_window()),
+        UI_MESSAGE if wparam == ID_SHOW => enqueue(open_app_window),
+        UI_MESSAGE => enqueue(move |app| app.borrow_mut().command(wparam)),
+        WM_SETTINGCHANGE | WM_THEMECHANGED | WM_SYSCOLORCHANGE => post(window, THEME_MESSAGE, 0),
+        THEME_MESSAGE => enqueue(|app| {
+            if let Some(window) = &app.borrow().window {
+                theme::refresh(window);
+                theme::title_bar(native_window(window), window);
+            }
+        }),
+        ERROR_MESSAGE => enqueue(|app| {
+            let error = {
+                let mut app = app.borrow_mut();
+                app.window
+                    .as_ref()
+                    .map(native_window)
+                    .and_then(|window| app.pending_error.take().map(|error| (window, error)))
+            };
+            // Modal native loops must never hold an application state borrow.
+            if let Some((window, error)) = error {
+                show_window_error(window, &error);
+            }
+        }),
+        TRAY_MESSAGE => match lparam as u32 {
+            WM_LBUTTONUP | WM_LBUTTONDBLCLK => post(window, OPEN_MESSAGE, 0),
+            WM_RBUTTONUP | WM_CONTEXTMENU => enqueue(|app| {
+                let (host, disabled) = {
+                    let app = app.borrow();
+                    (app.host, app.busy || app.view.fatal || !app.initialized)
+                };
+                tray_menu(host, disabled);
+            }),
+            _ => (),
+        },
+        WM_POWERBROADCAST if wparam == 0x12 => {
+            unsafe {
+                SetTimer(window, DEBOUNCE_TIMER, 1500, None);
+            }
+            return 1;
+        }
+        _ if message != 0 && message == TASKBAR_CREATED.load(Ordering::Relaxed) => {
+            enqueue(|app| {
+                let mut app = app.borrow_mut();
+                app.tray = false;
+                if let Err(error) = app.add_tray() {
+                    app.report_error(error);
+                }
+            });
+        }
+        _ => return unsafe { DefWindowProcW(window, message, wparam, lparam) },
+    }
+    0
+}
 // TrackPopupMenu runs a nested message loop: never hold an App borrow across it.
 fn tray_menu(host: HWND, disabled: bool) {
     let menu = unsafe { CreatePopupMenu() };
@@ -673,534 +698,8 @@ fn tray_menu(host: HWND, disabled: bool) {
     }
 }
 
-impl Controls {
-    fn new(parent: HWND) -> Result<Self, String> {
-        let mut children = Vec::new();
-        let mut add = |class: &str,
-                       label: &str,
-                       id: usize,
-                       style: u32,
-                       rect: [i32; 4],
-                       page: Option<Page>|
-         -> Result<HWND, String> {
-            let native_class = match class {
-                theme::CARD => "BUTTON",
-                theme::CARD_TEXT => "STATIC",
-                _ => class,
-            };
-            let control = unsafe {
-                CreateWindowExW(
-                    if class == "EDIT" { WS_EX_CLIENTEDGE } else { 0 },
-                    wide(native_class).as_ptr(),
-                    wide(label).as_ptr(),
-                    WS_CHILD | WS_CLIPSIBLINGS | style,
-                    0,
-                    0,
-                    0,
-                    0,
-                    parent,
-                    id as HMENU,
-                    GetModuleHandleW(ptr::null()),
-                    ptr::null(),
-                )
-            };
-            if control.is_null() {
-                return Err(strings::CONTROL_FAILED.into());
-            }
-            theme::install_control(control, parent, class)?;
-            children.push(ChildControl {
-                window: control,
-                rect,
-                page,
-            });
-            Ok(control)
-        };
-        // A native radio group gives the sidebar selection and arrow-key semantics.
-        let mut navigation = [(Page::Home, ptr::null_mut()); 3];
-        for (index, (page, id, label)) in [
-            (Page::Home, ID_HOME_PAGE, strings::HOME_PAGE),
-            (Page::Accounts, ID_ACCOUNTS_PAGE, strings::ACCOUNTS_PAGE),
-            (Page::Network, ID_NETWORK_PAGE, strings::NETWORK_PAGE),
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            navigation[index] = (
-                page,
-                add(
-                    "BUTTON",
-                    label,
-                    id,
-                    BS_AUTORADIOBUTTON as u32
-                        | BS_PUSHLIKE as u32
-                        | if index == 0 { WS_GROUP | WS_TABSTOP } else { 0 },
-                    [24, 20 + index as i32 * 48, 138, 36],
-                    None,
-                )?,
-            );
-        }
-        let home = Some(Page::Home);
-        let mut card_bodies = [ptr::null_mut(); 2];
-        for (index, (title, x)) in [(strings::NETWORK_TITLE, 186), (strings::ACCOUNT_TITLE, 522)]
-            .into_iter()
-            .enumerate()
-        {
-            // Earlier siblings sit above later ones. Keep card text above its
-            // background so WS_CLIPSIBLINGS cannot hide the visible content.
-            card_bodies[index] = add(
-                theme::CARD_TEXT,
-                "",
-                0,
-                WS_GROUP,
-                [x + 20, 78, 274, 82],
-                home,
-            )?;
-            add(
-                theme::CARD,
-                title,
-                0,
-                BS_GROUPBOX as u32,
-                [x, 20, 314, 160],
-                home,
-            )?;
-        }
-        let [status, account_info] = card_bodies;
-        let home_action = add(
-            "BUTTON",
-            strings::REFRESH,
-            ID_HOME_ACTION,
-            WS_TABSTOP | BS_DEFPUSHBUTTON as u32,
-            [688, 326, 148, 36],
-            home,
-        )?;
-        let account_page = Some(Page::Accounts);
-        add(
-            "STATIC",
-            strings::ACCOUNTS,
-            0,
-            WS_GROUP,
-            [186, 24, 650, 22],
-            account_page,
-        )?;
-        let accounts = add(
-            "COMBOBOX",
-            "",
-            ID_ACCOUNTS,
-            WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST as u32,
-            [186, 52, 488, 180],
-            account_page,
-        )?;
-        let delete = add(
-            "BUTTON",
-            strings::DELETE,
-            ID_DELETE,
-            WS_TABSTOP,
-            [686, 50, 150, 36],
-            account_page,
-        )?;
-        add(
-            "STATIC",
-            strings::USERNAME,
-            0,
-            0,
-            [186, 106, 314, 22],
-            account_page,
-        )?;
-        add(
-            "STATIC",
-            strings::PASSWORD,
-            0,
-            0,
-            [516, 106, 320, 22],
-            account_page,
-        )?;
-        let username = add(
-            "EDIT",
-            "",
-            0,
-            WS_TABSTOP | ES_AUTOHSCROLL as u32,
-            [186, 134, 314, 30],
-            account_page,
-        )?;
-        let password = add(
-            "EDIT",
-            "",
-            0,
-            WS_TABSTOP | ES_AUTOHSCROLL as u32 | ES_PASSWORD as u32,
-            [516, 134, 320, 30],
-            account_page,
-        )?;
-        let save = add(
-            "BUTTON",
-            strings::SAVE,
-            ID_SAVE,
-            WS_TABSTOP,
-            [186, 186, 148, 36],
-            account_page,
-        )?;
-        let network_page = Some(Page::Network);
-        add(
-            "STATIC",
-            strings::TARGETS,
-            0,
-            WS_GROUP,
-            [186, 24, 650, 22],
-            network_page,
-        )?;
-        let targets = add(
-            "EDIT",
-            "",
-            0,
-            WS_TABSTOP
-                | WS_VSCROLL
-                | ES_MULTILINE as u32
-                | ES_AUTOVSCROLL as u32
-                | ES_WANTRETURN as u32,
-            [186, 52, 650, 220],
-            network_page,
-        )?;
-        let auto = add(
-            "BUTTON",
-            strings::AUTO,
-            0,
-            WS_TABSTOP | BS_AUTOCHECKBOX as u32,
-            [186, 286, 650, 26],
-            network_page,
-        )?;
-        let settings = add(
-            "BUTTON",
-            strings::SAVE_SETTINGS,
-            ID_SETTINGS,
-            WS_TABSTOP,
-            [186, 326, 148, 36],
-            network_page,
-        )?;
-        unsafe {
-            SendMessageW(username, EM_SETLIMITTEXT, 128, 0);
-            SendMessageW(password, EM_SETLIMITTEXT, 1024, 0);
-            SendMessageW(targets, EM_SETLIMITTEXT, 8192, 0);
-        }
-        let controls = Self {
-            navigation,
-            status,
-            account_info,
-            home_action,
-            accounts,
-            delete,
-            username,
-            password,
-            save,
-            targets,
-            auto,
-            settings,
-            font: ptr::null_mut(),
-            children,
-        };
-        controls.show_page(Page::Home);
-        Ok(controls)
-    }
-    fn show_page(&self, page: Page) {
-        // Keep controls alive so changing pages does not discard form drafts.
-        // Hide the old page before exposing controls at the same coordinates.
-        let focus = unsafe { GetFocus() };
-        if self
-            .children
-            .iter()
-            .any(|child| child.window == focus && child.page.is_some_and(|owner| owner != page))
-        {
-            if let Some((_, button)) = self.navigation.iter().find(|(owner, _)| *owner == page) {
-                unsafe {
-                    SetFocus(*button);
-                }
-            }
-        }
-        for child in &self.children {
-            if child.page.is_some_and(|owner| owner != page) {
-                unsafe {
-                    ShowWindow(child.window, SW_HIDE);
-                }
-            }
-        }
-        for child in &self.children {
-            if child.page.is_none_or(|owner| owner == page) {
-                unsafe {
-                    ShowWindow(child.window, SW_SHOWNA);
-                }
-            }
-        }
-        for (owner, button) in self.navigation {
-            let selected = owner == page;
-            unsafe {
-                SendMessageW(
-                    button,
-                    BM_SETCHECK,
-                    if selected { BST_CHECKED } else { BST_UNCHECKED } as usize,
-                    0,
-                );
-                // Only the selected navigation item participates in Tab traversal.
-                let style = GetWindowLongW(button, GWL_STYLE) as u32;
-                SetWindowLongW(
-                    button,
-                    GWL_STYLE,
-                    if selected {
-                        style | WS_TABSTOP
-                    } else {
-                        style & !WS_TABSTOP
-                    } as i32,
-                );
-                InvalidateRect(button, ptr::null(), 1);
-            }
-        }
-    }
-    fn layout(&mut self, dpi: u32) {
-        let font = unsafe {
-            CreateFontW(
-                -scale(14, dpi),
-                0,
-                0,
-                0,
-                FW_NORMAL as i32,
-                0,
-                0,
-                0,
-                DEFAULT_CHARSET as u32,
-                OUT_DEFAULT_PRECIS as u32,
-                CLIP_DEFAULT_PRECIS as u32,
-                CLEARTYPE_QUALITY as u32,
-                DEFAULT_PITCH as u32,
-                wide("Microsoft YaHei UI").as_ptr(),
-            )
-        };
-        for child in &self.children {
-            let control = child.window;
-            let [x, y, width, height] = child.rect;
-            unsafe {
-                SetWindowPos(
-                    control,
-                    ptr::null_mut(),
-                    scale(x, dpi),
-                    scale(y, dpi),
-                    scale(width, dpi),
-                    scale(height, dpi),
-                    SWP_NOZORDER | SWP_NOACTIVATE,
-                );
-                SendMessageW(control, WM_SETFONT, font as usize, 1);
-            }
-        }
-        if !self.font.is_null() {
-            unsafe {
-                DeleteObject(self.font);
-            }
-        }
-        self.font = font;
-    }
-}
-
-unsafe extern "system" fn host_proc(
-    window: HWND,
-    message: u32,
-    wparam: WPARAM,
-    lparam: LPARAM,
-) -> LRESULT {
-    if (message == WM_DRAWITEM || message == WM_MEASUREITEM) && lparam != 0 {
-        if let Some(result) = theme::menu_message(message, lparam) {
-            return result;
-        }
-    }
-    if message == WM_NCCREATE {
-        let create = unsafe { &*(lparam as *const CREATESTRUCTW) };
-        unsafe {
-            SetWindowLongPtrW(window, GWLP_USERDATA, create.lpCreateParams as isize);
-        }
-        return 1;
-    }
-    let app = unsafe { GetWindowLongPtrW(window, GWLP_USERDATA) } as *mut App;
-    if app.is_null() {
-        return unsafe { DefWindowProcW(window, message, wparam, lparam) };
-    }
-    // Only dispatched application messages borrow App; nested system messages use DefWindowProcW.
-    match message {
-        RESULT_MESSAGE => {
-            unsafe {
-                (*app).result();
-            }
-            0
-        }
-        NETWORK_MESSAGE => {
-            unsafe {
-                SetTimer(window, DEBOUNCE_TIMER, 1200, None);
-            }
-            0
-        }
-        WM_TIMER if wparam == DEBOUNCE_TIMER => {
-            unsafe {
-                KillTimer(window, DEBOUNCE_TIMER);
-            }
-            let app = unsafe { &mut *app };
-            if app.busy {
-                app.dirty_network = true;
-            } else {
-                app.submit(Command::NetworkChanged);
-            }
-            0
-        }
-        OPEN_MESSAGE => {
-            if let Err(error) = unsafe { (*app).open_window() } {
-                show_error(&error);
-            }
-            0
-        }
-        CLOSE_MESSAGE => {
-            unsafe {
-                (*app).close_window();
-            }
-            0
-        }
-        DPI_MESSAGE => {
-            unsafe {
-                (*app).resize_for_dpi();
-                if !(*app).window.is_null() {
-                    crate::platform::icon::apply((*app).window);
-                }
-            }
-            0
-        }
-        WM_SETTINGCHANGE | WM_THEMECHANGED | WM_SYSCOLORCHANGE => {
-            unsafe {
-                PostMessageW(window, THEME_MESSAGE, 0, 0);
-            }
-            0
-        }
-        THEME_MESSAGE => {
-            let visible = unsafe { (*app).window };
-            if !visible.is_null() {
-                theme::refresh(visible);
-            }
-            0
-        }
-        ERROR_MESSAGE => {
-            // MessageBox runs a nested loop; release all App borrows first.
-            let visible = unsafe { (*app).window };
-            if !visible.is_null() {
-                let error = unsafe { (*app).pending_error.take() };
-                if let Some(error) = error {
-                    show_window_error(visible, &error);
-                }
-            }
-            0
-        }
-        UI_MESSAGE => {
-            unsafe {
-                (*app).command(wparam & 0xffff, (wparam >> 16) as u16);
-            }
-            0
-        }
-        TRAY_MESSAGE => {
-            match lparam as u32 {
-                WM_LBUTTONUP | WM_LBUTTONDBLCLK => {
-                    if let Err(error) = unsafe { (*app).open_window() } {
-                        show_error(&error);
-                    }
-                }
-                WM_RBUTTONUP | WM_CONTEXTMENU => {
-                    tray_menu(window, unsafe { (*app).busy || (*app).view.fatal })
-                }
-                _ => (),
-            }
-            0
-        }
-        WM_POWERBROADCAST if wparam == 0x12 => {
-            unsafe {
-                SetTimer(window, DEBOUNCE_TIMER, 1500, None);
-            }
-            1
-        }
-        _ if message != 0 && message == unsafe { (*app).taskbar_created } => {
-            // Explorer restart discards all previous notification icons.
-            unsafe {
-                (*app).tray = false;
-            }
-            if let Err(error) = unsafe { (*app).add_tray() } {
-                show_error(&error);
-            }
-            0
-        }
-        _ => unsafe { DefWindowProcW(window, message, wparam, lparam) },
-    }
-}
-
-unsafe extern "system" fn window_proc(
-    window: HWND,
-    message: u32,
-    wparam: WPARAM,
-    lparam: LPARAM,
-) -> LRESULT {
-    if message == WM_NCCREATE {
-        let create = unsafe { &*(lparam as *const CREATESTRUCTW) };
-        theme::attach(window, create.lpCreateParams.cast());
-        return 1;
-    }
-    if message == WM_NCDESTROY {
-        let result = unsafe { DefWindowProcW(window, message, wparam, lparam) };
-        theme::detach(window);
-        return result;
-    }
-    if let Some(result) = theme::message(window, message, wparam, lparam) {
-        return result;
-    }
-    let host = theme::host(window);
-    match message {
-        WM_SETTINGCHANGE | WM_THEMECHANGED | WM_SYSCOLORCHANGE => {
-            unsafe {
-                PostMessageW(host, THEME_MESSAGE, 0, 0);
-            }
-            0
-        }
-        WM_COMMAND => {
-            unsafe {
-                PostMessageW(host, UI_MESSAGE, wparam, lparam);
-            }
-            0
-        }
-        WM_CLOSE => {
-            unsafe {
-                PostMessageW(host, CLOSE_MESSAGE, 0, 0);
-            }
-            0
-        }
-        WM_DPICHANGED => {
-            let bounds = unsafe { &*(lparam as *const RECT) };
-            unsafe {
-                SetWindowPos(
-                    window,
-                    ptr::null_mut(),
-                    bounds.left,
-                    bounds.top,
-                    bounds.right - bounds.left,
-                    bounds.bottom - bounds.top,
-                    SWP_NOZORDER | SWP_NOACTIVATE,
-                );
-                PostMessageW(host, DPI_MESSAGE, 0, 0);
-            }
-            0
-        }
-        _ => unsafe { DefWindowProcW(window, message, wparam, lparam) },
-    }
-}
-
 fn scale(value: i32, dpi: u32) -> i32 {
     ((value as i64 * dpi as i64 + 48) / 96) as i32
-}
-fn set_text(control: HWND, value: &str) {
-    unsafe {
-        SetWindowTextW(control, wide(value).as_ptr());
-    }
-}
-fn text(control: HWND) -> Zeroizing<String> {
-    let size = unsafe { GetWindowTextLengthW(control) }.max(0) as usize;
-    let mut buffer = Zeroizing::new(vec![0u16; size + 1]);
-    let read = unsafe { GetWindowTextW(control, buffer.as_mut_ptr(), buffer.len() as i32) };
-    Zeroizing::new(String::from_utf16_lossy(&buffer[..read.max(0) as usize]))
 }
 pub fn show_error(message: &str) {
     show_window_error(ptr::null_mut(), message);

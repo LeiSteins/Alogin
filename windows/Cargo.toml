@@ -2,7 +2,7 @@
 name = "alogin-windows"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.92"
 license = "GPL-3.0"
 description = "Alogin Windows native campus network client"
 
@@ -12,6 +12,8 @@ encoding_rs = "0.8"
 regex = { version = "1", default-features = false, features = ["std", "unicode-case", "unicode-perl"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+slint = { version = "=1.18.1", default-features = false, features = ["std", "backend-winit", "renderer-software", "accessibility", "raw-window-handle-06", "compat-1-18", "unstable-winit-030"] }
+raw-window-handle = "0.6"
 zeroize = "1"
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Graphics_Dwm", "Win32_NetworkManagement_IpHelper",
@@ -20,12 +22,18 @@ windows-sys = { version = "0.61", features = [
     "Win32_Security", "Win32_Security_Cryptography", "Win32_Storage_FileSystem",
     "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Threading", "Win32_System_Registry",
     "Win32_UI_Accessibility",
-    "Win32_UI_Controls", "Win32_UI_HiDpi", "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Controls", "Win32_UI_HiDpi",
     "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging",
 ] }
 
 [build-dependencies]
 embed-resource = "3"
+slint-build = "=1.18.1"
+
+[dev-dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Storage_Xps"] }
+i-slint-backend-testing = { version = "=1.18.1", features = ["renderer-software"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 [profile.release]
 opt-level = "s"

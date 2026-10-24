@@ -1,0 +1,111 @@
+import { Button, ProgressBar } from "widgets.slint";
+import { AppTheme } from "theme.slint";
+
+export component AccountCard inherits Rectangle {
+    in property <string> title;
+    in property <string> username-label;
+    in property <string> balance-label;
+    in property <string> progress-label;
+    in property <string> retry-label;
+    in property <string> username;
+    in property <string> balance;
+    in property <bool> has-overview;
+    in property <bool> usage-known;
+    in property <float> usage;
+    in property <string> used-percent;
+    in property <string> used;
+    in property <string> remaining;
+    in property <string> error;
+    in property <bool> enabled;
+    callback retry();
+    height: content-layout.min-height;
+    background: AppTheme.surface;
+    border-radius: 12px;
+    border-width: 1px;
+    border-color: AppTheme.border;
+    content-layout := VerticalLayout {
+        padding: 16px;
+        spacing: 0px;
+        Text {
+            text: root.title;
+            color: AppTheme.accent;
+            font-weight: 700;
+            vertical-stretch: 0;
+        }
+        if root.username != "": HorizontalLayout {
+            padding-top: 12px;
+            spacing: 16px;
+            VerticalLayout {
+                min-width: 0px;
+                preferred-width: 0px;
+                horizontal-stretch: 1;
+                spacing: 4px;
+                Text {
+                    text: root.username-label;
+                    color: AppTheme.muted;
+                    font-size: 14px;
+                }
+                Text {
+                    text: root.username;
+                    color: AppTheme.text;
+                    font-size: 18px;
+                    font-weight: 700;
+                    wrap: word-wrap;
+                    height: self.preferred-height;
+                }
+            }
+            if root.balance != "": VerticalLayout {
+                spacing: 4px;
+                horizontal-stretch: 0;
+                Text {
+                    text: root.balance-label;
+                    color: AppTheme.muted;
+                    font-size: 14px;
+                    horizontal-alignment: right;
+                }
+                Text {
+                    text: root.balance;
+                    color: AppTheme.text;
+                    font-size: 18px;
+                    font-weight: 700;
+                    horizontal-alignment: right;
+                }
+            }
+        }
+        if root.has-overview: VerticalLayout {
+            padding-top: 12px;
+            spacing: 8px;
+            Text { text: root.used-percent; color: AppTheme.muted; }
+            ProgressBar { progress: root.usage; known: root.usage-known; label: root.progress-label; }
+            HorizontalLayout {
+                spacing: 8px;
+                Text {
+                    text: root.used;
+                    color: AppTheme.muted;
+                    font-size: 12px;
+                    min-width: 0px;
+                    horizontal-stretch: 1;
+                    overflow: elide;
+                }
+                Text {
+                    text: root.remaining;
+                    color: AppTheme.muted;
+                    font-size: 12px;
+                    min-width: 0px;
+                    horizontal-stretch: 1;
+                    horizontal-alignment: right;
+                    overflow: elide;
+                }
+            }
+        }
+        if root.error != "": VerticalLayout {
+            padding-top: 12px;
+            spacing: 8px;
+            Text { text: root.error; color: AppTheme.error; wrap: word-wrap; height: self.preferred-height; }
+            HorizontalLayout {
+                Button { text: root.retry-label; enabled: root.enabled; clicked => { root.retry(); } }
+                Rectangle { horizontal-stretch: 1; }
+            }
+        }
+    }
+}

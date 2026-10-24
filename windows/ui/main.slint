@@ -1,0 +1,271 @@
+import { Button, CheckBox, ComboBox, LineEdit, TextEdit, NavigationItem } from "widgets.slint";
+import { ScrollView } from "std-widgets.slint";
+import { AccountCard } from "account-card.slint";
+import { AppTheme } from "theme.slint";
+export { AppTheme }
+
+export global Labels {
+    in property <string> app;
+    in property <string> home;
+    in property <string> accounts-page;
+    in property <string> network-page;
+    in property <string> toggle-navigation;
+    in property <string> network-title;
+    in property <string> account-title;
+    in property <string> account-username;
+    in property <string> remaining-money;
+    in property <string> retry-fetch;
+    in property <string> traffic-progress;
+    in property <string> accounts;
+    in property <string> username;
+    in property <string> password;
+    in property <string> save;
+    in property <string> delete;
+    in property <string> targets;
+    in property <string> auto;
+    in property <string> save-settings;
+}
+
+component Card inherits Rectangle {
+    in property <string> title;
+    in property <string> body;
+    background: AppTheme.surface;
+    border-radius: 12px;
+    border-width: 1px;
+    border-color: AppTheme.border;
+    VerticalLayout {
+        padding: 20px;
+        spacing: 12px;
+        Text {
+            text: root.title;
+            color: AppTheme.text;
+            font-weight: 600;
+            wrap: word-wrap;
+        }
+        Text {
+            text: root.body;
+            color: AppTheme.text;
+            wrap: word-wrap;
+            vertical-stretch: 1;
+        }
+
+    }
+}
+
+export component MainWindow inherits Window {
+    title: Labels.app;
+    preferred-width: 860px;
+    preferred-height: 560px;
+    min-width: 660px;
+    min-height: 386px;
+    background: AppTheme.chrome;
+    default-font-family: "Microsoft YaHei UI";
+    default-font-size: 14px;
+    in property <bool> ready;
+    in property <bool> show-account;
+    in property <string> network-status;
+    in property <string> account-name;
+    in property <string> account-balance;
+    in property <string> account-error;
+    in property <bool> has-overview;
+    in property <bool> show-traffic;
+    in property <float> traffic-progress;
+    in property <string> traffic-used-percent;
+    in property <string> traffic-used;
+    in property <string> traffic-remaining;
+    in property <string> action-label;
+    in property <[string]> accounts;
+    in-out property <int> account-index: -1;
+    in-out property <string> username;
+    in-out property <string> password;
+    in-out property <string> targets;
+    in-out property <bool> auto-login;
+    private property <length> home-card-height: root.show-account
+        ? max(156px, account-card-view.height) : 156px;
+    private property <int> page;
+    private property <bool> compact-navigation;
+    callback home-action();
+    callback save-account();
+    callback delete-account();
+    callback select-account();
+    callback save-settings();
+
+    HorizontalLayout {
+        spacing: 0px;
+        Rectangle {
+            width: root.compact-navigation ? 64px : 200px;
+            background: AppTheme.chrome;
+            VerticalLayout {
+                padding-top: 12px;
+                padding-left: 6px;
+                padding-right: 6px;
+                padding-bottom: 12px;
+                spacing: 6px;
+                NavigationItem {
+                    text: Labels.toggle-navigation;
+                    checkable: false;
+                    compact: true;
+                    width: 52px;
+                    icon: "M 1 3 L 19 3 M 1 10 L 19 10 M 1 17 L 19 17";
+                    clicked => { root.compact-navigation = !root.compact-navigation; }
+                }
+                NavigationItem {
+                    text: Labels.home;
+                    icon: "M 1 9 L 10 1 L 19 9 L 19 19 L 13 19 L 13 12 L 7 12 L 7 19 L 1 19 Z";
+                    selected: root.page == 0;
+                    compact: root.compact-navigation;
+                    clicked => { root.page = 0; }
+                }
+                NavigationItem {
+                    text: Labels.accounts-page;
+                    icon: "M 14 5 A 4 4 0 1 1 6 5 A 4 4 0 1 1 14 5 M 1 19 L 1 16 C 1 10 19 10 19 16 L 19 19 Z";
+                    selected: root.page == 1;
+                    compact: root.compact-navigation;
+                    clicked => { root.page = 1; }
+                }
+                NavigationItem {
+                    text: Labels.network-page;
+                    icon: "M 1 5 Q 10 -3 19 5 M 4 10 Q 10 4 16 10 M 7 14 Q 10 11 13 14 M 11 18 A 1 1 0 1 1 9 18 A 1 1 0 1 1 11 18";
+                    selected: root.page == 2;
+                    compact: root.compact-navigation;
+                    clicked => { root.page = 2; }
+                }
+                Rectangle { vertical-stretch: 1; }
+            }
+        }
+        // Keep each page instantiated: switching pages preserves form drafts.
+        Rectangle {
+            horizontal-stretch: 1;
+            background: AppTheme.background;
+            border-top-left-radius: 12px;
+            Rectangle {
+                x: 24px;
+                y: 24px;
+                width: parent.width - 48px;
+                height: parent.height - 48px;
+                VerticalLayout {
+                    visible: root.page == 0;
+                    spacing: 20px;
+                    ScrollView {
+                        vertical-stretch: 1;
+                        content-width: self.visible-width;
+                        content-height: max(self.visible-height, root.home-card-height);
+                        Rectangle {
+                            x: 0px;
+                            y: 0px;
+                            width: parent.visible-width;
+                            height: root.home-card-height;
+                            Card {
+                                title: Labels.network-title;
+                                body: root.network-status;
+                                x: 0px;
+                                y: 0px;
+                                width: root.show-account ? (parent.width - 20px) / 2 : parent.width;
+                                height: parent.height;
+                            }
+                            account-card-view := AccountCard {
+                                visible: root.show-account;
+                                title: Labels.account-title;
+                                username-label: Labels.account-username;
+                                balance-label: Labels.remaining-money;
+                                progress-label: Labels.traffic-progress;
+                                retry-label: Labels.retry-fetch;
+                                username: root.account-name;
+                                balance: root.account-balance;
+                                error: root.account-error;
+                                has-overview: root.has-overview;
+                                usage-known: root.show-traffic;
+                                usage: root.traffic-progress;
+                                used-percent: root.traffic-used-percent;
+                                used: root.traffic-used;
+                                remaining: root.traffic-remaining;
+                                enabled: root.ready;
+                                x: (parent.width + 20px) / 2;
+                                y: 0px;
+                                width: (parent.width - 20px) / 2;
+                                retry => { root.home-action(); }
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        Rectangle { horizontal-stretch: 1; }
+                        Button {
+                            text: root.action-label;
+                            width: 148px;
+                            height: 36px;
+                            enabled: root.ready;
+                            primary: true;
+                            clicked => { root.home-action(); }
+                        }
+                    }
+                }
+                VerticalLayout {
+                    visible: root.page == 1;
+                    spacing: 12px;
+                    Text { text: Labels.accounts; color: AppTheme.text; }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        ComboBox {
+                            label: Labels.accounts;
+                            model: root.accounts;
+                            current-index <=> root.account-index;
+                            enabled: root.ready && root.accounts.length > 0;
+                            horizontal-stretch: 1;
+                            selected => { root.select-account(); }
+                        }
+                        Button {
+                            text: Labels.delete;
+                            enabled: root.ready && root.account-index >= 0;
+                            clicked => { root.delete-account(); }
+                        }
+                    }
+                    Text { text: Labels.username; color: AppTheme.text; }
+                    LineEdit { label: Labels.username; text <=> root.username; enabled: root.ready; }
+                    Text { text: Labels.password; color: AppTheme.text; }
+                    LineEdit {
+                        label: Labels.password;
+                        text <=> root.password;
+                        input-type: InputType.password;
+                        enabled: root.ready;
+                        accepted => { root.save-account(); }
+                    }
+                    HorizontalLayout {
+                        Button {
+                            text: Labels.save;
+                            enabled: root.ready;
+                            primary: true;
+                            clicked => { root.save-account(); }
+                        }
+                        Rectangle { horizontal-stretch: 1; }
+                    }
+                    Rectangle { vertical-stretch: 1; }
+                }
+                VerticalLayout {
+                    visible: root.page == 2;
+                    spacing: 12px;
+                    Text { text: Labels.targets; color: AppTheme.text; }
+                    TextEdit {
+                        label: Labels.targets;
+                        text <=> root.targets;
+                        enabled: root.ready;
+                        vertical-stretch: 1;
+                    }
+                    CheckBox {
+                        text: Labels.auto;
+                        checked <=> root.auto-login;
+                        enabled: root.ready;
+                    }
+                    HorizontalLayout {
+                        Button {
+                            text: Labels.save-settings;
+                            enabled: root.ready;
+                            primary: true;
+                            clicked => { root.save-settings(); }
+                        }
+                        Rectangle { horizontal-stretch: 1; }
+                    }
+                }
+            }
+        }
+    }
+}

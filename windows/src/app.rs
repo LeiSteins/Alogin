@@ -59,6 +59,21 @@ pub struct Worker {
     thread: Option<std::thread::JoinHandle<()>>,
 }
 impl Worker {
+    #[cfg(test)]
+    pub fn test_channel() -> (Self, Receiver<Command>, mpsc::Sender<View>) {
+        let (commands, receiver) = mpsc::sync_channel(8);
+        let (sender, results) = mpsc::channel();
+        (
+            Self {
+                commands,
+                results,
+                thread: None,
+            },
+            receiver,
+            sender,
+        )
+    }
+
     pub fn start(window: usize) -> Result<Self, String> {
         let (commands, receiver) = mpsc::sync_channel(8);
         let (sender, results) = mpsc::channel();

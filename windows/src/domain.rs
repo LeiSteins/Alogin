@@ -48,6 +48,21 @@ pub struct AccountOverview {
     pub money_yuan: Option<f64>,
 }
 
+impl AccountOverview {
+    pub fn traffic_usage_fraction(&self) -> Option<f32> {
+        let used = self.used_megabytes?;
+        let remaining = self.remaining_megabytes?;
+        let total = used + remaining;
+        (used.is_finite()
+            && remaining.is_finite()
+            && used >= 0.0
+            && remaining >= 0.0
+            && total.is_finite()
+            && total > 0.0)
+            .then(|| (used / total) as f32)
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum LoginResult {
     Success,
@@ -200,6 +215,33 @@ pub fn page_variable(page: &str, name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn traffic_usage_requires_known_nonnegative_values_and_a_positive_finite_total() {
+        let usage = |used, remaining| {
+            AccountOverview {
+                used_megabytes: used,
+                remaining_megabytes: remaining,
+                money_yuan: None,
+            }
+            .traffic_usage_fraction()
+        };
+        assert_eq!(usage(Some(3072.0), Some(1024.0)), Some(0.75));
+        assert_eq!(usage(Some(0.0), Some(1024.0)), Some(0.0));
+        assert_eq!(usage(Some(1024.0), Some(0.0)), Some(1.0));
+        for (used, remaining) in [
+            (None, Some(1024.0)),
+            (Some(1024.0), None),
+            (Some(0.0), Some(0.0)),
+            (Some(-1.0), Some(1024.0)),
+            (Some(1024.0), Some(-1.0)),
+            (Some(f64::NAN), Some(1024.0)),
+            (Some(1024.0), Some(f64::INFINITY)),
+            (Some(f64::MAX), Some(f64::MAX)),
+        ] {
+            assert_eq!(usage(used, remaining), None);
+        }
+    }
 
     #[test]
     fn home_action_requires_confirmed_offline_target_wifi_or_ethernet() {

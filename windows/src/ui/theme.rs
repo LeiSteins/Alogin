@@ -1,41 +1,29 @@
-//! Native theme painting. Theme state belongs to the visible HWND, never to the
-//! mutable application/session state, so synchronous paint messages can reenter.
+//! Event-driven Windows theme adaptation for Slint and the native tray menu.
+use super::{AppTheme, MainWindow};
 use crate::platform::wide;
+use slint::ComponentHandle;
 use std::{mem, ptr};
 use windows_sys::Win32::{
     Foundation::*,
     Graphics::{Dwm::*, Gdi::*},
     System::Registry::*,
-    UI::{
-        Accessibility::*,
-        Controls::*,
-        HiDpi::GetDpiForWindow,
-        Input::KeyboardAndMouse::{GetFocus, IsWindowEnabled},
-        Shell::*,
-        WindowsAndMessaging::*,
-    },
+    UI::{Accessibility::*, Controls::*, WindowsAndMessaging::*},
 };
-
-pub const CARD: &str = "Alogin.Card";
-pub const CARD_TEXT: &str = "Alogin.CardText";
-const CARD_KIND: usize = 3;
-const CARD_TEXT_KIND: usize = 4;
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Palette {
     dark: bool,
     high_contrast: bool,
     background: COLORREF,
+    chrome: COLORREF,
     surface: COLORREF,
     card: COLORREF,
-    card_text: COLORREF,
     text: COLORREF,
     disabled: COLORREF,
     border: COLORREF,
     button: COLORREF,
     button_text: COLORREF,
     hover: COLORREF,
-    pressed: COLORREF,
+    navigation_selected: COLORREF,
     accent: COLORREF,
     accent_text: COLORREF,
 }
@@ -84,20 +72,24 @@ impl Palette {
                     dark: false,
                     high_contrast,
                     background: GetSysColor(COLOR_WINDOW),
+                    chrome: if high_contrast {
+                        GetSysColor(COLOR_WINDOW)
+                    } else {
+                        rgb(243, 243, 243)
+                    },
                     surface: GetSysColor(COLOR_WINDOW),
                     card: if high_contrast {
                         GetSysColor(COLOR_BTNFACE)
                     } else {
-                        rgb(245, 246, 248)
-                    },
-                    card_text: if high_contrast {
-                        GetSysColor(COLOR_BTNTEXT)
-                    } else {
-                        GetSysColor(COLOR_WINDOWTEXT)
+                        rgb(255, 255, 255)
                     },
                     text: GetSysColor(COLOR_WINDOWTEXT),
                     disabled: GetSysColor(COLOR_GRAYTEXT),
-                    border: GetSysColor(COLOR_WINDOWFRAME),
+                    border: if high_contrast {
+                        GetSysColor(COLOR_WINDOWFRAME)
+                    } else {
+                        rgb(225, 225, 225)
+                    },
                     button: GetSysColor(COLOR_BTNFACE),
                     button_text: GetSysColor(COLOR_BTNTEXT),
                     hover: if high_contrast {
@@ -105,10 +97,10 @@ impl Palette {
                     } else {
                         rgb(226, 230, 236)
                     },
-                    pressed: if high_contrast {
-                        GetSysColor(COLOR_HIGHLIGHT)
+                    navigation_selected: if high_contrast {
+                        GetSysColor(COLOR_WINDOW)
                     } else {
-                        rgb(213, 219, 227)
+                        rgb(230, 230, 230)
                     },
                     accent: GetSysColor(COLOR_HIGHLIGHT),
                     accent_text: GetSysColor(COLOR_HIGHLIGHTTEXT),
@@ -120,18 +112,18 @@ impl Palette {
         Self {
             dark: true,
             high_contrast: false,
-            background: rgb(32, 32, 32),
-            surface: rgb(43, 43, 43),
-            card: rgb(43, 43, 43),
-            card_text: rgb(245, 245, 245),
+            background: rgb(30, 30, 30),
+            chrome: rgb(45, 45, 48),
+            surface: rgb(37, 37, 38),
+            card: rgb(45, 45, 48),
             text: rgb(245, 245, 245),
-            disabled: rgb(160, 160, 160),
-            border: rgb(115, 115, 115),
+            disabled: rgb(190, 190, 190),
+            border: rgb(62, 62, 66),
             button: rgb(52, 52, 52),
             button_text: rgb(245, 245, 245),
-            hover: rgb(68, 68, 68),
-            pressed: rgb(42, 42, 42),
-            accent: rgb(134, 185, 255),
+            hover: rgb(58, 58, 62),
+            navigation_selected: rgb(55, 55, 61),
+            accent: rgb(96, 181, 255),
             accent_text: rgb(32, 32, 32),
         }
     }
@@ -140,16 +132,12 @@ impl Palette {
 struct Theme {
     palette: Palette,
     background: HBRUSH,
-    surface: HBRUSH,
-    card: HBRUSH,
 }
 impl Theme {
     fn new(palette: Palette) -> Self {
         Self {
             palette,
             background: unsafe { CreateSolidBrush(palette.background) },
-            surface: unsafe { CreateSolidBrush(palette.surface) },
-            card: unsafe { CreateSolidBrush(palette.card) },
         }
     }
 }
@@ -157,541 +145,110 @@ impl Drop for Theme {
     fn drop(&mut self) {
         unsafe {
             DeleteObject(self.background);
-            DeleteObject(self.surface);
-            DeleteObject(self.card);
         }
     }
 }
 
-pub struct WindowState {
-    pub host: HWND,
-    theme: Theme,
+pub fn refresh(window: &MainWindow) {
+    apply(window, Palette::system());
 }
-
-pub fn attach(window: HWND, host: HWND) {
-    let state = Box::new(WindowState {
-        host,
-        theme: Theme::new(Palette::system()),
-    });
-    unsafe {
-        SetWindowLongPtrW(window, GWLP_USERDATA, Box::into_raw(state) as isize);
-    }
-}
-fn state(window: HWND) -> *mut WindowState {
-    unsafe { GetWindowLongPtrW(window, GWLP_USERDATA) as *mut WindowState }
-}
-pub fn host(window: HWND) -> HWND {
-    let state = state(window);
-    if state.is_null() {
-        ptr::null_mut()
+fn apply(window: &MainWindow, p: Palette) {
+    let theme = window.global::<AppTheme>();
+    theme.set_dark(p.dark);
+    theme.set_high_contrast(p.high_contrast);
+    theme.set_background(color(p.background));
+    theme.set_chrome(color(p.chrome));
+    theme.set_surface(color(p.card));
+    theme.set_input(color(p.surface));
+    theme.set_button(color(p.button));
+    theme.set_button_text(color(p.button_text));
+    theme.set_hover(color(p.hover));
+    theme.set_navigation_selected(color(p.navigation_selected));
+    theme.set_pressed(color(if p.dark { rgb(42, 42, 42) } else { p.hover }));
+    theme.set_text(color(p.text));
+    theme.set_muted(color(p.disabled));
+    theme.set_error(color(if p.high_contrast {
+        p.text
+    } else if p.dark {
+        rgb(244, 135, 130)
     } else {
-        unsafe { (*state).host }
-    }
+        rgb(196, 43, 28)
+    }));
+    theme.set_border(color(p.border));
+    theme.set_accent(color(p.accent));
+    theme.set_accent_text(color(p.accent_text));
 }
-pub fn detach(window: HWND) {
-    let state = state(window);
-    unsafe {
-        SetWindowLongPtrW(window, GWLP_USERDATA, 0);
+#[cfg(test)]
+pub fn preview(window: &MainWindow, dark: bool, high_contrast: bool) {
+    let mut p = Palette::dark();
+    if !dark {
+        p.background = rgb(255, 255, 255);
+        p.chrome = rgb(243, 243, 243);
+        p.surface = rgb(255, 255, 255);
+        p.card = rgb(255, 255, 255);
+        p.border = rgb(225, 225, 225);
+        p.text = rgb(20, 20, 20);
+        p.disabled = rgb(102, 102, 102);
+        p.button = rgb(235, 237, 240);
+        p.button_text = p.text;
+        p.accent = rgb(0, 95, 184);
+        p.accent_text = rgb(255, 255, 255);
+        p.hover = rgb(226, 230, 236);
+        p.navigation_selected = rgb(230, 230, 230);
     }
-    if !state.is_null() {
-        unsafe {
-            drop(Box::from_raw(state));
-        }
+    if high_contrast {
+        p.background = rgb(0, 0, 0);
+        p.chrome = p.background;
+        p.surface = p.background;
+        p.card = p.background;
+        p.button = p.background;
+        p.text = rgb(255, 255, 255);
+        p.disabled = p.text;
+        p.button_text = p.text;
+        p.border = p.text;
+        p.accent = rgb(255, 255, 0);
+        p.accent_text = p.background;
+        p.hover = rgb(0, 64, 64);
+        p.navigation_selected = p.background;
     }
+    p.dark = dark;
+    p.high_contrast = high_contrast;
+    apply(window, p);
 }
-
-pub fn refresh(window: HWND) {
-    let state = state(window);
-    if state.is_null() {
-        return;
-    }
-    let palette = Palette::system();
+fn color(value: COLORREF) -> slint::Color {
+    slint::Color::from_rgb_u8(value as u8, (value >> 8) as u8, (value >> 16) as u8)
+}
+pub fn title_bar(window: HWND, component: &MainWindow) {
+    let theme = component.global::<AppTheme>();
+    let dark = i32::from(theme.get_dark());
+    // Reset explicit colors when entering high contrast so Windows owns the
+    // non-client palette again. Older Windows versions ignore these attributes.
+    let caption = if theme.get_high_contrast() {
+        DWMWA_COLOR_DEFAULT
+    } else {
+        let value = theme.get_chrome();
+        rgb(value.red(), value.green(), value.blue())
+    };
+    let text = if theme.get_high_contrast() {
+        DWMWA_COLOR_DEFAULT
+    } else {
+        let value = theme.get_text();
+        rgb(value.red(), value.green(), value.blue())
+    };
     unsafe {
-        if (*state).theme.palette != palette {
-            (*state).theme = Theme::new(palette);
-        }
-        let dark = palette.dark as i32;
         DwmSetWindowAttribute(
             window,
             DWMWA_USE_IMMERSIVE_DARK_MODE as u32,
             (&dark as *const i32).cast(),
             mem::size_of_val(&dark) as u32,
         );
-        EnumChildWindows(window, Some(refresh_child), 0);
-        RedrawWindow(
-            window,
-            ptr::null(),
-            ptr::null_mut(),
-            RDW_INVALIDATE | RDW_ERASE | RDW_FRAME | RDW_ALLCHILDREN,
-        );
-    }
-}
-
-unsafe extern "system" fn refresh_child(window: HWND, _: LPARAM) -> i32 {
-    apply_native_theme(window);
-    1
-}
-
-pub fn install_control(window: HWND, parent: HWND, class: &str) -> Result<(), String> {
-    let kind = match class {
-        "BUTTON" => 1,
-        "COMBOBOX" => 2,
-        CARD => CARD_KIND,
-        CARD_TEXT => CARD_TEXT_KIND,
-        _ => 0,
-    };
-    if kind != 0
-        && unsafe { SetWindowSubclass(window, Some(control_proc), kind, state(parent) as usize) }
-            == 0
-    {
-        return Err(crate::strings::CONTROL_FAILED.into());
-    }
-    apply_native_theme(window);
-    Ok(())
-}
-
-fn apply_native_theme(window: HWND) {
-    let parent = unsafe { GetParent(window) };
-    let state = state(parent);
-    if state.is_null() {
-        return;
-    }
-    let palette = unsafe { (*state).theme.palette };
-    // An optional system theme class improves native edit/list scrollbar borders.
-    // Older Windows versions can reject it; client-area colors are painted below.
-    let class = wide("DarkMode_Explorer");
-    let name = if palette.dark {
-        class.as_ptr()
-    } else {
-        ptr::null()
-    };
-    unsafe {
-        SetWindowTheme(window, name, ptr::null());
-    }
-    let mut combo = COMBOBOXINFO {
-        cbSize: mem::size_of::<COMBOBOXINFO>() as u32,
-        ..Default::default()
-    };
-    if unsafe { GetComboBoxInfo(window, &mut combo) } != 0 && !combo.hwndList.is_null() {
-        unsafe {
-            SetWindowTheme(combo.hwndList, name, ptr::null());
-        }
-    }
-}
-
-pub fn message(window: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> Option<LRESULT> {
-    let state = state(window);
-    if state.is_null() {
-        return None;
-    }
-    let theme = unsafe { &(*state).theme };
-    match message {
-        WM_ERASEBKGND => {
-            let mut rect = RECT::default();
-            unsafe {
-                GetClientRect(window, &mut rect);
-                FillRect(wparam as HDC, &rect, theme.background);
-            }
-            Some(1)
-        }
-        WM_CTLCOLORSTATIC | WM_CTLCOLOREDIT | WM_CTLCOLORLISTBOX | WM_CTLCOLORBTN => {
-            let dc = wparam as HDC;
-            let child = lparam as HWND;
-            let mut data = 0;
-            let card_text =
-                unsafe { GetWindowSubclass(child, Some(control_proc), CARD_TEXT_KIND, &mut data) }
-                    != 0;
-            if card_text {
-                unsafe {
-                    SetTextColor(dc, theme.palette.card_text);
-                    SetBkColor(dc, theme.palette.card);
-                }
-                return Some(theme.card as isize);
-            }
-            if theme.palette.high_contrast {
-                return None;
-            }
-            // Disabled edits send WM_CTLCOLORSTATIC; preserve their input surface.
-            let mut class = [0u16; 32];
-            let len = unsafe { GetClassNameW(child, class.as_mut_ptr(), class.len() as i32) };
-            let input = message == WM_CTLCOLOREDIT
-                || message == WM_CTLCOLORLISTBOX
-                || String::from_utf16_lossy(&class[..len.max(0) as usize]) == "Edit";
-            unsafe {
-                SetTextColor(
-                    dc,
-                    if IsWindowEnabled(child) != 0 {
-                        theme.palette.text
-                    } else {
-                        theme.palette.disabled
-                    },
-                );
-                SetBkColor(
-                    dc,
-                    if input {
-                        theme.palette.surface
-                    } else {
-                        theme.palette.background
-                    },
-                );
-            }
-            Some(if input {
-                theme.surface
-            } else {
-                theme.background
-            } as isize)
-        }
-        _ => None,
-    }
-}
-
-unsafe extern "system" fn control_proc(
-    window: HWND,
-    message: u32,
-    wparam: WPARAM,
-    lparam: LPARAM,
-    kind: usize,
-    data: usize,
-) -> LRESULT {
-    if message == WM_NCDESTROY {
-        unsafe {
-            RemoveWindowSubclass(window, Some(control_proc), kind);
-        }
-        return unsafe { DefSubclassProc(window, message, wparam, lparam) };
-    }
-    let state = data as *const WindowState;
-    let style = unsafe { GetWindowLongPtrW(window, GWL_STYLE) } as u32;
-    let button_type = style & BS_TYPEMASK as u32;
-    let rounded_button = kind == 1
-        && (button_type == BS_PUSHBUTTON as u32
-            || button_type == BS_DEFPUSHBUTTON as u32
-            || style & BS_PUSHLIKE as u32 != 0);
-    if !state.is_null()
-        && (rounded_button || kind == CARD_KIND || unsafe { (*state).theme.palette.dark })
-        && kind != CARD_TEXT_KIND
-    {
-        match message {
-            WM_PAINT => {
-                let mut paint = PAINTSTRUCT::default();
-                let dc = unsafe { BeginPaint(window, &mut paint) };
-                draw_control(window, dc, kind, unsafe { (*state).theme.palette });
-                unsafe {
-                    EndPaint(window, &paint);
-                }
-                return 0;
-            }
-            WM_PRINTCLIENT => {
-                draw_control(window, wparam as HDC, kind, unsafe {
-                    (*state).theme.palette
-                });
-                return 0;
-            }
-            WM_ERASEBKGND => return 1,
-            WM_SETFOCUS | WM_KILLFOCUS | WM_ENABLE | WM_UPDATEUISTATE | BM_SETCHECK
-            | BM_SETSTATE | WM_MOUSEMOVE | WM_MOUSELEAVE => {
-                // Let the native button update its input/accessibility state first.
-                let result = unsafe { DefSubclassProc(window, message, wparam, lparam) };
-                unsafe {
-                    InvalidateRect(window, ptr::null(), 0);
-                }
-                return result;
-            }
-            _ => (),
-        }
-    }
-    unsafe { DefSubclassProc(window, message, wparam, lparam) }
-}
-
-fn draw_control(window: HWND, dc: HDC, kind: usize, palette: Palette) {
-    let saved = unsafe { SaveDC(dc) };
-    let font = unsafe { SendMessageW(window, WM_GETFONT, 0, 0) };
-    if font != 0 {
-        unsafe {
-            SelectObject(dc, font as HGDIOBJ);
-        }
-    }
-    let mut rect = RECT::default();
-    unsafe {
-        GetClientRect(window, &mut rect);
-        SetBkMode(dc, TRANSPARENT as i32);
-    }
-    let enabled = unsafe { IsWindowEnabled(window) } != 0;
-    let color = if enabled {
-        palette.text
-    } else {
-        palette.disabled
-    };
-    unsafe {
-        SetTextColor(dc, color);
-    }
-    let len = unsafe { GetWindowTextLengthW(window) }.max(0) as usize;
-    let mut label = vec![0u16; len + 1];
-    let count = unsafe { GetWindowTextW(window, label.as_mut_ptr(), label.len() as i32) };
-    let dpi = unsafe { GetDpiForWindow(window) }.max(96);
-    let unit = |n| super::scale(n, dpi);
-    if kind == CARD_KIND {
-        fill(dc, &rect, palette.background);
-        if palette.high_contrast {
-            rounded_fill(dc, &rect, palette.border, unit(12));
-            let mut interior = rect;
-            unsafe {
-                InflateRect(&mut interior, -unit(1).max(1), -unit(1).max(1));
-            }
-            rounded_fill(dc, &interior, palette.card, unit(11));
-        } else {
-            rounded_fill(dc, &rect, palette.card, unit(12));
-        }
-        let mut caption = RECT {
-            left: unit(20),
-            top: unit(18),
-            right: rect.right - unit(20),
-            bottom: unit(42),
-        };
-        let mut title_font = ptr::null_mut();
-        let mut old_font = ptr::null_mut();
-        let mut description = LOGFONTW::default();
-        if unsafe {
-            GetObjectW(
-                GetCurrentObject(dc, OBJ_FONT as u32),
-                mem::size_of::<LOGFONTW>() as i32,
-                (&mut description as *mut LOGFONTW).cast(),
-            )
-        } != 0
-        {
-            description.lfWeight = FW_SEMIBOLD as i32;
-            title_font = unsafe { CreateFontIndirectW(&description) };
-            if !title_font.is_null() {
-                old_font = unsafe { SelectObject(dc, title_font) };
-            }
-        }
-        unsafe {
-            SetTextColor(dc, palette.card_text);
-            DrawTextW(
-                dc,
-                label.as_ptr(),
-                count,
-                &mut caption,
-                DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS,
+        for (attribute, value) in [(DWMWA_CAPTION_COLOR, caption), (DWMWA_TEXT_COLOR, text)] {
+            DwmSetWindowAttribute(
+                window,
+                attribute as u32,
+                (&value as *const COLORREF).cast(),
+                mem::size_of_val(&value) as u32,
             );
-            if !title_font.is_null() {
-                SelectObject(dc, old_font);
-                DeleteObject(title_font);
-            }
-        }
-    } else if kind == 2 {
-        fill(dc, &rect, palette.surface);
-        border(
-            dc,
-            &rect,
-            if unsafe { GetFocus() } == window {
-                palette.accent
-            } else {
-                palette.border
-            },
-        );
-        let mut text_rect = RECT {
-            left: unit(8),
-            right: rect.right - unit(28),
-            ..rect
-        };
-        unsafe {
-            DrawTextW(
-                dc,
-                label.as_ptr(),
-                count,
-                &mut text_rect,
-                DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS,
-            );
-        }
-        let center_x = rect.right - unit(14);
-        let center_y = rect.bottom / 2;
-        line(
-            dc,
-            &[
-                POINT {
-                    x: center_x - unit(4),
-                    y: center_y - unit(2),
-                },
-                POINT {
-                    x: center_x,
-                    y: center_y + unit(2),
-                },
-                POINT {
-                    x: center_x + unit(4),
-                    y: center_y - unit(2),
-                },
-            ],
-            color,
-            unit(1).max(1),
-        );
-    } else {
-        let style = unsafe { GetWindowLongPtrW(window, GWL_STYLE) } as u32 & BS_TYPEMASK as u32;
-        let button_state = unsafe { SendMessageW(window, BM_GETSTATE, 0, 0) } as u32;
-        if style == BS_GROUPBOX as u32 {
-            fill(dc, &rect, palette.background);
-            let mut outline = rect;
-            outline.top += unit(9);
-            border(dc, &outline, palette.border);
-            let mut size = SIZE::default();
-            unsafe {
-                GetTextExtentPoint32W(dc, label.as_ptr(), count, &mut size);
-            }
-            let mut caption = RECT {
-                left: unit(10),
-                top: 0,
-                right: unit(18) + size.cx,
-                bottom: unit(22),
-            };
-            fill(dc, &caption, palette.background);
-            caption.left += unit(4);
-            unsafe {
-                DrawTextW(
-                    dc,
-                    label.as_ptr(),
-                    count,
-                    &mut caption,
-                    DT_SINGLELINE | DT_VCENTER,
-                );
-            }
-        } else if style == BS_AUTOCHECKBOX as u32 {
-            fill(dc, &rect, palette.background);
-            let size = unit(16);
-            let top = (rect.bottom - size) / 2;
-            let square = RECT {
-                left: 0,
-                top,
-                right: size,
-                bottom: top + size,
-            };
-            let checked =
-                unsafe { SendMessageW(window, BM_GETCHECK, 0, 0) } == BST_CHECKED as isize;
-            fill(
-                dc,
-                &square,
-                if checked && enabled {
-                    palette.accent
-                } else {
-                    palette.surface
-                },
-            );
-            border(
-                dc,
-                &square,
-                if enabled {
-                    palette.border
-                } else {
-                    palette.disabled
-                },
-            );
-            if checked {
-                line(
-                    dc,
-                    &[
-                        POINT {
-                            x: unit(3),
-                            y: top + unit(8),
-                        },
-                        POINT {
-                            x: unit(7),
-                            y: top + unit(12),
-                        },
-                        POINT {
-                            x: unit(13),
-                            y: top + unit(4),
-                        },
-                    ],
-                    if enabled {
-                        palette.background
-                    } else {
-                        palette.disabled
-                    },
-                    unit(2).max(1),
-                );
-            }
-            let mut caption = RECT {
-                left: size + unit(8),
-                ..rect
-            };
-            unsafe {
-                DrawTextW(
-                    dc,
-                    label.as_ptr(),
-                    count,
-                    &mut caption,
-                    DT_SINGLELINE | DT_VCENTER,
-                );
-            }
-            focus(window, dc, &caption);
-        } else {
-            let navigation = style == BS_AUTORADIOBUTTON as u32;
-            let selected = navigation
-                && unsafe { SendMessageW(window, BM_GETCHECK, 0, 0) } == BST_CHECKED as isize;
-            let pressed = button_state & BST_PUSHED != 0;
-            let hot = button_state & BST_HOT != 0;
-            let keyboard_focus = unsafe { GetFocus() } == window
-                && unsafe { SendMessageW(window, WM_QUERYUISTATE, 0, 0) } & UISF_HIDEFOCUS as isize
-                    == 0;
-            let idle_background = if navigation {
-                palette.background
-            } else {
-                palette.button
-            };
-            let (background, foreground) = if !enabled {
-                (idle_background, palette.disabled)
-            } else if pressed || hot && !selected && !keyboard_focus {
-                (
-                    if pressed {
-                        palette.pressed
-                    } else {
-                        palette.hover
-                    },
-                    if palette.high_contrast {
-                        palette.accent_text
-                    } else {
-                        palette.button_text
-                    },
-                )
-            } else if selected || keyboard_focus {
-                (palette.accent, palette.accent_text)
-            } else {
-                (
-                    idle_background,
-                    if navigation {
-                        palette.text
-                    } else {
-                        palette.button_text
-                    },
-                )
-            };
-            // Clear the corners before painting a solid shape without an outline.
-            fill(dc, &rect, palette.background);
-            if background != palette.background {
-                rounded_fill(dc, &rect, background, unit(8));
-            }
-            let mut caption = rect;
-            unsafe {
-                SetTextColor(dc, foreground);
-                DrawTextW(
-                    dc,
-                    label.as_ptr(),
-                    count,
-                    &mut caption,
-                    DT_CENTER | DT_SINGLELINE | DT_VCENTER,
-                );
-            }
-        }
-    }
-    unsafe {
-        RestoreDC(dc, saved);
-    }
-}
-
-fn focus(window: HWND, dc: HDC, rect: &RECT) {
-    if unsafe { GetFocus() } == window
-        && unsafe { SendMessageW(window, WM_QUERYUISTATE, 0, 0) } & UISF_HIDEFOCUS as isize == 0
-    {
-        unsafe {
-            DrawFocusRect(dc, rect);
         }
     }
 }
@@ -702,42 +259,6 @@ fn fill(dc: HDC, rect: &RECT, color: COLORREF) {
         DeleteObject(brush);
     }
 }
-fn rounded_fill(dc: HDC, rect: &RECT, color: COLORREF, radius: i32) {
-    unsafe {
-        let brush = CreateSolidBrush(color);
-        let old_brush = SelectObject(dc, brush);
-        let old_pen = SelectObject(dc, GetStockObject(NULL_PEN));
-        RoundRect(
-            dc,
-            rect.left,
-            rect.top,
-            rect.right,
-            rect.bottom,
-            radius * 2,
-            radius * 2,
-        );
-        SelectObject(dc, old_pen);
-        SelectObject(dc, old_brush);
-        DeleteObject(brush);
-    }
-}
-fn border(dc: HDC, rect: &RECT, color: COLORREF) {
-    unsafe {
-        let brush = CreateSolidBrush(color);
-        FrameRect(dc, rect, brush);
-        DeleteObject(brush);
-    }
-}
-fn line(dc: HDC, points: &[POINT], color: COLORREF, width: i32) {
-    unsafe {
-        let pen = CreatePen(PS_SOLID, width, color);
-        let old = SelectObject(dc, pen);
-        Polyline(dc, points.as_ptr(), points.len() as i32);
-        SelectObject(dc, old);
-        DeleteObject(pen);
-    }
-}
-
 pub struct MenuTheme(Theme);
 impl MenuTheme {
     pub fn new(menu: HMENU) -> Self {

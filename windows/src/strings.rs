@@ -7,6 +7,7 @@ pub const EXIT: &str = "退出";
 pub const HOME_PAGE: &str = "主页";
 pub const ACCOUNTS_PAGE: &str = "账号管理";
 pub const NETWORK_PAGE: &str = "目标网络";
+pub const TOGGLE_NAVIGATION: &str = "展开或收起导航";
 pub const ACCOUNTS: &str = "已保存账号";
 pub const USERNAME: &str = "账号";
 pub const PASSWORD: &str = "密码（留空保留已保存密码）";
@@ -46,20 +47,22 @@ pub const HOST_FAILED: &str = "无法创建后台窗口。";
 pub const MESSAGE_LOOP_FAILED: &str = "Windows 消息循环失败。";
 pub const TRAY_FAILED: &str = "无法创建系统托盘图标。";
 pub const WINDOW_FAILED: &str = "无法创建主窗口。";
-pub const CONTROL_FAILED: &str = "无法创建界面控件。";
 pub const THREAD_FAILED: &str = "无法启动后台工作线程。";
 pub const THREAD_STOPPED: &str = "后台线程已停止，请重新启动应用。";
 pub const SSID_TOO_LONG: &str = "Wi-Fi 名称不能超过 32 字节。";
 pub const DISCONNECTED: &str = "未连接";
-pub const SSID_UNAVAILABLE: &str = "有线网络 / Wi-Fi 名称不可用";
+pub const ETHERNET: &str = "有线网络";
+pub const SSID_UNAVAILABLE: &str = "Wi-Fi 名称不可用";
 pub const APP_DATA_FAILED: &str = "无法找到 Windows 本地应用数据目录。";
 pub const READ_FAILED: &str = "无法读取本地配置，请检查文件权限。";
 pub const SUBSCRIBE_FAILED: &str = "无法订阅 Windows 网络变化通知。";
 pub const REQUEST_TIMEOUT: &str = "门户请求超时，请稍后重试。";
-pub const ACCOUNT_TITLE: &str = "当前在线账号";
+pub const ACCOUNT_TITLE: &str = "已登录";
+pub const ACCOUNT_USERNAME: &str = "用户名";
+pub const REMAINING_MONEY: &str = "剩余金额";
+pub const RETRY_FETCH: &str = "重试获取";
 pub const NETWORK_TITLE: &str = "网络状态";
-pub const ACCOUNT_OFFLINE: &str = "认证后显示当前账号、已用流量、剩余流量和余额。";
-pub const ACCOUNT_UNKNOWN: &str = "请刷新状态以读取当前在线账号信息。";
+pub const TRAFFIC_PROGRESS: &str = "流量使用情况";
 pub const ACCOUNT_FAILED: &str = "账号概览暂时无法读取，请稍后刷新。";
 pub const IDENTITY_FAILED: &str = "已认证，暂时无法确认在线账号，请稍后刷新。";
 pub const SSO_FAILED: &str = "自助服务会话建立失败，请稍后刷新。";
@@ -67,42 +70,68 @@ pub const SSO_URL_INVALID: &str = "自助服务返回了不受信任的跳转地
 pub const ACCOUNT_MISMATCH: &str = "自助服务返回的账号与当前在线账号不一致，请刷新。";
 pub const ACCOUNT_EXPIRED: &str = "自助服务会话已过期，请刷新。";
 
-pub fn account_info(info: &crate::domain::AccountInfo, online: crate::domain::Online) -> String {
-    use crate::domain::Online;
-    if online != Online::Yes {
-        return if online == Online::No {
-            ACCOUNT_OFFLINE
-        } else {
-            ACCOUNT_UNKNOWN
-        }
-        .into();
+#[derive(Default)]
+pub struct AccountCardText {
+    pub username: String,
+    pub balance: String,
+    pub used: String,
+    pub remaining: String,
+    pub used_percent: String,
+    pub progress: Option<f32>,
+    pub has_overview: bool,
+    pub error: String,
+}
+
+pub fn account_card(
+    info: &crate::domain::AccountInfo,
+    online: crate::domain::Online,
+) -> AccountCardText {
+    if online != crate::domain::Online::Yes {
+        return AccountCardText::default();
     }
     let Some(username) = &info.username else {
-        return info.error.as_deref().unwrap_or(IDENTITY_FAILED).into();
+        return AccountCardText {
+            error: info.error.as_deref().unwrap_or(IDENTITY_FAILED).into(),
+            ..AccountCardText::default()
+        };
     };
     let Some(overview) = &info.overview else {
-        return format!(
-            "在线账号：{username}\r\n{}",
-            info.error.as_deref().unwrap_or(ACCOUNT_FAILED)
-        );
+        return AccountCardText {
+            username: username.clone(),
+            error: info.error.as_deref().unwrap_or(ACCOUNT_FAILED).into(),
+            ..AccountCardText::default()
+        };
     };
-    format!(
-        "在线账号：{username}\r\n已用流量：{}\r\n剩余流量：{}\r\n账户余额：{}",
-        traffic(overview.used_megabytes),
-        traffic(overview.remaining_megabytes),
-        overview
+    let progress = overview.traffic_usage_fraction();
+    AccountCardText {
+        username: username.clone(),
+        balance: overview
             .money_yuan
-            .map(|value| format!("¥ {value:.2}"))
-            .unwrap_or_else(|| "—".into())
-    )
+            .filter(|value| value.is_finite())
+            .map(|value| format!("{value:.2} 元"))
+            .unwrap_or_default(),
+        used: format!("已用 {}", traffic(overview.used_megabytes)),
+        remaining: format!("剩余 {}", traffic(overview.remaining_megabytes)),
+        used_percent: progress
+            .map(traffic_used_percent)
+            .unwrap_or_else(|| "—".into()),
+        progress,
+        has_overview: true,
+        error: info.error.clone().unwrap_or_default(),
+    }
 }
 
 fn traffic(value: Option<f64>) -> String {
-    match value {
+    match value.filter(|value| value.is_finite() && *value >= 0.0) {
         Some(value) if value >= 1024.0 => format!("{:.1} GB", value / 1024.0),
         Some(value) => format!("{value:.1} MB"),
         None => "—".into(),
     }
+}
+
+fn traffic_used_percent(usage_fraction: f32) -> String {
+    // Match Android's integer percentage display.
+    format!("已用 {}%", (usage_fraction.clamp(0.0, 1.0) * 100.0) as u32)
 }
 
 pub fn network_status(ssid: &str, ipv4: &str, online: &str) -> String {
@@ -134,12 +163,15 @@ mod tests {
             }),
             error: None,
         };
-        let text = account_info(&info, Online::Yes);
-        assert!(text.contains("2.0 GB"));
-        assert!(text.contains("剩余流量：—"));
-        assert!(text.contains("¥ -2.50"));
-        assert!(!account_info(&info, Online::No).contains("student"));
-        assert!(!account_info(&info, Online::Unknown).contains("student"));
+        let text = account_card(&info, Online::Yes);
+        assert_eq!(text.username, "student");
+        assert_eq!(text.used, "已用 2.0 GB");
+        assert_eq!(text.remaining, "剩余 —");
+        assert_eq!(text.balance, "-2.50 元");
+        assert_eq!(text.used_percent, "—");
+        assert!(text.progress.is_none());
+        assert!(account_card(&info, Online::No).username.is_empty());
+        assert!(account_card(&info, Online::Unknown).username.is_empty());
     }
 
     #[test]
@@ -149,9 +181,10 @@ mod tests {
             overview: None,
             error: Some(ACCOUNT_EXPIRED.into()),
         };
-        let text = account_info(&info, Online::Yes);
-        assert!(text.contains("student"));
-        assert!(text.contains(ACCOUNT_EXPIRED));
-        assert!(!text.contains("0.0 MB"));
+        let text = account_card(&info, Online::Yes);
+        assert_eq!(text.username, "student");
+        assert_eq!(text.error, ACCOUNT_EXPIRED);
+        assert!(!text.has_overview);
+        assert!(text.used.is_empty());
     }
 }
