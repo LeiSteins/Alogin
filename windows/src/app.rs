@@ -152,7 +152,7 @@ impl Session {
                 } else {
                     Online::Unknown
                 };
-                match HomeAction::for_session(online) {
+                match HomeAction::for_session(online, &network, &self.settings.preferences) {
                     HomeAction::Login => self.login(Some(network), false),
                     HomeAction::Refresh => self.refresh(),
                 }
@@ -206,6 +206,7 @@ impl Session {
             self.account_info = AccountInfo::default();
         }
         self.network = network;
+        self.remember_detected_wifi()?;
         if !self.settings.preferences.allows_auto_login(&self.network) {
             return if changed {
                 self.refresh()
@@ -297,6 +298,7 @@ impl Session {
         self.network = snapshot();
         self.online = Online::Unknown;
         self.account_info = AccountInfo::default();
+        self.remember_detected_wifi()?;
         if usable_ipv4(&self.network.ipv4) {
             self.online = Campus::new()?.status(&self.network);
         }
@@ -312,6 +314,17 @@ impl Session {
             }
         }
         .into())
+    }
+
+    fn remember_detected_wifi(&mut self) -> Result<(), String> {
+        let mut preferences = self.settings.preferences.clone();
+        if preferences.add_detected_wifi(&self.network) {
+            self.update(|settings| {
+                settings.preferences = preferences;
+                Ok(())
+            })?;
+        }
+        Ok(())
     }
 
     fn load_account(&mut self) -> Result<(), String> {
@@ -362,6 +375,16 @@ mod tests {
             account_info: AccountInfo::default(),
             last_auto: None,
         };
+        session.network = Network {
+            kind: NetworkKind::Wifi,
+            ssid: Some("bjut-sushe-101".into()),
+            ..Network::default()
+        };
+        session.remember_detected_wifi().unwrap();
+        assert_eq!(
+            Store::at(path.clone()).unwrap().1.preferences.target_ssids,
+            ["bjut_wifi", "bjut-sushe-101"]
+        );
         session
             .update(|settings| {
                 settings.preferences.auto_login = true;
@@ -370,6 +393,12 @@ mod tests {
             .unwrap();
         // A directory at the staging path forces a genuine filesystem write failure.
         fs::create_dir(path.with_extension("json.tmp")).unwrap();
+        session.network.ssid = Some("bjut-sushe-102".into());
+        assert!(session.remember_detected_wifi().is_err());
+        assert_eq!(
+            session.settings.preferences.target_ssids,
+            ["bjut_wifi", "bjut-sushe-101"]
+        );
         let result = session.handle(Command::SavePreferences(Preferences {
             auto_login: false,
             ..Preferences::default()
@@ -380,6 +409,10 @@ mod tests {
         assert!(view.preferences.auto_login);
         assert!(session.settings.preferences.auto_login);
         assert!(Store::at(path.clone()).unwrap().1.preferences.auto_login);
+        assert_eq!(
+            Store::at(path.clone()).unwrap().1.preferences.target_ssids,
+            ["bjut_wifi", "bjut-sushe-101"]
+        );
         fs::remove_dir(path.with_extension("json.tmp")).unwrap();
         fs::remove_file(path).unwrap();
         fs::remove_dir(root).unwrap();

@@ -22,11 +22,14 @@ pub enum HomeAction {
 }
 
 impl HomeAction {
-    pub fn for_session(online: Online) -> Self {
-        if online == Online::Yes {
-            Self::Refresh
-        } else {
+    pub fn for_session(online: Online, network: &Network, preferences: &Preferences) -> Self {
+        if online == Online::No
+            && usable_ipv4(&network.ipv4)
+            && (network.kind == NetworkKind::Ethernet || preferences.is_target_wifi(network))
+        {
             Self::Login
+        } else {
+            Self::Refresh
         }
     }
 }
@@ -58,23 +61,58 @@ pub struct Network {
     pub interface: u32,
     pub ipv4: String,
     pub ssid: Option<String>,
+    pub kind: NetworkKind,
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum NetworkKind {
+    #[default]
+    Unknown,
+    Wifi,
+    Ethernet,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Preferences {
     pub target_ssids: Vec<String>,
     pub auto_login: bool,
 }
 
+impl Default for Preferences {
+    fn default() -> Self {
+        Self {
+            target_ssids: vec!["bjut_wifi".into()],
+            auto_login: false,
+        }
+    }
+}
+
 impl Preferences {
-    pub fn allows_auto_login(&self, network: &Network) -> bool {
-        self.auto_login
-            && usable_ipv4(&network.ipv4)
+    pub fn is_target_wifi(&self, network: &Network) -> bool {
+        network.kind == NetworkKind::Wifi
             && network
                 .ssid
                 .as_ref()
                 .is_some_and(|ssid| self.target_ssids.contains(ssid))
+    }
+
+    pub fn add_detected_wifi(&mut self, network: &Network) -> bool {
+        let Some(ssid) = network.ssid.as_deref().map(str::trim) else {
+            return false;
+        };
+        if network.kind != NetworkKind::Wifi
+            || !ssid.starts_with("bjut-sushe-")
+            || self.target_ssids.iter().any(|target| target == ssid)
+        {
+            return false;
+        }
+        self.target_ssids.push(ssid.to_owned());
+        true
+    }
+
+    pub fn allows_auto_login(&self, network: &Network) -> bool {
+        self.auto_login && usable_ipv4(&network.ipv4) && self.is_target_wifi(network)
     }
 }
 
@@ -164,15 +202,103 @@ mod tests {
     use super::*;
 
     #[test]
-    fn home_action_allows_manual_login_when_offline_or_unknown() {
-        for online in [Online::No, Online::Unknown] {
-            assert_eq!(HomeAction::for_session(online), HomeAction::Login);
+    fn home_action_requires_confirmed_offline_target_wifi_or_ethernet() {
+        let preferences = Preferences::default();
+        for (kind, ssid, eligible) in [
+            (NetworkKind::Wifi, Some("bjut_wifi"), true),
+            (NetworkKind::Wifi, Some("other"), false),
+            (NetworkKind::Wifi, None, false),
+            (NetworkKind::Ethernet, None, true),
+            (NetworkKind::Unknown, None, false),
+        ] {
+            let network = Network {
+                interface: 1,
+                ipv4: "10.1.2.3".into(),
+                ssid: ssid.map(str::to_owned),
+                kind,
+            };
+            for online in [Online::Yes, Online::No, Online::Unknown] {
+                assert_eq!(
+                    HomeAction::for_session(online, &network, &preferences),
+                    if eligible && online == Online::No {
+                        HomeAction::Login
+                    } else {
+                        HomeAction::Refresh
+                    },
+                    "{kind:?} {ssid:?} {online:?}"
+                );
+            }
+            let disconnected = Network {
+                ipv4: String::new(),
+                ..network
+            };
+            assert_eq!(
+                HomeAction::for_session(Online::No, &disconnected, &preferences),
+                HomeAction::Refresh
+            );
         }
     }
 
     #[test]
-    fn home_action_refreshes_an_authenticated_session() {
-        assert_eq!(HomeAction::for_session(Online::Yes), HomeAction::Refresh);
+    fn home_action_uses_current_target_configuration_without_limiting_ethernet() {
+        let mut preferences = Preferences::default();
+        let mut network = Network {
+            ipv4: "10.1.2.3".into(),
+            ssid: Some("custom".into()),
+            kind: NetworkKind::Wifi,
+            ..Network::default()
+        };
+        preferences.target_ssids = vec!["custom".into()];
+        assert_eq!(
+            HomeAction::for_session(Online::No, &network, &preferences),
+            HomeAction::Login
+        );
+        preferences.target_ssids.clear();
+        assert_eq!(
+            HomeAction::for_session(Online::No, &network, &preferences),
+            HomeAction::Refresh
+        );
+        network.kind = NetworkKind::Ethernet;
+        network.ssid = None;
+        assert_eq!(
+            HomeAction::for_session(Online::No, &network, &preferences),
+            HomeAction::Login
+        );
+    }
+
+    #[test]
+    fn defaults_and_detected_dormitory_wifi_match_android() {
+        let mut preferences = Preferences::default();
+        assert_eq!(preferences.target_ssids, ["bjut_wifi"]);
+        assert!(!preferences.auto_login);
+        let mut network = Network {
+            ssid: Some("bjut-sushe-101".into()),
+            kind: NetworkKind::Wifi,
+            ipv4: "10.1.2.3".into(),
+            ..Network::default()
+        };
+        assert!(preferences.add_detected_wifi(&network));
+        assert!(!preferences.add_detected_wifi(&network));
+        assert_eq!(preferences.target_ssids, ["bjut_wifi", "bjut-sushe-101"]);
+        assert_eq!(
+            HomeAction::for_session(Online::No, &network, &preferences),
+            HomeAction::Login
+        );
+        assert!(!preferences.allows_auto_login(&network));
+        preferences.auto_login = true;
+        assert!(preferences.allows_auto_login(&network));
+        for ssid in [
+            None,
+            Some("sushe"),
+            Some("other-bjut-sushe-101"),
+            Some("BJUT-sushe-101"),
+        ] {
+            network.ssid = ssid.map(str::to_owned);
+            assert!(!preferences.add_detected_wifi(&network));
+        }
+        network.ssid = Some("bjut-sushe-102".into());
+        network.kind = NetworkKind::Unknown;
+        assert!(!preferences.add_detected_wifi(&network));
     }
 
     #[test]
@@ -216,6 +342,7 @@ mod tests {
             interface: 1,
             ipv4: "10.1.2.3".into(),
             ssid: Some("bjut".into()),
+            kind: NetworkKind::Wifi,
         };
         assert!(!settings.allows_auto_login(&network));
         settings.auto_login = true;
@@ -223,6 +350,8 @@ mod tests {
         network.ssid = Some("bjut-other".into());
         assert!(!settings.allows_auto_login(&network));
         network.ssid = None;
+        assert!(!settings.allows_auto_login(&network));
+        network.kind = NetworkKind::Ethernet;
         assert!(!settings.allows_auto_login(&network));
         for address in [
             "0.0.0.0",

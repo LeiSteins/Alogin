@@ -1,4 +1,4 @@
-use crate::domain::{Network, usable_ipv4};
+use crate::domain::{Network, NetworkKind, usable_ipv4};
 use std::{ffi::c_void, ptr};
 use windows_sys::Win32::{
     Foundation::{ERROR_BUFFER_OVERFLOW, HANDLE, HWND},
@@ -56,6 +56,11 @@ pub fn snapshot() -> Network {
                                     interface: index,
                                     ipv4,
                                     ssid: connected_ssid(index),
+                                    kind: match current.IfType {
+                                        IF_TYPE_ETHERNET_CSMACD => NetworkKind::Ethernet,
+                                        IF_TYPE_IEEE80211 => NetworkKind::Wifi,
+                                        _ => NetworkKind::Unknown,
+                                    },
                                 };
                             }
                         }

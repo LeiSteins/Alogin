@@ -450,7 +450,11 @@ impl App {
             if self.busy {
                 strings::BUSY
             } else {
-                match HomeAction::for_session(self.view.online) {
+                match HomeAction::for_session(
+                    self.view.online,
+                    &self.view.network,
+                    &self.view.preferences,
+                ) {
                     HomeAction::Login => strings::LOGIN,
                     HomeAction::Refresh => strings::REFRESH,
                 }
