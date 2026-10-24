@@ -17,6 +17,9 @@ jobs:
     name: Test and build APK
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: android
 
     steps:
       - name: Check out source
@@ -189,7 +192,7 @@ jobs:
           ssh "${ssh_options[@]}" "$remote_target" \
             "if test -f '$remote_dir/latest.json'; then cat '$remote_dir/latest.json'; fi" \
             > "$RUNNER_TEMP/current-latest.json"
-          python3 scripts/release_manifest.py validate-promotion \
+          python3 android/scripts/release_manifest.py validate-promotion \
             --incoming release/latest.json --current "$RUNNER_TEMP/current-latest.json"
 
           # Publish APKs first. Keep the existing manifest until every upload succeeds.

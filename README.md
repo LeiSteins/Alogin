@@ -6,6 +6,8 @@
 
 一款 Android 网络认证助手，用于在已配置的目标 Wi-Fi 上完成认证，并查看网络与账号状态。
 
+Android 客户端及其 Gradle 工程、发布脚本和版本说明位于 `android/`，使用 Android Studio 时打开该目录。
+
 Windows 原生客户端正在开发，采用 Rust + Win32，首版支持托盘、多账号加密保存和校园网认证。构建与功能范围见 [Windows 客户端说明](windows/README.md)。
 
 官网：[https://steins.top/alogin/](https://steins.top/alogin/)
@@ -55,14 +57,16 @@ Windows 原生客户端正在开发，采用 Rust + Win32，首版支持托盘�
 环境准备：
 
 - 安装 JDK 17，并确认 `java -version` 使用该版本。
-- 安装 Android SDK。当前编译平台为 API 37，请通过 Android Studio 的 SDK Manager 安装对应 SDK Platform 和构建所需的 Build-Tools；设备测试和安装还需要 Platform-Tools。编译平台版本以 [`app/build.gradle.kts`](app/build.gradle.kts) 中的 `compileSdk` 为准。
-- 使用 Android Studio 配置本地 SDK 路径，或在命令行环境设置 `ANDROID_HOME`，并接受所需 SDK 的许可。本地 `local.properties` 不应提交。
+- 安装 Android SDK。当前编译平台为 API 37，请通过 Android Studio 的 SDK Manager 安装对应 SDK Platform 和构建所需的 Build-Tools；设备测试和安装还需要 Platform-Tools。编译平台版本以 [`android/app/build.gradle.kts`](android/app/build.gradle.kts) 中的 `compileSdk` 为准。
+- 使用 Android Studio 配置本地 SDK 路径，或在命令行环境设置 `ANDROID_HOME`，并接受所需 SDK 的许可。本地 `android/local.properties` 不应提交。
 - 运行发布脚本测试需要 Python 3，仅使用标准库。
 - 首次构建需要网络，以下载 Gradle Wrapper 分发包和项目依赖。
 
-在项目根目录执行：
+在仓库根目录先进入 Android 工程，再执行构建命令：
 
 ```bash
+cd android
+
 # 构建 Debug APK 并运行 Android Lint
 ./gradlew assembleDebug lintDebug
 
@@ -81,13 +85,13 @@ python3 -m unittest discover -s scripts -p "test_*.py"
 
 Windows PowerShell 请将 `./gradlew` 替换为 `.\gradlew.bat`，将 `python3` 替换为本机 Python 3 的启动命令，例如 `python` 或 `py -3`。
 
-Debug APK 的默认输出位置为 `app/build/outputs/apk/debug/app-debug.apk`。设备测试和安装命令需连接设备或启动模拟器。
+Debug APK 相对仓库根目录的默认输出位置为 `android/app/build/outputs/apk/debug/app-debug.apk`。设备测试和安装命令需连接设备或启动模拟器。
 
 ## 发布
 
-发布前在 `app/build.gradle.kts` 中同时递增 `versionName` 和 `versionCode`，新增 `release-notes/<versionName>.md` 中文版本说明，再推送与 `versionName` 一致的 `v<版本号>` 标签；不要复用已发布的版本。[Release 工作流](.github/workflows/release.yml)会运行测试、构建签名 APK、创建 GitHub Release，并部署更新服务器。
+发布前在 `android/app/build.gradle.kts` 中同时递增 `versionName` 和 `versionCode`，新增 `android/release-notes/<versionName>.md` 中文版本说明，再推送与 `versionName` 一致的 `v<版本号>` 标签；不要复用已发布的版本。[Release 工作流](.github/workflows/release.yml)会运行测试、构建签名 APK、创建 GitHub Release，并部署更新服务器。
 
-版本说明格式见 [release-notes/README.md](release-notes/README.md)。
+版本说明格式见 [android/release-notes/README.md](android/release-notes/README.md)。
 
 ## 技术栈
 
@@ -100,7 +104,16 @@ Debug APK 的默认输出位置为 `app/build/outputs/apk/debug/app-debug.apk`�
 ## 项目结构
 
 ```text
-app/src/main/java/top/steins/autologin/
+android/       # Android 客户端、Gradle 工程、scripts 与 release-notes
+windows/       # Rust + Win32 Windows 客户端
+.github/       # 构建和发布工作流
+docs/          # 项目文档资源
+```
+
+Android 源码结构：
+
+```text
+android/app/src/main/java/top/steins/autologin/
 ├── data/       # 凭据加密、多账号持久化、本地设置与目标 Wi-Fi 配置
 ├── domain/     # 不依赖 Android 的业务模型（model）、能力契约（port）与规则（rule）
 ├── network/    # 认证、账号服务、网络信息与更新逻辑
@@ -110,7 +123,7 @@ app/src/main/java/top/steins/autologin/
 └── ui/         # Compose 页面、组件、主题与展示格式化
 ```
 
-JVM 测试位于 `app/src/test`，设备测试位于 `app/src/androidTest`，发布脚本及其测试位于 `scripts`。
+JVM 测试位于 `android/app/src/test`，设备测试位于 `android/app/src/androidTest`，发布脚本及其测试位于 `android/scripts`。
 
 功能层按用途接收网络观察、校园网认证、账号会话与无感知服务接口，底层共享连接和自助服务会话；
 `AppViewModel` 负责组装功能并统一释放网络资源。HTTP 日志由工厂创建同一个存储实例，

@@ -11,7 +11,7 @@
 应用以纯文本展示并支持滚动，请使用简短列表，避免依赖 Markdown 表格、图片或 HTML。
 文件不能为空，长度最多为 20000 个 UTF-16 代码单元。说明只描述本次发布实际包含的变化。
 
-发布前同步递增 `app/build.gradle.kts` 的 `versionName` 和 `versionCode`，说明文件名必须
+发布前同步递增 [`app/build.gradle.kts`](../app/build.gradle.kts) 的 `versionName` 和 `versionCode`（相对 `android/`），说明文件名必须
 匹配 `versionName`，标签必须为 `v<versionName>`。不要复用已发布的版本号。
 
 工作流会校验版本和说明，生成 `latest.json`，并将同一份说明用于 GitHub Release 正文。
