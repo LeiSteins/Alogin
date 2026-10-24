@@ -187,6 +187,7 @@
     <string name="login_wrong_network">请连接已配置的目标 WiFi 后再登录</string>
     <string name="login_portal_detection_failed">网关探测失败（HTTP %1$d）</string>
     <string name="login_no_valid_campus_ip">未获取到有效的校园网 IP 地址</string>
+    <string name="login_network_changed">网络已变化，已取消本次登录，请重新尝试</string>
     <string name="campus_direct_network_unavailable">无法通过物理 WiFi 直连校园网，请检查网络，或在代理中将本应用与校园网域名设为直连</string>
     <string name="campus_direct_request_failed">无法直连校园网：%1$s。若已开启代理，请将本应用与校园网域名设为直连</string>
     <string name="login_service_http_error">登录服务响应异常（HTTP %1$d）</string>

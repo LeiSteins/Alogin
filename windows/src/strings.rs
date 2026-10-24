@@ -29,6 +29,7 @@ pub const UNKNOWN: &str = "认证状态暂时无法确认";
 pub const NO_ACCOUNT: &str = "请先保存并选择账号。";
 pub const INVALID_ACCOUNT: &str = "请输入账号和密码。";
 pub const NO_NETWORK: &str = "未找到可用的校园网 IPv4 路由，请检查网络连接。";
+pub const PORTAL_IP_UNAVAILABLE: &str = "门户未返回有效的校园网 IP 地址，请刷新后重试。";
 pub const NETWORK_CHANGED: &str = "网络已变化，已取消本次登录，请重新尝试。";
 pub const UNKNOWN_RESPONSE: &str = "无法识别门户响应，请刷新状态后再试。";
 pub const INVALID_PASSWORD: &str = "账号或密码错误。";

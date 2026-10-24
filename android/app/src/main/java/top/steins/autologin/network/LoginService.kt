@@ -12,6 +12,7 @@ import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import top.steins.autologin.AppStrings
 import top.steins.autologin.R
 import top.steins.autologin.domain.model.LoginResult
 import top.steins.autologin.domain.model.LoginStatus
@@ -34,33 +35,36 @@ internal fun createLoginClient(
         .build()
 
 internal suspend fun login(
-    context: Context,
+    strings: AppStrings,
     client: OkHttpClient,
     username: String,
     password: String,
-    wlanUserIp: String,
-    preferredMethod: WifiLoginMethod? = null
+    preferredMethod: WifiLoginMethod? = null,
+    isCurrent: () -> Boolean
 ): LoginResult =
     withContext(Dispatchers.IO) {
         try {
-            when (preferredMethod ?: detectLoginPortal(context, client)) {
-                WifiLoginMethod.WLGN -> loginWithWlgn(context, client, username, password)
+            requireCurrentLoginNetwork(isCurrent)
+            when (preferredMethod ?: detectLoginPortal(strings, client)) {
+                WifiLoginMethod.WLGN -> loginWithWlgn(strings, client, username, password, isCurrent)
                 WifiLoginMethod.EPORTAL ->
-                    loginWithEportal(context, client, username, password, wlanUserIp)
+                    loginWithEportal(strings, client, username, password, isCurrent)
             }
         } catch (error: CancellationException) {
             throw error
+        } catch (_: LoginNetworkChangedException) {
+            LoginResult.NetworkError(strings.get(R.string.login_network_changed))
         } catch (error: Exception) {
             LoginResult.NetworkError(
-                context.getString(
+                strings.get(
                     R.string.campus_direct_request_failed,
-                    error.message ?: context.getString(R.string.error_unknown)
+                    error.message ?: strings.get(R.string.error_unknown)
                 )
             )
         }
     }
 
-private suspend fun detectLoginPortal(context: Context, client: OkHttpClient): WifiLoginMethod {
+private suspend fun detectLoginPortal(strings: AppStrings, client: OkHttpClient): WifiLoginMethod {
     val request = Request.Builder()
         .url("http://10.21.221.98/")
         .get()
@@ -90,17 +94,18 @@ private suspend fun detectLoginPortal(context: Context, client: OkHttpClient): W
             }
 
             else -> throw IOException(
-                context.getString(R.string.login_portal_detection_failed, response.code)
+                strings.get(R.string.login_portal_detection_failed, response.code)
             )
         }
     }
 }
 
 private suspend fun loginWithWlgn(
-    context: Context,
+    strings: AppStrings,
     client: OkHttpClient,
     username: String,
-    password: String
+    password: String,
+    isCurrent: () -> Boolean
 ): LoginResult {
     val params = listOf(
         "callback" to "dr1003",
@@ -127,19 +132,18 @@ private suspend fun loginWithWlgn(
         .header("Accept", "*/*")
         .build()
 
-    return executeLoginRequest(context, client, request)
+    return executeLoginRequest(strings, client, request, isCurrent)
 }
 
 private suspend fun loginWithEportal(
-    context: Context,
+    strings: AppStrings,
     client: OkHttpClient,
     username: String,
     password: String,
-    wlanUserIp: String
+    isCurrent: () -> Boolean
 ): LoginResult {
-    if (!wlanUserIp.isUsableIpv4()) {
-        return LoginResult.Failure(context.getString(R.string.login_no_valid_campus_ip))
-    }
+    val wlanUserIp = fetchEportalIpv4(client, isCurrent)
+        ?: return LoginResult.Failure(strings.get(R.string.login_no_valid_campus_ip))
 
     val account = if (username.contains("@")) username else "$username@campus"
     val params = listOf(
@@ -169,7 +173,7 @@ private suspend fun loginWithEportal(
         .header("Referer", "http://$EPORTAL_HOST/")
         .build()
 
-    return executeLoginRequest(context, client, request)
+    return executeLoginRequest(strings, client, request, isCurrent)
 }
 
 private fun buildLoginUrl(
@@ -187,38 +191,42 @@ private fun buildLoginUrl(
     .build()
 
 private suspend fun executeLoginRequest(
-    context: Context,
+    strings: AppStrings,
     client: OkHttpClient,
-    request: Request
+    request: Request,
+    isCurrent: () -> Boolean
 ): LoginResult {
+    requireCurrentLoginNetwork(isCurrent)
     client.executeCancellable(request).use { response ->
+        val body = response.body?.string().orEmpty()
+        requireCurrentLoginNetwork(isCurrent)
         if (!response.isSuccessful) {
             return LoginResult.Failure(
-                context.getString(R.string.login_service_http_error, response.code)
+                strings.get(R.string.login_service_http_error, response.code)
             )
         }
-        return when (val parsed = LoginResponseParser.parse(response.body?.string().orEmpty())) {
+        return when (val parsed = LoginResponseParser.parse(body)) {
             LoginParseResult.Success -> LoginResult.Success
             LoginParseResult.AlreadyOnline -> LoginResult.AlreadyOnline
             is LoginParseResult.Failure -> LoginResult.Failure(
-                loginFailureMessage(context, parsed.serverMessage)
+                loginFailureMessage(strings, parsed.serverMessage)
             )
             LoginParseResult.Unknown -> LoginResult.Failure(
-                context.getString(R.string.login_unknown_response)
+                strings.get(R.string.login_unknown_response)
             )
         }
     }
 }
 
-private fun loginFailureMessage(context: Context, serverMessage: String?): String = when {
+private fun loginFailureMessage(strings: AppStrings, serverMessage: String?): String = when {
     serverMessage.isWlgnInvalidPasswordMessage() ->
-        context.getString(R.string.login_password_error)
+        strings.get(R.string.login_password_error)
 
     serverMessage.equals("ldap auth error", ignoreCase = true) ->
-        context.getString(R.string.login_ldap_error)
+        strings.get(R.string.login_ldap_error)
 
-    serverMessage.isNullOrBlank() -> context.getString(R.string.login_failed_default)
-    else -> context.getString(R.string.login_failed_with_reason, serverMessage)
+    serverMessage.isNullOrBlank() -> strings.get(R.string.login_failed_default)
+    else -> strings.get(R.string.login_failed_with_reason, serverMessage)
 }
 
 private val wlgnInvalidPasswordPattern = Regex(

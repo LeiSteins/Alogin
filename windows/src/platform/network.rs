@@ -1,18 +1,19 @@
 use crate::domain::{Network, NetworkKind, usable_ipv4};
-use std::{ffi::c_void, ptr};
+use std::{cmp::Reverse, ffi::c_void, net::Ipv4Addr, ptr};
 use windows_sys::Win32::{
     Foundation::{ERROR_BUFFER_OVERFLOW, HANDLE, HWND},
-    NetworkManagement::{IpHelper::*, Ndis::NET_LUID_LH, WiFi::*},
+    NetworkManagement::{
+        IpHelper::*,
+        Ndis::{IfOperStatusUp, NET_LUID_LH},
+        WiFi::*,
+    },
     Networking::WinSock::*,
     UI::WindowsAndMessaging::PostMessageW,
 };
 
 pub fn snapshot() -> Network {
-    // Match the route to the fixed campus portal instead of selecting an arbitrary NIC.
-    let mut index = 0;
-    if unsafe { GetBestInterface(u32::from_ne_bytes([10, 21, 221, 98]), &mut index) } != 0 {
-        return Network::default();
-    }
+    // A global best route can belong to a TUN adapter. Select a route on an
+    // active physical interface so portal parameters describe the campus NIC.
     let mut bytes = 16 * 1024u32;
     for _ in 0..3 {
         // Windows structures require 8-byte alignment.
@@ -33,46 +34,128 @@ pub fn snapshot() -> Network {
         if code != 0 {
             return Network::default();
         }
+        let mut best: Option<RouteCandidate> = None;
         let mut adapter = first;
         while !adapter.is_null() {
             let current = unsafe { &*adapter };
-            if unsafe { current.Anonymous1.Anonymous.IfIndex } == index {
-                let mut address = current.FirstUnicastAddress;
-                while !address.is_null() {
-                    let entry = unsafe { &*address };
-                    if !entry.Address.lpSockaddr.is_null()
-                        && entry.Address.iSockaddrLength as usize
-                            >= std::mem::size_of::<SOCKADDR_IN>()
-                        && entry.DadState == IpDadStatePreferred
-                    {
-                        let ip = unsafe { &*entry.Address.lpSockaddr.cast::<SOCKADDR_IN>() };
-                        if ip.sin_family == AF_INET {
-                            let ipv4 = std::net::Ipv4Addr::from(
-                                unsafe { ip.sin_addr.S_un.S_addr }.to_ne_bytes(),
-                            )
-                            .to_string();
-                            if usable_ipv4(&ipv4) {
-                                return Network {
-                                    interface: index,
-                                    ipv4,
-                                    ssid: connected_ssid(index),
-                                    kind: match current.IfType {
-                                        IF_TYPE_ETHERNET_CSMACD => NetworkKind::Ethernet,
-                                        IF_TYPE_IEEE80211 => NetworkKind::Wifi,
-                                        _ => NetworkKind::Unknown,
-                                    },
-                                };
-                            }
-                        }
-                    }
-                    address = entry.Next;
-                }
+            if let Some(candidate) = physical_route(current).filter(|candidate| {
+                best.as_ref()
+                    .is_none_or(|previous| candidate.priority() < previous.priority())
+            }) {
+                best = Some(candidate);
             }
             adapter = current.Next;
         }
-        break;
+        return best.map_or_else(Network::default, |route| Network {
+            interface: route.interface,
+            ipv4: route.ipv4,
+            ssid: if route.kind == NetworkKind::Wifi {
+                connected_ssid(route.interface)
+            } else {
+                None
+            },
+            kind: route.kind,
+        });
     }
     Network::default()
+}
+
+struct RouteCandidate {
+    interface: u32,
+    ipv4: String,
+    kind: NetworkKind,
+    prefix_length: u8,
+    metric: u64,
+}
+impl RouteCandidate {
+    fn priority(&self) -> (Reverse<u8>, u64, u32) {
+        // Match Windows route preference, with a stable tie-breaker.
+        (Reverse(self.prefix_length), self.metric, self.interface)
+    }
+}
+
+fn physical_kind(interface: &MIB_IF_ROW2) -> Option<NetworkKind> {
+    // HardwareInterface is the first documented bit; TUN adapters can advertise
+    // an Ethernet IfType too, so the type alone is insufficient.
+    if interface.OperStatus != IfOperStatusUp
+        || interface.InterfaceAndOperStatusFlags._bitfield & 1 == 0
+    {
+        return None;
+    }
+    match interface.Type {
+        IF_TYPE_ETHERNET_CSMACD => Some(NetworkKind::Ethernet),
+        IF_TYPE_IEEE80211 => Some(NetworkKind::Wifi),
+        _ => None,
+    }
+}
+
+fn physical_route(adapter: &IP_ADAPTER_ADDRESSES_LH) -> Option<RouteCandidate> {
+    let index = unsafe { adapter.Anonymous1.Anonymous.IfIndex };
+    if index == 0 {
+        return None;
+    }
+    let mut interface = MIB_IF_ROW2 {
+        InterfaceIndex: index,
+        ..Default::default()
+    };
+    if unsafe { GetIfEntry2(&mut interface) } != 0 {
+        return None;
+    }
+    let kind = physical_kind(&interface)?;
+    let mut destination = SOCKADDR_INET::default();
+    destination.Ipv4.sin_family = AF_INET;
+    destination.Ipv4.sin_addr.S_un.S_addr = u32::from_ne_bytes([10, 21, 221, 98]);
+    let mut route = MIB_IPFORWARD_ROW2::default();
+    let mut source = SOCKADDR_INET::default();
+    if unsafe {
+        GetBestRoute2(
+            ptr::null(),
+            index,
+            ptr::null(),
+            &destination,
+            0,
+            &mut route,
+            &mut source,
+        )
+    } != 0
+        || route.InterfaceIndex != index
+        || unsafe { source.si_family } != AF_INET
+    {
+        return None;
+    }
+    let ip = unsafe { source.Ipv4 };
+    let ipv4 = Ipv4Addr::from(unsafe { ip.sin_addr.S_un.S_addr }.to_ne_bytes()).to_string();
+    if !usable_ipv4(&ipv4) || !has_preferred_address(adapter, &ipv4) {
+        return None;
+    }
+    Some(RouteCandidate {
+        interface: index,
+        ipv4,
+        kind,
+        prefix_length: route.DestinationPrefix.PrefixLength,
+        metric: u64::from(route.Metric) + u64::from(adapter.Ipv4Metric),
+    })
+}
+
+fn has_preferred_address(adapter: &IP_ADAPTER_ADDRESSES_LH, ipv4: &str) -> bool {
+    let mut address = adapter.FirstUnicastAddress;
+    while !address.is_null() {
+        let entry = unsafe { &*address };
+        if !entry.Address.lpSockaddr.is_null()
+            && entry.Address.iSockaddrLength as usize >= std::mem::size_of::<SOCKADDR_IN>()
+            && entry.DadState == IpDadStatePreferred
+        {
+            let ip = unsafe { &*entry.Address.lpSockaddr.cast::<SOCKADDR_IN>() };
+            if ip.sin_family == AF_INET
+                && Ipv4Addr::from(unsafe { ip.sin_addr.S_un.S_addr }.to_ne_bytes()).to_string()
+                    == ipv4
+            {
+                return true;
+            }
+        }
+        address = entry.Next;
+    }
+    false
 }
 
 struct Wlan(HANDLE);
@@ -264,5 +347,100 @@ unsafe extern "system" fn route_changed(
 unsafe extern "system" fn wifi_changed(_: *mut L2_NOTIFICATION_DATA, context: *mut c_void) {
     unsafe {
         PostMessageW(context.cast(), NETWORK_MESSAGE, 0, 0);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn virtual_ethernet_and_disconnected_hardware_are_not_campus_interfaces() {
+        let mut interface = MIB_IF_ROW2 {
+            Type: IF_TYPE_ETHERNET_CSMACD,
+            OperStatus: IfOperStatusUp,
+            ..Default::default()
+        };
+        // Mihomo and Hyper-V can both report Ethernet without being hardware.
+        assert_eq!(physical_kind(&interface), None);
+        interface.InterfaceAndOperStatusFlags._bitfield = 1;
+        assert_eq!(physical_kind(&interface), Some(NetworkKind::Ethernet));
+        interface.Type = IF_TYPE_IEEE80211;
+        assert_eq!(physical_kind(&interface), Some(NetworkKind::Wifi));
+        interface.OperStatus = windows_sys::Win32::NetworkManagement::Ndis::IfOperStatusDown;
+        assert_eq!(physical_kind(&interface), None);
+        interface.OperStatus = IfOperStatusUp;
+        interface.Type = IF_TYPE_TUNNEL;
+        assert_eq!(physical_kind(&interface), None);
+    }
+
+    #[test]
+    fn physical_routes_prefer_longest_prefix_then_metric_with_stable_ties() {
+        let default = RouteCandidate {
+            interface: 20,
+            ipv4: "10.1.2.3".into(),
+            kind: NetworkKind::Wifi,
+            prefix_length: 0,
+            metric: 30,
+        };
+        let mut other = RouteCandidate {
+            interface: 21,
+            ipv4: "10.4.5.6".into(),
+            kind: NetworkKind::Ethernet,
+            prefix_length: 8,
+            metric: 500,
+        };
+        assert!(other.priority() < default.priority());
+        other.prefix_length = 0;
+        assert!(default.priority() < other.priority());
+        other.metric = 10;
+        assert!(other.priority() < default.priority());
+        other.metric = default.metric;
+        assert!(default.priority() < other.priority());
+        let mut routes = [other, default];
+        routes.sort_by_key(RouteCandidate::priority);
+        assert_eq!(routes[0].interface, 20);
+        routes.reverse();
+        routes.sort_by_key(RouteCandidate::priority);
+        assert_eq!(routes[0].interface, 20);
+    }
+
+    #[test]
+    fn route_source_must_be_a_preferred_address_on_the_selected_adapter() {
+        let mut ip = SOCKADDR_IN {
+            sin_family: AF_INET,
+            ..Default::default()
+        };
+        ip.sin_addr.S_un.S_addr = u32::from_ne_bytes([10, 1, 2, 3]);
+        let mut address = IP_ADAPTER_UNICAST_ADDRESS_LH {
+            Address: SOCKET_ADDRESS {
+                lpSockaddr: (&mut ip as *mut SOCKADDR_IN).cast(),
+                iSockaddrLength: std::mem::size_of_val(&ip) as i32,
+            },
+            DadState: IpDadStatePreferred,
+            ..Default::default()
+        };
+        let check = |address: &mut IP_ADAPTER_UNICAST_ADDRESS_LH, ipv4: &str| {
+            has_preferred_address(
+                &IP_ADAPTER_ADDRESSES_LH {
+                    FirstUnicastAddress: address,
+                    ..Default::default()
+                },
+                ipv4,
+            )
+        };
+        assert!(check(&mut address, "10.1.2.3"));
+        assert!(!check(&mut address, "198.18.0.1"));
+        address.DadState = IpDadStateDeprecated;
+        assert!(!check(&mut address, "10.1.2.3"));
+        address.DadState = IpDadStatePreferred;
+        address.Address.iSockaddrLength = 0;
+        assert!(!check(&mut address, "10.1.2.3"));
+        address.Address.lpSockaddr = ptr::null_mut();
+        assert!(!check(&mut address, "10.1.2.3"));
+        assert!(!has_preferred_address(
+            &IP_ADAPTER_ADDRESSES_LH::default(),
+            "10.1.2.3"
+        ));
     }
 }

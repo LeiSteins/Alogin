@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import kotlinx.coroutines.flow.Flow
+import top.steins.autologin.AppStrings
 import top.steins.autologin.R
 import top.steins.autologin.domain.model.CampusNetworkChange
 import top.steins.autologin.domain.model.CurrentNetworkInfo
@@ -83,12 +84,12 @@ class DefaultNetworkEnvironment internal constructor(
                 appContext.getString(R.string.campus_direct_network_unavailable)
             )
         return login(
-            context = appContext,
+            strings = AppStrings { resId, args -> appContext.getString(resId, *args) },
             client = loginClients.get(route.network),
             username = username,
             password = password,
-            wlanUserIp = route.ipv4Address,
-            preferredMethod = preferredMethod
+            preferredMethod = preferredMethod,
+            isCurrent = { campusNetwork.currentRoute(requireDns = false) == route }
         )
     }
 
