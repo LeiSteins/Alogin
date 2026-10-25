@@ -1,4 +1,4 @@
-pub const APP: &str = "Alogin · 校园网认证";
+pub const APP: &str = "Alogin";
 pub const ICON_FAILED: &str = "无法加载应用图标资源。";
 pub const SHOW: &str = "打开 Alogin";
 pub const LOGIN: &str = "登录";
