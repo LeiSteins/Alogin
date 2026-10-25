@@ -94,8 +94,7 @@ export component MainWindow inherits Window {
     in property <bool> show-traffic;
     in property <float> traffic-progress;
     in property <string> traffic-used-percent;
-    in property <string> traffic-used;
-    in property <string> traffic-remaining;
+    in property <string> traffic-amount;
     in property <string> action-label;
     in property <[string]> accounts;
     in-out property <int> account-index: -1;
@@ -103,8 +102,9 @@ export component MainWindow inherits Window {
     in-out property <string> password;
     in-out property <string> targets;
     in-out property <bool> auto-login;
-    private property <length> home-card-height: max(network-card-view.height,
-        root.show-account ? account-card-view.height : 0px);
+    private property <length> home-card-height: root.show-account && home-cards.stacked
+        ? network-card-view.height + 20px + account-card-view.height
+        : max(network-card-view.height, root.show-account ? account-card-view.height : 0px);
     private property <int> page;
     private property <bool> compact-navigation;
     callback home-action();
@@ -174,21 +174,22 @@ export component MainWindow inherits Window {
                     spacing: 20px;
                     ScrollView {
                         vertical-stretch: 1;
-                        content-width: self.visible-width;
+                        content-width: max(250px, self.visible-width);
                         content-height: max(self.visible-height, root.home-card-height);
-                        Rectangle {
-                            private property <length> network-card-width: min(300px,
-                                root.show-account ? (self.width - 20px) / 2 : self.width);
+                        home-cards := Rectangle {
+                            private property <bool> stacked: root.show-account && self.width < 620px;
+                            private property <length> card-width: min(600px, max(250px,
+                                root.show-account && !self.stacked ? (self.width - 20px) / 2 : self.width));
                             x: 0px;
                             y: 0px;
-                            width: parent.visible-width;
+                            width: max(250px, parent.visible-width);
                             height: root.home-card-height;
                             network-card-view := NetworkCard {
                                 name: root.network-name;
                                 ipv4: root.network-ipv4;
                                 x: 0px;
                                 y: 0px;
-                                width: parent.network-card-width;
+                                width: parent.card-width;
                             }
                             account-card-view := AccountCard {
                                 visible: root.show-account;
@@ -204,12 +205,11 @@ export component MainWindow inherits Window {
                                 usage-known: root.show-traffic;
                                 usage: root.traffic-progress;
                                 used-percent: root.traffic-used-percent;
-                                used: root.traffic-used;
-                                remaining: root.traffic-remaining;
+                                traffic-amount: root.traffic-amount;
                                 enabled: root.ready;
-                                x: parent.network-card-width + 20px;
-                                y: 0px;
-                                width: min(360px, parent.width - parent.network-card-width - 20px);
+                                x: parent.stacked ? 0px : parent.card-width + 20px;
+                                y: parent.stacked ? network-card-view.height + 20px : 0px;
+                                width: parent.card-width;
                                 retry => { root.home-action(); }
                             }
                         }

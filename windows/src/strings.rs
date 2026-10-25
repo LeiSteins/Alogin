@@ -76,8 +76,7 @@ pub const ACCOUNT_EXPIRED: &str = "自助服务会话已过期，请刷新。";
 pub struct AccountCardText {
     pub username: String,
     pub balance: String,
-    pub used: String,
-    pub remaining: String,
+    pub traffic_amount: String,
     pub used_percent: String,
     pub progress: Option<f32>,
     pub has_overview: bool,
@@ -105,6 +104,12 @@ pub fn account_card(
         };
     };
     let progress = overview.traffic_usage_fraction();
+    let valid_traffic = |value: &f64| value.is_finite() && *value >= 0.0;
+    let used = overview.used_megabytes.filter(valid_traffic);
+    let total = used
+        .zip(overview.remaining_megabytes.filter(valid_traffic))
+        .map(|(used, remaining)| used + remaining)
+        .filter(|total| total.is_finite());
     AccountCardText {
         username: username.clone(),
         balance: overview
@@ -112,8 +117,7 @@ pub fn account_card(
             .filter(|value| value.is_finite())
             .map(|value| format!("{value:.2} 元"))
             .unwrap_or_default(),
-        used: format!("已用 {}", traffic(overview.used_megabytes)),
-        remaining: format!("剩余 {}", traffic(overview.remaining_megabytes)),
+        traffic_amount: format!("{} / {}", traffic(used), traffic(total)),
         used_percent: progress
             .map(traffic_used_percent)
             .unwrap_or_else(|| "—".into()),
@@ -125,8 +129,15 @@ pub fn account_card(
 
 fn traffic(value: Option<f64>) -> String {
     match value.filter(|value| value.is_finite() && *value >= 0.0) {
-        Some(value) if value >= 1024.0 => format!("{:.1} GB", value / 1024.0),
-        Some(value) => format!("{value:.1} MB"),
+        Some(value) => {
+            let (value, unit) = if value >= 1024.0 {
+                (value / 1024.0, "G")
+            } else {
+                (value, "M")
+            };
+            let number = format!("{value:.1}");
+            format!("{}{unit}", number.strip_suffix(".0").unwrap_or(&number))
+        }
         None => "—".into(),
     }
 }
@@ -164,13 +175,37 @@ mod tests {
         };
         let text = account_card(&info, Online::Yes);
         assert_eq!(text.username, "student");
-        assert_eq!(text.used, "已用 2.0 GB");
-        assert_eq!(text.remaining, "剩余 —");
+        assert_eq!(text.traffic_amount, "2G / —");
         assert_eq!(text.balance, "-2.50 元");
         assert_eq!(text.used_percent, "—");
         assert!(text.progress.is_none());
         assert!(account_card(&info, Online::No).username.is_empty());
         assert!(account_card(&info, Online::Unknown).username.is_empty());
+    }
+
+    #[test]
+    fn traffic_amount_uses_used_plus_remaining_and_preserves_unknown_totals() {
+        for (used, remaining, expected) in [
+            (Some(6144.0), Some(24576.0), "6G / 30G"),
+            (Some(1536.0), Some(512.0), "1.5G / 2G"),
+            (Some(256.0), Some(512.0), "256M / 768M"),
+            (Some(0.0), Some(0.0), "0M / 0M"),
+            (None, Some(1024.0), "— / —"),
+            (Some(2048.0), Some(-1.0), "2G / —"),
+            (Some(f64::NAN), Some(1024.0), "— / —"),
+            (Some(2048.0), Some(f64::INFINITY), "2G / —"),
+        ] {
+            let info = AccountInfo {
+                username: Some("student".into()),
+                overview: Some(AccountOverview {
+                    used_megabytes: used,
+                    remaining_megabytes: remaining,
+                    money_yuan: None,
+                }),
+                error: None,
+            };
+            assert_eq!(account_card(&info, Online::Yes).traffic_amount, expected);
+        }
     }
 
     #[test]
@@ -184,6 +219,6 @@ mod tests {
         assert_eq!(text.username, "student");
         assert_eq!(text.error, ACCOUNT_EXPIRED);
         assert!(!text.has_overview);
-        assert!(text.used.is_empty());
+        assert!(text.traffic_amount.is_empty());
     }
 }

@@ -13,8 +13,7 @@ export component AccountCard inherits Rectangle {
     in property <bool> usage-known;
     in property <float> usage;
     in property <string> used-percent;
-    in property <string> used;
-    in property <string> remaining;
+    in property <string> traffic-amount;
     in property <string> error;
     in property <bool> enabled;
     callback retry();
@@ -74,27 +73,36 @@ export component AccountCard inherits Rectangle {
         }
         if root.has-overview: VerticalLayout {
             padding-top: 12px;
-            spacing: 8px;
-            Text { text: root.used-percent; color: AppTheme.muted; }
-            ProgressBar { progress: root.usage; known: root.usage-known; label: root.progress-label; }
+            spacing: 4px;
             HorizontalLayout {
                 spacing: 8px;
                 Text {
-                    text: root.used;
+                    text: root.used-percent;
                     color: AppTheme.muted;
-                    font-size: 12px;
-                    min-width: 0px;
-                    horizontal-stretch: 1;
-                    overflow: elide;
+                    font-size: 14px;
+                    horizontal-stretch: 0;
                 }
                 Text {
-                    text: root.remaining;
+                    text: root.traffic-amount;
                     color: AppTheme.muted;
-                    font-size: 12px;
+                    font-size: 14px;
                     min-width: 0px;
                     horizontal-stretch: 1;
                     horizontal-alignment: right;
                     overflow: elide;
+                }
+            }
+            // Match the network card's 18px-font value row without changing
+            // the progress track's thickness or the card's content padding.
+            Rectangle {
+                height: 23px;
+                vertical-stretch: 0;
+                ProgressBar {
+                    y: (parent.height - self.height) / 2;
+                    width: parent.width;
+                    progress: root.usage;
+                    known: root.usage-known;
+                    label: root.progress-label;
                 }
             }
         }

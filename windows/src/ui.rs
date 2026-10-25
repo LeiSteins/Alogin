@@ -25,6 +25,7 @@ use windows_sys::Win32::{
     UI::{Shell::*, WindowsAndMessaging::*},
 };
 use zeroize::Zeroizing;
+mod repaint;
 #[cfg(test)]
 mod tests;
 mod theme;
@@ -245,15 +246,23 @@ impl App {
         });
         let weak = window.as_weak();
         let mut native_initialized = false;
-        window.window().on_winit_window_event(move |_, _| {
-            // show() can return before Winit creates the HWND, even when it is
-            // called from the event loop. Initialize on the first native event
-            // instead of silently sending icon/theme updates to a null handle.
-            if !native_initialized && let Some(window) = weak.upgrade() {
-                native_initialized = initialize_native_window(&window);
-            }
-            EventResult::Propagate
-        });
+        window
+            .window()
+            .on_winit_window_event(move |native_window, event| {
+                // show() can return before Winit creates the HWND, even when it is
+                // called from the event loop. Initialize on the first native event
+                // instead of silently sending icon/theme updates to a null handle.
+                if !native_initialized && let Some(window) = weak.upgrade() {
+                    native_initialized = initialize_native_window(&window);
+                }
+                if matches!(
+                    event,
+                    slint::winit_030::winit::event::WindowEvent::RedrawRequested
+                ) {
+                    repaint::mark_native_update_region_dirty(native_window);
+                }
+                EventResult::Propagate
+            });
         self.window = Some(window);
         self.render(true, true);
         let window = self.window.as_ref().unwrap();
@@ -371,8 +380,7 @@ impl App {
         window.set_show_traffic(account.progress.is_some());
         window.set_traffic_progress(account.progress.unwrap_or_default());
         window.set_traffic_used_percent(account.used_percent.into());
-        window.set_traffic_used(account.used.into());
-        window.set_traffic_remaining(account.remaining.into());
+        window.set_traffic_amount(account.traffic_amount.into());
         window.set_action_label(
             if self.busy {
                 strings::BUSY

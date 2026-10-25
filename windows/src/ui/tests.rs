@@ -312,8 +312,7 @@ fn traffic_progress_tracks_verified_overview_and_clears_when_values_are_unavaila
     assert!(window.get_show_traffic());
     assert_eq!(window.get_traffic_progress(), 0.75);
     assert_eq!(window.get_traffic_used_percent(), "已用 75%");
-    assert_eq!(window.get_traffic_used(), "已用 3.0 GB");
-    assert_eq!(window.get_traffic_remaining(), "剩余 1.0 GB");
+    assert_eq!(window.get_traffic_amount(), "3G / 4G");
     assert!(window.get_account_balance().is_empty());
     for online in [Online::No, Online::Unknown] {
         app.view.online = online;
@@ -340,6 +339,13 @@ fn traffic_progress_tracks_verified_overview_and_clears_when_values_are_unavaila
     assert_eq!(window.get_account_name(), "student-a");
     assert!(!window.get_has_overview());
     snapshot(window, "account-overview-error");
+    ElementHandle::find_by_element_id(window, "MainWindow::network-card-view")
+        .next()
+        .unwrap()
+        .scroll(0.0, -1000.0);
+    i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(200));
+    window.window().take_snapshot().unwrap();
+    save_snapshot(window, "account-overview-error-scrolled", 660.0, 386.0);
     let retries = Rc::new(std::cell::Cell::new(0));
     let retry_count = retries.clone();
     window.on_home_action(move || retry_count.set(retry_count.get() + 1));
@@ -387,7 +393,45 @@ fn render_all_pages_in_light_dark_and_high_contrast_at_compact_size() {
         ] {
             click(window, label);
             snapshot(window, &format!("{mode}-{page}"));
+            if page == "home" {
+                assert_home_card_layout(window, true);
+                let account =
+                    ElementHandle::find_by_element_id(window, "MainWindow::account-card-view")
+                        .next()
+                        .unwrap();
+                let network =
+                    ElementHandle::find_by_element_id(window, "MainWindow::network-card-view")
+                        .next()
+                        .unwrap();
+                let action = ElementHandle::find_by_accessible_label(window, strings::REFRESH)
+                    .next()
+                    .unwrap();
+                let account_before = account.absolute_position();
+                let action_before = action.absolute_position();
+                network.scroll(0.0, -400.0);
+                i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(200));
+                window.window().take_snapshot().unwrap();
+                assert!(account.absolute_position().y < account_before.y);
+                assert_eq!(action.absolute_position(), action_before);
+                save_snapshot(
+                    window,
+                    &format!("{mode}-home-stacked-scrolled"),
+                    660.0,
+                    386.0,
+                );
+            }
             snapshot_at_size(window, &format!("{mode}-{page}-default"), 860.0, 560.0);
+            if page == "home" {
+                assert_eq!(assert_home_card_layout(window, false), 312.0);
+                for (name, width, stacked, card_width) in [
+                    ("wrap-below-boundary", 835.0, true, 600.0),
+                    ("wrap-at-boundary", 836.0, false, 300.0),
+                    ("maximum-width", 1600.0, false, 600.0),
+                ] {
+                    snapshot_at_size(window, &format!("{mode}-home-{name}"), width, 560.0);
+                    assert_eq!(assert_home_card_layout(window, stacked), card_width);
+                }
+            }
         }
         let navigation = ElementHandle::find_by_accessible_label(window, strings::ACCOUNTS_PAGE)
             .next()
@@ -425,6 +469,7 @@ fn render_all_pages_in_light_dark_and_high_contrast_at_compact_size() {
         window.set_show_traffic(false);
         window.set_traffic_progress(0.0);
         window.set_traffic_used_percent("—".into());
+        window.set_traffic_amount("2G / —".into());
         window.set_account_error(strings::ACCOUNT_FAILED.into());
         window.set_network_name("宿舍网络名称较长测试Wi".into());
         window.set_network_ipv4("—".into());
@@ -434,9 +479,77 @@ fn render_all_pages_in_light_dark_and_high_contrast_at_compact_size() {
         window.set_show_traffic(true);
         window.set_traffic_progress(1.0 / 6.0);
         window.set_traffic_used_percent("已用 16%".into());
+        window.set_traffic_amount("2G / 12G".into());
         window.set_account_error("".into());
         window.set_network_name("bjut_wifi".into());
         window.set_network_ipv4("10.1.2.3".into());
+    }
+}
+
+fn assert_home_card_layout(window: &MainWindow, stacked: bool) -> f32 {
+    let find = |id| {
+        ElementHandle::find_by_element_id(window, id)
+            .next()
+            .unwrap()
+    };
+    let network = find("MainWindow::network-card-view");
+    let account = find("MainWindow::account-card-view");
+    let content = find("MainWindow::home-cards");
+    let width = network.size().width;
+    assert!((250.0..=600.0).contains(&width));
+    assert_eq!(width, account.size().width);
+    let network_origin = network.absolute_position();
+    let account_origin = account.absolute_position();
+    if stacked {
+        assert_eq!(account_origin.x, network_origin.x);
+        assert_eq!(
+            account_origin.y,
+            network_origin.y + network.size().height + 20.0
+        );
+        assert_eq!(
+            content.size().height,
+            network.size().height + 20.0 + account.size().height
+        );
+    } else {
+        assert_eq!(account_origin.y, network_origin.y);
+        assert_eq!(account_origin.x, network_origin.x + width + 20.0);
+        assert_eq!(
+            content.size().height,
+            network.size().height.max(account.size().height)
+        );
+    }
+    assert!(
+        account_origin.x + account.size().width
+            <= content.absolute_position().x + content.size().width
+    );
+    width
+}
+
+// Read the displayed client area before PrintWindow, take_snapshot or an
+// explicit invalidation can repaint it and hide a restore regression.
+fn assert_native_background(window: &MainWindow) {
+    use windows_sys::Win32::{Graphics::Gdi::*, UI::HiDpi::GetDpiForWindow};
+    let native = native_window(window);
+    let theme = window.global::<AppTheme>();
+    unsafe {
+        assert_eq!(IsIconic(native), 0);
+        let dpi = GetDpiForWindow(native);
+        let dc = GetDC(native);
+        assert!(!dc.is_null());
+        let sidebar = GetPixel(dc, scale(30, dpi), scale(280, dpi));
+        let background = GetPixel(dc, scale(400, dpi), scale(350, dpi));
+        ReleaseDC(native, dc);
+        let colorref = |color: slint::Color| {
+            u32::from(color.red())
+                | (u32::from(color.green()) << 8)
+                | (u32::from(color.blue()) << 16)
+        };
+        assert_eq!(sidebar, colorref(theme.get_chrome()), "displayed sidebar");
+        assert_eq!(
+            background,
+            colorref(theme.get_background()),
+            "displayed content background"
+        );
     }
 }
 
@@ -613,8 +726,40 @@ fn native_host_keeps_running_hidden_and_recreates_the_slint_window() {
                     post(app.host, OPEN_MESSAGE, 0);
                 }
                 8 => {
-                    assert_native_chrome(app.window.as_ref().unwrap());
-                    assert!(app.window.is_some());
+                    let window = app.window.as_ref().unwrap();
+                    assert_native_chrome(window);
+                    theme::preview(window, true, false);
+                    theme::title_bar(native_window(window), window);
+                }
+                9 | 15 | 21 => {
+                    let window = app.window.as_ref().unwrap();
+                    assert_native_background(window);
+                    unsafe { ShowWindow(native_window(window), SW_MINIMIZE) };
+                }
+                10..=12 | 16..=18 | 22..=24 => {
+                    let window = app.window.as_ref().unwrap();
+                    assert_ne!(unsafe { IsIconic(native_window(window)) }, 0);
+                    // Repeated partial frames while minimized consume the
+                    // renderer's cache invalidation before the window returns.
+                    window.set_action_label(format!("测试刷新 {}", stage.get()).into());
+                }
+                13 | 25 => {
+                    // Taskbar restoration bypasses App::open_window.
+                    let window = app.window.as_ref().unwrap();
+                    unsafe { ShowWindow(native_window(window), SW_RESTORE) };
+                }
+                19 => post(app.host, OPEN_MESSAGE, 0),
+                14 | 20 => {
+                    let window = app.window.as_ref().unwrap();
+                    assert_native_background(window);
+                    assert_native_chrome(window);
+                    theme::preview(window, false, stage.get() == 20);
+                    theme::title_bar(native_window(window), window);
+                }
+                26 => {
+                    let window = app.window.as_ref().unwrap();
+                    assert_native_background(window);
+                    assert_native_chrome(window);
                     post(app.host, UI_MESSAGE, ID_EXIT);
                 }
                 _ => panic!("native exit was not dispatched"),
@@ -624,7 +769,7 @@ fn native_host_keeps_running_hidden_and_recreates_the_slint_window() {
     );
     slint::run_event_loop_until_quit().unwrap();
     timer.stop();
-    assert_eq!(final_stage.get(), 9);
+    assert_eq!(final_stage.get(), 27);
     APP.with(|slot| *slot.borrow_mut() = std::rc::Weak::new());
     let mut app = app.borrow_mut();
     app.events.take();

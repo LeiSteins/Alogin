@@ -168,6 +168,7 @@ dependencies = [
  "embed-resource",
  "encoding_rs",
  "i-slint-backend-testing",
+ "i-slint-core",
  "image",
  "raw-window-handle",
  "regex",
