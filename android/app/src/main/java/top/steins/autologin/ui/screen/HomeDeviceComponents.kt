@@ -19,7 +19,7 @@ import top.steins.autologin.R
 import top.steins.autologin.domain.model.AccountDevice
 import top.steins.autologin.ui.component.DeviceListCardContent
 import top.steins.autologin.ui.component.DeviceListEntry
-import top.steins.autologin.ui.format.formatTrafficMegabytes
+import top.steins.autologin.ui.theme.AppInfoCardShape
 
 @Composable
 internal fun DeviceListCard(
@@ -47,6 +47,7 @@ internal fun DeviceListCard(
         animationDurationMillis = CardAnimationDurationMillis,
         enabled = enabled,
         showEmptyState = showEmptyState,
+        shape = AppInfoCardShape,
         onRemoveDevice = { entry -> devices.find { it.sessionId == entry.id }?.let(onLogoutDevice) }
     )
 }
@@ -96,11 +97,6 @@ internal fun InfoValue(text: String) {
 
 internal fun AccountDevice.isCurrentDevice(localIpAddress: String): Boolean =
     ipAddress.isNotBlank() && ipAddress.trim() == localIpAddress.trim()
-
-@Composable
-internal fun String.toDisplayTraffic(): String =
-    takeIf { it.isNotBlank() }?.let(::formatTrafficMegabytes)
-        ?: stringResource(R.string.value_placeholder)
 
 internal fun calculateTrafficUsageFraction(usedTraffic: String, remainingTraffic: String): Float? {
     val usedMb = usedTraffic.toMegabytes() ?: return null

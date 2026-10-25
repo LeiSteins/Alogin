@@ -13,13 +13,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -42,8 +42,14 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import top.steins.autologin.R
+import top.steins.autologin.ui.component.listRowSeparator
 import top.steins.autologin.domain.model.SavedAccount
-import top.steins.autologin.ui.theme.AppCardShape
+import top.steins.autologin.ui.component.ElasticIconButton
+import top.steins.autologin.ui.theme.AppCardContentPadding
+import top.steins.autologin.ui.theme.AppListCardShape
+import top.steins.autologin.ui.theme.ListRowHorizontalPadding
+import top.steins.autologin.ui.theme.ListRowMinHeight
+import top.steins.autologin.ui.theme.ListRowVerticalPadding
 
 private const val AccountRowAnimationDurationMillis = 250
 
@@ -75,7 +81,7 @@ internal fun AccountListCard(
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = AppCardShape,
+        shape = AppListCardShape,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
@@ -105,6 +111,7 @@ internal fun AccountListCard(
                             account = account,
                             isActive = account.username == selectedAccountUsername,
                             enabled = enabled && visible,
+                            showSeparator = account.username != renderedAccounts.lastOrNull()?.username,
                             onSelect = { onSelectAccount(account.username) },
                             onEdit = { onEditAccount(account) }
                         )
@@ -119,7 +126,7 @@ internal fun AccountListCard(
                         fadeOut(tween(AccountRowAnimationDurationMillis))
             ) {
                 Column(
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    modifier = Modifier.fillMaxWidth().padding(AppCardContentPadding),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Text(stringResource(R.string.account_empty_title), style = MaterialTheme.typography.titleMedium)
@@ -139,15 +146,18 @@ private fun AccountListRow(
     account: SavedAccount,
     isActive: Boolean,
     enabled: Boolean,
+    showSeparator: Boolean,
     onSelect: () -> Unit,
     onEdit: () -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
     Row(
         modifier = Modifier.fillMaxWidth()
+            .heightIn(min = ListRowMinHeight)
+            .listRowSeparator(visible = showSeparator, startIndent = ListRowHorizontalPadding + 44.dp + 12.dp)
             .semantics { selected = isActive }
             .clickable(enabled = enabled, role = Role.RadioButton, onClick = onSelect)
-            .padding(start = 16.dp, end = 4.dp, top = 12.dp, bottom = 12.dp),
+            .padding(start = ListRowHorizontalPadding, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Surface(
@@ -162,7 +172,7 @@ private fun AccountListRow(
                 )
             }
         }
-        Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+        Column(Modifier.weight(1f).padding(horizontal = 12.dp, vertical = ListRowVerticalPadding)) {
             Text(
                 account.username, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.titleMedium
@@ -173,7 +183,7 @@ private fun AccountListRow(
                 color = if (isActive) colors.primary else colors.onSurfaceVariant
             )
         }
-        IconButton(onClick = onEdit, enabled = enabled) {
+        ElasticIconButton(onClick = onEdit, enabled = enabled) {
             Icon(painterResource(R.drawable.account_edit), stringResource(R.string.account_edit_named, account.username))
         }
     }

@@ -5,7 +5,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -20,6 +19,7 @@ import top.steins.autologin.state.CampusSessionCoordinator
 import top.steins.autologin.state.UpdateState
 import top.steins.autologin.state.UpdateStateHolder
 import top.steins.autologin.ui.component.CapsuleToastState
+import top.steins.autologin.ui.component.ElasticTextButton
 import top.steins.autologin.ui.component.UpdateDialog
 
 /** 将权限副作用限制在独立重组作用域中。 */
@@ -110,7 +110,7 @@ fun AppDialogs(
                 Text(stringResource(R.string.credential_reset_message))
             },
             confirmButton = {
-                TextButton(
+                ElasticTextButton(
                     onClick = {
                         accounts.acknowledgeCredentialReset()
                         onNavigateToAccount()
@@ -120,7 +120,7 @@ fun AppDialogs(
                 }
             },
             dismissButton = {
-                TextButton(onClick = accounts::acknowledgeCredentialReset) {
+                ElasticTextButton(onClick = accounts::acknowledgeCredentialReset) {
                     Text(stringResource(R.string.credential_reset_later))
                 }
             }

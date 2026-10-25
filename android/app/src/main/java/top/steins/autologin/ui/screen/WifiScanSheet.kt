@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
@@ -22,7 +23,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -30,8 +30,13 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import top.steins.autologin.R
+import top.steins.autologin.ui.component.listRowSeparator
 import top.steins.autologin.domain.model.WifiScanOutcome
-import top.steins.autologin.ui.theme.AppCardShape
+import top.steins.autologin.ui.component.ElasticTextButton
+import top.steins.autologin.ui.theme.AppListCardShape
+import top.steins.autologin.ui.theme.ListRowHorizontalPadding
+import top.steins.autologin.ui.theme.ListRowMinHeight
+import top.steins.autologin.ui.theme.ListRowVerticalPadding
 import top.steins.autologin.ui.theme.ScreenHorizontalPadding
 import top.steins.autologin.ui.theme.appCardElevation
 
@@ -43,6 +48,7 @@ private fun WifiScanResultRow(
     strength: Int,
     isConnected: Boolean,
     isAlreadyConfigured: Boolean,
+    showSeparator: Boolean,
     onClick: () -> Unit
 ) {
     val rowModifier = if (isAlreadyConfigured) {
@@ -54,7 +60,9 @@ private fun WifiScanResultRow(
     }
 
     Row(
-        modifier = rowModifier.padding(horizontal = 16.dp, vertical = 12.dp),
+        modifier = rowModifier.heightIn(min = ListRowMinHeight)
+            .listRowSeparator(visible = showSeparator)
+            .padding(horizontal = ListRowHorizontalPadding, vertical = ListRowVerticalPadding),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
@@ -124,7 +132,7 @@ internal fun WifiScanSheetContent(
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold
             )
-            TextButton(onClick = onRefresh, enabled = !isScanning) {
+            ElasticTextButton(onClick = onRefresh, enabled = !isScanning) {
                 Text(stringResource(R.string.action_refresh))
             }
         }
@@ -250,19 +258,20 @@ internal fun WifiScanSheetContent(
                     item {
                         Card(
                             modifier = Modifier.fillMaxWidth(),
-                            shape = AppCardShape,
+                            shape = AppListCardShape,
                             colors = CardDefaults.cardColors(
                                 containerColor = MaterialTheme.colorScheme.surfaceContainer
                             ),
                             elevation = appCardElevation()
                         ) {
                             Column(modifier = Modifier.fillMaxWidth()) {
-                                success.results.forEach { result ->
+                                success.results.forEachIndexed { index, result ->
                                     WifiScanResultRow(
                                         ssid = result.ssid,
                                         strength = result.strength,
                                         isConnected = result.isConnected,
                                         isAlreadyConfigured = result.ssid in configuredSsids,
+                                        showSeparator = index != success.results.lastIndex,
                                         onClick = { onSelectWifi(result.ssid) }
                                     )
                                 }

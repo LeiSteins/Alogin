@@ -107,7 +107,6 @@ fun AccountRoute(
 
 @Composable
 fun SettingsRoute(
-    stateHolder: SettingsStateHolder,
     logs: HttpLogStateHolder,
     onNavigateBack: () -> Unit,
     onNavigateToLog: () -> Unit,
@@ -115,17 +114,13 @@ fun SettingsRoute(
     onNavigateToSoftwareSettings: () -> Unit,
     onNavigateToAbout: () -> Unit
 ) {
-    val targetSsids by stateHolder.targetSsids.collectAsStateWithLifecycle()
     val httpLogEnabled by logs.httpLogEnabled.collectAsStateWithLifecycle()
-    val httpLogs by logs.httpLogs.collectAsStateWithLifecycle()
     val lifecycleState by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
     // 随设置页返回栈保存最后完成的显示状态，返回后再播放待完成的插入或移除动画。
     var hasShownHttpLogEntry by rememberSaveable { mutableStateOf(httpLogEnabled) }
 
     SettingsScreen(
-        targetWifiCount = targetSsids.size,
         httpLogEnabled = httpLogEnabled,
-        logEntryCount = httpLogs.size,
         onNavigateBack = onNavigateBack,
         onNavigateToLog = onNavigateToLog,
         onNavigateToWifiConfig = onNavigateToWifiConfig,

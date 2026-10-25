@@ -82,6 +82,8 @@ class HomeScreenTest {
         compose.onNodeWithText(overview.username).assertIsDisplayed()
         compose.onNodeWithText(context.getString(R.string.home_money_yuan, "20.00"))
             .assertIsDisplayed()
+        compose.onNodeWithText(context.getString(R.string.home_flow_remaining, "2G", "3G"))
+            .assertIsDisplayed()
         InstrumentationRegistry.getArguments().getString("additionalTestOutputDir")?.let { path ->
             val directory = File(path).apply { mkdirs() }
             File(directory, "home-account-seamless-status.png").outputStream().use {

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -19,9 +20,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -35,8 +34,18 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import top.steins.autologin.R
 import top.steins.autologin.domain.model.AppearanceMode
+import top.steins.autologin.ui.component.ElasticOutlinedButton
+import top.steins.autologin.ui.component.ElasticSwitch
 import top.steins.autologin.ui.component.NavigationTopBar
 import top.steins.autologin.ui.component.SettingsOptionCard
+import top.steins.autologin.ui.theme.AppControlShape
+import top.steins.autologin.ui.theme.CardHorizontalPadding
+import top.steins.autologin.ui.theme.CardVerticalPadding
+import top.steins.autologin.ui.theme.ListRowHorizontalPadding
+import top.steins.autologin.ui.theme.ListItemTitleTextStyle
+import top.steins.autologin.ui.theme.ListRowMinHeight
+import top.steins.autologin.ui.theme.ListRowVerticalPadding
+import top.steins.autologin.ui.theme.ScreenContentTopPadding
 import top.steins.autologin.ui.theme.ScreenHorizontalPadding
 
 @Composable
@@ -61,29 +70,32 @@ fun SoftwareSettingsScreen(
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = ScreenHorizontalPadding)
-                .padding(bottom = 16.dp)
+                .padding(top = ScreenContentTopPadding, bottom = 16.dp)
         ) {
             SettingsOptionCard {
                 Text(
                     text = stringResource(R.string.appearance_title),
                     style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)
+                    modifier = Modifier.padding(
+                        start = CardHorizontalPadding, end = CardHorizontalPadding,
+                        top = CardVerticalPadding, bottom = 14.dp
+                    )
                 )
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 16.dp, end = 16.dp, bottom = 16.dp)
+                        .padding(start = CardHorizontalPadding, end = CardHorizontalPadding, bottom = CardVerticalPadding)
                         .selectableGroup(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     AppearanceMode.entries.forEach { mode ->
                         val isSelected = mode == appearanceMode
-                        OutlinedButton(
+                        ElasticOutlinedButton(
                             onClick = { onAppearanceModeChange(mode) },
                             modifier = Modifier
                                 .weight(1f)
                                 .semantics { selected = isSelected },
-                            shape = MaterialTheme.shapes.medium,
+                            shape = AppControlShape,
                             colors = ButtonDefaults.outlinedButtonColors(
                                 containerColor = if (isSelected) {
                                     MaterialTheme.colorScheme.primaryContainer
@@ -136,21 +148,22 @@ fun SoftwareSettingsScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .heightIn(min = ListRowMinHeight)
                         .toggleable(
                             value = autoLoginOnStartup,
                             role = Role.Switch,
                             onValueChange = onAutoLoginOnStartupChange
                         )
-                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                        .padding(horizontal = ListRowHorizontalPadding),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
                         text = stringResource(R.string.auto_login_on_startup),
-                        style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.weight(1f)
+                        style = ListItemTitleTextStyle,
+                        modifier = Modifier.weight(1f).padding(vertical = ListRowVerticalPadding)
                     )
                     Spacer(modifier = Modifier.width(12.dp))
-                    Switch(checked = autoLoginOnStartup, onCheckedChange = null)
+                    ElasticSwitch(checked = autoLoginOnStartup, onCheckedChange = null)
                 }
             }
         }

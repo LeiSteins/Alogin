@@ -20,7 +20,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,7 +33,10 @@ import top.steins.autologin.domain.model.AccountOverview
 import top.steins.autologin.domain.model.SeamlessStatus
 import top.steins.autologin.ui.component.AppearEasing
 import top.steins.autologin.ui.component.DismissEasing
-import top.steins.autologin.ui.theme.AppCardShape
+import top.steins.autologin.ui.component.ElasticTextButton
+import top.steins.autologin.ui.format.formatCompactTrafficMegabytes
+import top.steins.autologin.ui.theme.AppCardContentPadding
+import top.steins.autologin.ui.theme.AppInfoCardShape
 import top.steins.autologin.ui.theme.appCardElevation
 
 @Composable
@@ -60,13 +62,13 @@ internal fun AccountInfoCard(
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = AppCardShape,
+        shape = AppInfoCardShape,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainer
         ),
         elevation = appCardElevation(),
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.padding(AppCardContentPadding)) {
             Text(
                 text = stringResource(R.string.home_logged_in),
                 style = MaterialTheme.typography.labelLarge,
@@ -123,7 +125,7 @@ internal fun AccountInfoCard(
                             style = MaterialTheme.typography.bodyMedium
                         )
                         Spacer(modifier = Modifier.height(8.dp))
-                        TextButton(onClick = onRetry) {
+                        ElasticTextButton(onClick = onRetry) {
                             Text(stringResource(R.string.home_retry_fetch))
                         }
                     }
@@ -170,6 +172,13 @@ internal fun AccountInfoCard(
 @Composable
 private fun TrafficUsageSection(usedTrafficMegabytes: String, remainingTrafficMegabytes: String) {
     val usageFraction = calculateTrafficUsageFraction(usedTrafficMegabytes, remainingTrafficMegabytes)
+    val usedMb = usedTrafficMegabytes.toMegabytes()?.takeIf { it.isFinite() && it >= 0.0 }
+    val remainingMb = remainingTrafficMegabytes.toMegabytes()?.takeIf { it.isFinite() && it >= 0.0 }
+    val totalMb = if (usedMb != null && remainingMb != null) {
+        (usedMb + remainingMb).takeIf { it.isFinite() }
+    } else {
+        null
+    }
 
     Spacer(modifier = Modifier.height(12.dp))
     Row(
@@ -181,6 +190,15 @@ private fun TrafficUsageSection(usedTrafficMegabytes: String, remainingTrafficMe
             text = usageFraction?.let {
                 stringResource(R.string.home_flow_used_percent, (it * 100).toInt())
             } ?: stringResource(R.string.value_placeholder),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = stringResource(
+                R.string.home_flow_remaining,
+                remainingMb?.let(::formatCompactTrafficMegabytes) ?: stringResource(R.string.value_placeholder),
+                totalMb?.let(::formatCompactTrafficMegabytes) ?: stringResource(R.string.value_placeholder)
+            ),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -196,21 +214,4 @@ private fun TrafficUsageSection(usedTrafficMegabytes: String, remainingTrafficMe
         trackColor = MaterialTheme.colorScheme.secondaryContainer,
         drawStopIndicator = {}
     )
-    Spacer(modifier = Modifier.height(8.dp))
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = stringResource(R.string.home_flow_used, usedTrafficMegabytes.toDisplayTraffic()),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Text(
-            text = stringResource(R.string.home_flow_remaining, remainingTrafficMegabytes.toDisplayTraffic()),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
 }

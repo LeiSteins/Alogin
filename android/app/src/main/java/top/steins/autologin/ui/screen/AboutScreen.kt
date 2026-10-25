@@ -11,8 +11,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
@@ -36,9 +38,16 @@ import top.steins.autologin.R
 import top.steins.autologin.domain.model.UpdateDownloadState
 import top.steins.autologin.state.UpdateState
 import top.steins.autologin.ui.component.ListItemChevron
+import top.steins.autologin.ui.component.listRowSeparator
 import top.steins.autologin.ui.component.NavigationTopBar
 import top.steins.autologin.ui.component.updateDownloadSummary
-import top.steins.autologin.ui.theme.AppCardShape
+import top.steins.autologin.ui.theme.AppListCardShape
+import top.steins.autologin.ui.theme.ListRowHorizontalPadding
+import top.steins.autologin.ui.theme.ListRowIconSpacing
+import top.steins.autologin.ui.theme.ListItemTitleTextStyle
+import top.steins.autologin.ui.theme.ListRowMinHeight
+import top.steins.autologin.ui.theme.ListRowVerticalPadding
+import top.steins.autologin.ui.theme.ScreenContentTopPadding
 import top.steins.autologin.ui.theme.ScreenHorizontalPadding
 import top.steins.autologin.ui.theme.appCardElevation
 
@@ -77,7 +86,7 @@ fun AboutScreen(
                     .padding(innerPadding),
                 contentPadding = PaddingValues(
                     start = ScreenHorizontalPadding,
-                    top = 16.dp,
+                    top = ScreenContentTopPadding,
                     end = ScreenHorizontalPadding,
                     bottom = 24.dp
                 ),
@@ -116,7 +125,7 @@ fun AboutScreen(
 
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = AppCardShape,
+                        shape = AppListCardShape,
                         colors = cardColors,
                         elevation = appCardElevation()
                     ) {
@@ -143,7 +152,8 @@ fun AboutScreen(
                         )
                         AboutInfoRow(
                             label = stringResource(R.string.about_license_label),
-                            value = stringResource(R.string.about_license_value)
+                            value = stringResource(R.string.about_license_value),
+                            showSeparator = false
                         )
                     }
 
@@ -151,7 +161,7 @@ fun AboutScreen(
 
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = AppCardShape,
+                        shape = AppListCardShape,
                         colors = cardColors,
                         elevation = appCardElevation()
                     ) {
@@ -172,6 +182,7 @@ fun AboutScreen(
                         )
                         AboutLinkRow(
                             title = stringResource(R.string.check_for_updates),
+                            showSeparator = false,
                             summary = when (updateState) {
                                 UpdateState.Idle -> stringResource(
                                     R.string.update_idle,
@@ -209,13 +220,16 @@ fun AboutScreen(
 private fun AboutInfoRow(
     label: String,
     value: String,
+    showSeparator: Boolean = true,
     onClick: () -> Unit = {}
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .heightIn(min = ListRowMinHeight)
+            .listRowSeparator(visible = showSeparator)
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
+            .padding(horizontal = ListRowHorizontalPadding, vertical = ListRowVerticalPadding),
         horizontalArrangement = Arrangement.spacedBy(16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -238,24 +252,28 @@ private fun AboutLinkRow(
     title: String,
     summary: String,
     onClick: () -> Unit,
+    showSeparator: Boolean = true,
     isLoading: Boolean = false
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .heightIn(min = ListRowMinHeight)
+            .listRowSeparator(visible = showSeparator)
             .clickable(enabled = !isLoading, onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
+            .padding(horizontal = ListRowHorizontalPadding, vertical = ListRowVerticalPadding),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            Text(text = title, style = MaterialTheme.typography.titleMedium)
+            Text(text = title, style = ListItemTitleTextStyle)
             Text(
                 text = summary,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
+        Spacer(Modifier.width(ListRowIconSpacing))
         if (isLoading) {
             CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
         } else {

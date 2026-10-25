@@ -18,7 +18,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -38,9 +37,12 @@ import kotlinx.coroutines.launch
 import top.steins.autologin.R
 import top.steins.autologin.domain.model.CredentialSaveResult
 import top.steins.autologin.domain.model.SavedAccount
+import top.steins.autologin.ui.component.ElasticTextButton
 import top.steins.autologin.ui.component.NavigationTopBar
-import top.steins.autologin.ui.theme.AppCardShape
+import top.steins.autologin.ui.theme.AppCardContentPadding
+import top.steins.autologin.ui.theme.AppInfoCardShape
 import top.steins.autologin.ui.theme.LocalAloginDarkTheme
+import top.steins.autologin.ui.theme.ScreenContentTopPadding
 import top.steins.autologin.ui.theme.ScreenHorizontalPadding
 
 @Composable
@@ -78,15 +80,17 @@ fun AccountScreen(
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(
-                horizontal = ScreenHorizontalPadding
+                start = ScreenHorizontalPadding,
+                end = ScreenHorizontalPadding,
+                top = ScreenContentTopPadding
             ),
         ) {
             item {
-                Card(shape = AppCardShape) {
+                Card(shape = AppInfoCardShape) {
                     Column(
                         modifier = Modifier.fillMaxWidth().background(
                             Brush.linearGradient(listOf(colors.primaryContainer, colors.surfaceContainer))
-                        ).padding(16.dp),
+                        ).padding(AppCardContentPadding),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Icon(
@@ -124,7 +128,7 @@ fun AccountScreen(
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold
                     )
-                    TextButton(onClick = { editingAccount = null; showEditor = true }) {
+                    ElasticTextButton(onClick = { editingAccount = null; showEditor = true }) {
                         Icon(painterResource(R.drawable.add_circle), null, Modifier.size(16.dp))
                         Spacer(Modifier.width(6.dp))
                         Text(stringResource(R.string.account_add))
@@ -185,7 +189,7 @@ fun AccountScreen(
             title = { Text(stringResource(R.string.account_delete_title)) },
             text = { Text(stringResource(R.string.account_delete_message, target)) },
             confirmButton = {
-                TextButton(enabled = !isMutating, onClick = {
+                ElasticTextButton(enabled = !isMutating, onClick = {
                     isMutating = true
                     scope.launch {
                         try {
@@ -200,7 +204,7 @@ fun AccountScreen(
                 }) { Text(stringResource(R.string.action_delete), color = colors.error) }
             },
             dismissButton = {
-                TextButton(enabled = !isMutating, onClick = { deletingAccount = null }) { Text(stringResource(R.string.action_cancel)) }
+                ElasticTextButton(enabled = !isMutating, onClick = { deletingAccount = null }) { Text(stringResource(R.string.action_cancel)) }
             }
         )
     }

@@ -4,6 +4,7 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -11,7 +12,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -30,7 +30,9 @@ import androidx.compose.ui.unit.sp
 import top.steins.autologin.R
 import top.steins.autologin.ui.component.AppearEasing
 import top.steins.autologin.ui.component.ScaleFadeBox
-import top.steins.autologin.ui.theme.AppCardShape
+import top.steins.autologin.ui.theme.AppCardContentPadding
+import top.steins.autologin.ui.theme.AppInfoCardShape
+import top.steins.autologin.ui.theme.AppControlShape
 import top.steins.autologin.ui.theme.appCardElevation
 
 @Composable
@@ -60,7 +62,7 @@ internal fun FloatingActionBox(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val shape = RoundedCornerShape(18.dp)
+    val shape = AppControlShape
     // 保持加载中的按钮使用不透明主色，避免禁用态的半透明色叠在不同内容上时呈现出色块。
     val containerColor = if (enabled || isLoading) {
         MaterialTheme.colorScheme.primary
@@ -105,11 +107,14 @@ internal fun NetworkInfoSummary(
     ipAddress: String,
     modifier: Modifier = Modifier
 ) {
-    Column(modifier = modifier) {
+    Column(
+        modifier = modifier.height(44.dp),
+        verticalArrangement = Arrangement.SpaceBetween
+    ) {
         Text(
             text = wifiName,
-            fontSize = 16.sp,
-            style = MaterialTheme.typography.labelLarge.copy(lineHeight = 16.sp),
+            fontSize = 20.sp,
+            style = MaterialTheme.typography.labelLarge.copy(lineHeight = 18.sp),
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
@@ -117,7 +122,7 @@ internal fun NetworkInfoSummary(
         )
         Text(
             text = ipAddress,
-            fontSize = 10.sp,
+            fontSize = 12.sp,
             style = MaterialTheme.typography.labelSmall.copy(lineHeight = 2.sp),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
@@ -137,14 +142,14 @@ internal fun NetworkInfoCard(wifiName: String, ipAddress: String, errorMessage: 
                     easing = AppearEasing
                 )
             ),
-        shape = AppCardShape,
+        shape = AppInfoCardShape,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainer
         ),
         elevation = appCardElevation(),
     ) {
         Column(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier.padding(AppCardContentPadding),
             horizontalAlignment = Alignment.Start
         ) {
             InfoLabel(stringResource(R.string.home_current_network))

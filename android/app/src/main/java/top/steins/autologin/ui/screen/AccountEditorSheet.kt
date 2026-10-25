@@ -13,20 +13,16 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -59,7 +55,11 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import top.steins.autologin.R
+import top.steins.autologin.ui.theme.AppControlShape
 import top.steins.autologin.domain.model.SavedAccount
+import top.steins.autologin.ui.component.ElasticButton
+import top.steins.autologin.ui.component.ElasticIconButton
+import top.steins.autologin.ui.component.ElasticTextButton
 import top.steins.autologin.ui.component.PasswordRevealState
 import top.steins.autologin.ui.component.PasswordRevealTransformation
 
@@ -181,7 +181,7 @@ internal fun AccountEditorSheet(
                 onAction = ::save,
                 trailing = if (account == null) {
                     {
-                        IconButton(onClick = {
+                        ElasticIconButton(onClick = {
                             passwordReveal.hide()
                             passwordVisible = !passwordVisible
                         }) {
@@ -204,17 +204,17 @@ internal fun AccountEditorSheet(
                 Text(stringResource(R.string.account_fields_required), color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodySmall)
             }
-            Button(
+            ElasticButton(
                 onClick = ::save,
                 enabled = !isClosing && !isSaving,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
-                shape = RoundedCornerShape(16.dp)
+                shape = AppControlShape
             ) {
                 Text(stringResource(R.string.account_save_and_use), style = MaterialTheme.typography.titleSmall)
             }
             if (account != null) {
                 val deleteDescription = stringResource(R.string.account_delete_named, account.username)
-                TextButton(
+                ElasticTextButton(
                     onClick = {
                         focusManager.clearFocus()
                         onDelete()
@@ -282,8 +282,8 @@ private fun AccountInput(
             decorationBox = { innerTextField ->
                 Row(
                     modifier = Modifier.fillMaxWidth()
-                        .background(colors.surfaceContainerHigh, RoundedCornerShape(16.dp))
-                        .border(if (focused || isError) 1.5.dp else 1.dp, outline, RoundedCornerShape(16.dp))
+                        .background(colors.surfaceContainerHigh, AppControlShape)
+                        .border(if (focused || isError) 1.5.dp else 1.dp, outline, AppControlShape)
                         .heightIn(min = 60.dp).padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {

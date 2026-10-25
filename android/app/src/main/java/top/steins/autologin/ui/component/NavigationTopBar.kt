@@ -7,9 +7,10 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -22,6 +23,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import top.steins.autologin.R
+import top.steins.autologin.ui.theme.NavigationTitleTextStyle
+import top.steins.autologin.ui.theme.ScreenHorizontalPadding
 import top.steins.autologin.ui.theme.TopBarHeight
 
 /**
@@ -41,10 +44,16 @@ fun NavigationTopBar(
             .background(MaterialTheme.colorScheme.background)
             .statusBarsPadding()
             .height(TopBarHeight)
-            .padding(horizontal = 4.dp),
+            .padding(start = ScreenHorizontalPadding, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        IconButton(onClick = onNavigateBack) {
+        ElasticIconButton(
+            onClick = onNavigateBack,
+            modifier = Modifier.padding(vertical = 2.dp).size(44.dp),
+            colors = IconButtonDefaults.iconButtonColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainer
+            )
+        ) {
             Icon(
                 painter = painterResource(R.drawable.arrow_back),
                 contentDescription = stringResource(R.string.action_back),
@@ -55,11 +64,11 @@ fun NavigationTopBar(
             text = title,
             modifier = Modifier
                 .weight(1f)
-                .padding(horizontal = 4.dp),
+                .padding(horizontal = ScreenHorizontalPadding),
             color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            style = MaterialTheme.typography.titleLarge
+            style = NavigationTitleTextStyle
         )
         CompositionLocalProvider(
             LocalContentColor provides MaterialTheme.colorScheme.onSurfaceVariant

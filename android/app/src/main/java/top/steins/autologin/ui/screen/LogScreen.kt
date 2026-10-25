@@ -9,12 +9,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -29,7 +27,10 @@ import androidx.compose.ui.unit.dp
 import top.steins.autologin.R
 import top.steins.autologin.domain.model.HttpLogEntry
 import top.steins.autologin.domain.model.HttpLogEntryType
+import top.steins.autologin.ui.component.ElasticIconButton
+import top.steins.autologin.ui.component.ElasticTextButton
 import top.steins.autologin.ui.component.NavigationTopBar
+import top.steins.autologin.ui.theme.ScreenContentTopPadding
 import top.steins.autologin.ui.theme.ScreenHorizontalPadding
 
 // ==================== HTTP 日志页 ====================
@@ -58,7 +59,7 @@ fun LogScreen(
                 title = stringResource(R.string.log_title),
                 onNavigateBack = onNavigateBack,
                 actions = {
-                    IconButton(
+                    ElasticIconButton(
                         onClick = {
                             onClearLogs()
                             selectedEntry = null
@@ -70,7 +71,7 @@ fun LogScreen(
                             contentDescription = stringResource(R.string.log_clear)
                         )
                     }
-                    IconButton(onClick = { showDisableConfirmation = true }) {
+                    ElasticIconButton(onClick = { showDisableConfirmation = true }) {
                         Icon(
                             painterResource(R.drawable.toggle_off),
                             contentDescription = stringResource(R.string.log_disable)
@@ -99,8 +100,10 @@ fun LogScreen(
                     .fillMaxSize()
                     .padding(innerPadding),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                    horizontal = ScreenHorizontalPadding,
-                    vertical = 12.dp
+                    start = ScreenHorizontalPadding,
+                    end = ScreenHorizontalPadding,
+                    top = ScreenContentTopPadding,
+                    bottom = 12.dp
                 ),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
@@ -130,7 +133,7 @@ fun LogScreen(
             title = { Text(stringResource(R.string.log_disable_title)) },
             text = { Text(stringResource(R.string.log_disable_message)) },
             confirmButton = {
-                TextButton(
+                ElasticTextButton(
                     onClick = {
                         showDisableConfirmation = false
                         selectedEntry = null
@@ -142,7 +145,7 @@ fun LogScreen(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showDisableConfirmation = false }) {
+                ElasticTextButton(onClick = { showDisableConfirmation = false }) {
                     Text(stringResource(R.string.cancel))
                 }
             }

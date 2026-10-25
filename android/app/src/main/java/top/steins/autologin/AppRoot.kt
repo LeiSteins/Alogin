@@ -127,7 +127,6 @@ fun AppRoot(viewModel: AppViewModel) {
 
             appComposable(AppDestination.Settings, navController) { onNavigateBack ->
                 SettingsRoute(
-                    stateHolder = viewModel.preferences,
                     logs = viewModel.logs,
                     onNavigateBack = onNavigateBack,
                     onNavigateToLog = { navigateTo(AppDestination.Log) },

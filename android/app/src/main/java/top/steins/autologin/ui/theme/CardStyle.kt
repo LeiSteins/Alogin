@@ -1,12 +1,41 @@
 package top.steins.autologin.ui.theme
 
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CardElevation
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.asComposePath
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.graphics.shapes.CornerRounding
+import androidx.graphics.shapes.RoundedPolygon
+import androidx.graphics.shapes.toPath
 
-val AppCardShape = RoundedCornerShape(20.dp)
+val AppInfoCardShape: Shape = SmoothCardShape(34.dp)
+val AppListCardShape: Shape = SmoothCardShape(24.dp)
+val AppControlShape: Shape = AppListCardShape
+val AppCardContentPadding = PaddingValues(horizontal = CardHorizontalPadding, vertical = CardVerticalPadding)
+
+private class SmoothCardShape(private val cornerRadius: Dp) : Shape {
+    override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline {
+        if (size.minDimension <= 0f) return Outline.Rectangle(Rect(Offset.Zero, size))
+        val radius = with(density) { cornerRadius.toPx() }.coerceAtMost(size.minDimension / 2f)
+        val polygon = RoundedPolygon(
+            vertices = floatArrayOf(0f, 0f, size.width, 0f, size.width, size.height, 0f, size.height),
+            centerX = size.width / 2f,
+            centerY = size.height / 2f,
+            rounding = CornerRounding(radius = radius, smoothing = 0.6f)
+        )
+        return Outline.Generic(polygon.toPath().asComposePath())
+    }
+}
 
 @Composable
 fun appCardElevation(): CardElevation {

@@ -15,7 +15,6 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -39,7 +38,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import top.steins.autologin.R
-import top.steins.autologin.ui.theme.AppCardShape
+import top.steins.autologin.ui.theme.AppControlShape
 import top.steins.autologin.ui.theme.LocalAloginDarkTheme
 
 @Composable
@@ -91,8 +90,8 @@ fun WifiSsidInput(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(containerColor, AppCardShape)
-                        .border(if (focused) 1.5.dp else 1.dp, outline, AppCardShape)
+                        .background(containerColor, AppControlShape)
+                        .border(if (focused) 1.5.dp else 1.dp, outline, AppControlShape)
                         .heightIn(min = 60.dp)
                         .padding(start = 16.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -107,7 +106,7 @@ fun WifiSsidInput(
                         }
                         innerTextField()
                     }
-                    IconButton(onClick = onAdd, enabled = value.isNotBlank()) {
+                    ElasticIconButton(onClick = onAdd, enabled = value.isNotBlank()) {
                         Icon(
                             painter = painterResource(R.drawable.add_circle),
                             contentDescription = stringResource(R.string.action_add),

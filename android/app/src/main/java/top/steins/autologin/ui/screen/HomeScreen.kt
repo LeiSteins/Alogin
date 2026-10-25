@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
@@ -42,7 +41,10 @@ import top.steins.autologin.R
 import top.steins.autologin.domain.model.AccountDevice
 import top.steins.autologin.domain.model.AccountOverview
 import top.steins.autologin.domain.model.SeamlessStatus
+import top.steins.autologin.ui.component.ElasticIconButton
+import top.steins.autologin.ui.component.ElasticIconButtonGroup
 import top.steins.autologin.ui.component.ScaleFadeBox
+import top.steins.autologin.ui.theme.ScreenContentTopPadding
 import top.steins.autologin.ui.theme.ScreenHorizontalPadding
 import top.steins.autologin.ui.theme.TopBarHeight
 
@@ -229,14 +231,14 @@ fun HomeScreen(
                         )
                         .statusBarsPadding()
                         .height(TopBarHeight)
-                        .padding(start = ScreenHorizontalPadding, end = 12.dp),
+                        .padding(horizontal = ScreenHorizontalPadding),
                     horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .padding(start = 4.dp, end = 4.dp)
+                            .padding(end = 8.dp)
                     ) {
                         ScaleFadeBox(
                             visible = onlineContentVisible,
@@ -251,27 +253,29 @@ fun HomeScreen(
                             )
                         }
                     }
-                    IconButton(
-                        onClick = onNavigateToSettings,
-                        modifier = Modifier.size(60.dp)
-                    ) {
-                        Icon(
-                            painter = painterResource(R.drawable.settings),
-                            contentDescription = stringResource(R.string.nav_settings),
-                            modifier = Modifier.size(24.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    IconButton(
-                        onClick = onNavigateToAccount,
-                        modifier = Modifier.size(40.dp)
-                    ) {
-                        Icon(
-                            painter = painterResource(R.drawable.manage_accounts),
-                            contentDescription = stringResource(R.string.account_title),
-                            modifier = Modifier.size(24.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                    ElasticIconButtonGroup {
+                        ElasticIconButton(
+                            onClick = onNavigateToSettings,
+                            modifier = Modifier.size(44.dp)
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.settings),
+                                contentDescription = stringResource(R.string.nav_settings),
+                                modifier = Modifier.size(24.dp),
+                                tint = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        ElasticIconButton(
+                            onClick = onNavigateToAccount,
+                            modifier = Modifier.size(44.dp)
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.manage_accounts),
+                                contentDescription = stringResource(R.string.account_title),
+                                modifier = Modifier.size(24.dp),
+                                tint = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
                     }
                 }
             },
@@ -300,7 +304,7 @@ fun HomeScreen(
                 contentPadding = PaddingValues(
                     start = ScreenHorizontalPadding,
                     end = ScreenHorizontalPadding,
-                    top = innerPadding.calculateTopPadding(),
+                    top = innerPadding.calculateTopPadding() + ScreenContentTopPadding,
                     bottom = innerPadding.calculateBottomPadding() + 96.dp
                 ),
                 verticalArrangement = Arrangement.spacedBy(12.dp)

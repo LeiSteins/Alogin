@@ -8,12 +8,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
 import androidx.compose.ui.Modifier
-import top.steins.autologin.ui.theme.AppCardShape
+import androidx.compose.ui.graphics.Shape
+import top.steins.autologin.ui.theme.AppListCardShape
 import top.steins.autologin.ui.theme.LocalAloginDarkTheme
 import top.steins.autologin.ui.theme.appCardElevation
 
 @Composable
-fun SettingsOptionCard(content: @Composable ColumnScope.() -> Unit) {
+fun SettingsOptionCard(
+    shape: Shape = AppListCardShape,
+    content: @Composable ColumnScope.() -> Unit
+) {
     val isDarkTheme = LocalAloginDarkTheme.current
 
     // Material 3's non-clickable Card remembers its initial elevation. Recreate it when the
@@ -21,7 +25,7 @@ fun SettingsOptionCard(content: @Composable ColumnScope.() -> Unit) {
     key(isDarkTheme) {
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = AppCardShape,
+            shape = shape,
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surfaceContainer
             ),

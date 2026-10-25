@@ -9,7 +9,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -61,7 +60,7 @@ fun UpdateDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDownload, enabled = download !is UpdateDownloadState.Downloading) {
+            ElasticTextButton(onClick = onDownload, enabled = download !is UpdateDownloadState.Downloading) {
                 Text(stringResource(when (download) {
                     UpdateDownloadState.None -> R.string.update_download
                     is UpdateDownloadState.Downloading -> R.string.update_downloading_action
@@ -71,7 +70,7 @@ fun UpdateDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.update_later)) }
+            ElasticTextButton(onClick = onDismiss) { Text(stringResource(R.string.update_later)) }
         }
     )
 }

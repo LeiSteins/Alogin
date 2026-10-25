@@ -184,6 +184,7 @@ class AccountScreenTest {
         compose.onNodeWithContentDescription("显示密码").assertDoesNotExist()
         compose.onNodeWithContentDescription("隐藏密码").assertDoesNotExist()
         compose.onNodeWithText("保存并使用").performScrollTo().performClick()
+        compose.waitUntil(timeoutMillis = 5_000) { saved != null }
         compose.runOnIdle { assertEquals("alice" to "new", saved) }
     }
 

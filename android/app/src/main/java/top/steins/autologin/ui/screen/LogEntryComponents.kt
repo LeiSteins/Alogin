@@ -29,7 +29,8 @@ import java.util.Locale
 import top.steins.autologin.R
 import top.steins.autologin.domain.model.HttpLogEntry
 import top.steins.autologin.domain.model.HttpLogEntryType
-import top.steins.autologin.ui.theme.AppCardShape
+import top.steins.autologin.ui.theme.AppCardContentPadding
+import top.steins.autologin.ui.theme.AppInfoCardShape
 import top.steins.autologin.ui.theme.appCardElevation
 
 @Composable
@@ -43,7 +44,7 @@ internal fun LogEntryCard(entry: HttpLogEntry, onClick: () -> Unit) {
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = AppCardShape,
+        shape = AppInfoCardShape,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainer
         ),
@@ -53,7 +54,7 @@ internal fun LogEntryCard(entry: HttpLogEntry, onClick: () -> Unit) {
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable { onClick() }
-                .padding(12.dp)
+                .padding(AppCardContentPadding)
         ) {
             // 第一行：方法徽章 + 状态码 + 时间戳
             Row(
@@ -181,7 +182,7 @@ internal fun AccountInfoRefreshLogEntryCard(entry: HttpLogEntry, onClick: () -> 
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = AppCardShape,
+        shape = AppInfoCardShape,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainer
         ),
@@ -191,7 +192,7 @@ internal fun AccountInfoRefreshLogEntryCard(entry: HttpLogEntry, onClick: () -> 
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable { onClick() }
-                .padding(12.dp)
+                .padding(AppCardContentPadding)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),

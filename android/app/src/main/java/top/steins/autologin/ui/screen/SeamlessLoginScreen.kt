@@ -9,13 +9,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -39,8 +36,15 @@ import top.steins.autologin.domain.model.SeamlessStatus
 import top.steins.autologin.domain.rule.canonicalMac
 import top.steins.autologin.ui.component.DeviceListCardContent
 import top.steins.autologin.ui.component.DeviceListEntry
+import top.steins.autologin.ui.component.ElasticButton
+import top.steins.autologin.ui.component.ElasticSwitch
+import top.steins.autologin.ui.component.ElasticTextButton
 import top.steins.autologin.ui.component.NavigationTopBar
 import top.steins.autologin.ui.component.SettingsOptionCard
+import top.steins.autologin.ui.theme.AppCardContentPadding
+import top.steins.autologin.ui.theme.AppControlShape
+import top.steins.autologin.ui.theme.AppInfoCardShape
+import top.steins.autologin.ui.theme.ScreenContentTopPadding
 import top.steins.autologin.ui.theme.ScreenHorizontalPadding
 
 @Composable
@@ -93,7 +97,7 @@ fun SeamlessLoginScreen(
 
     Scaffold(topBar = {
         NavigationTopBar(stringResource(R.string.seamless_title), onNavigateBack) {
-            TextButton(onClick = onRefresh, enabled = !state.isLoading && !state.isSubmitting) {
+            ElasticTextButton(onClick = onRefresh, enabled = !state.isLoading && !state.isSubmitting) {
                 Text(stringResource(R.string.seamless_refresh))
             }
         }
@@ -103,13 +107,14 @@ fun SeamlessLoginScreen(
             contentPadding = PaddingValues(
                 start = ScreenHorizontalPadding,
                 end = ScreenHorizontalPadding,
+                top = ScreenContentTopPadding,
                 bottom = 12.dp
             ),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item(key = "seamless-status") {
-                SettingsOptionCard {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                SettingsOptionCard(shape = AppInfoCardShape) {
+                    Column(Modifier.padding(AppCardContentPadding), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(stringResource(R.string.seamless_account,
                             info?.username ?: stringResource(R.string.value_placeholder)),
                             style = MaterialTheme.typography.bodyMedium)
@@ -118,7 +123,7 @@ fun SeamlessLoginScreen(
                                 Text(stringResource(R.string.seamless_title), style = MaterialTheme.typography.titleMedium)
                                 Text(seamlessStatusText(state), color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            Switch(
+                            ElasticSwitch(
                                 modifier = Modifier.semantics { contentDescription = switchLabel },
                                 checked = info?.status == SeamlessStatus.Enabled,
                                 enabled = state.canPrepareAction && info?.status != SeamlessStatus.Unknown,
@@ -139,11 +144,11 @@ fun SeamlessLoginScreen(
                 item(key = "seamless-devices") {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         StaggeredCard(visible = lowerCardsVisible, initiallyVisible = showLowerCardsImmediately, index = 0) {
-                            SettingsOptionCard {
-                                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            SettingsOptionCard(shape = AppInfoCardShape) {
+                                Column(Modifier.padding(AppCardContentPadding), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Text(stringResource(R.string.seamless_limit_hint), style = MaterialTheme.typography.bodyMedium,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Button(onClick = { macInput = ""; invalidMac = false; showEditor = true },
+                                    ElasticButton(onClick = { macInput = ""; invalidMac = false; showEditor = true },
                                         enabled = state.canPrepareAction && lowerCardsVisible) { Text(stringResource(R.string.seamless_add)) }
                                 }
                             }
@@ -193,12 +198,13 @@ fun SeamlessLoginScreen(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(value = macInput, onValueChange = { macInput = it; invalidMac = false },
-                    label = { Text(stringResource(R.string.seamless_mac_label)) }, singleLine = true, isError = invalidMac)
+                    label = { Text(stringResource(R.string.seamless_mac_label)) }, singleLine = true,
+                    isError = invalidMac, shape = AppControlShape)
                 Text(stringResource(if (invalidMac) R.string.seamless_invalid_mac else R.string.seamless_mac_hint))
             }
         },
         confirmButton = {
-            TextButton(enabled = state.canManage && list != null, onClick = {
+            ElasticTextButton(enabled = state.canManage && list != null, onClick = {
                 val mac = canonicalMac(macInput)
                 if (mac == null) invalidMac = true
                 else if (list != null && list.total >= SEAMLESS_DEVICE_LIMIT) {
@@ -209,7 +215,7 @@ fun SeamlessLoginScreen(
                 }
             }) { Text(stringResource(R.string.seamless_bind)) }
         },
-        dismissButton = { TextButton(onClick = { showEditor = false }) { Text(stringResource(R.string.action_cancel)) } }
+        dismissButton = { ElasticTextButton(onClick = { showEditor = false }) { Text(stringResource(R.string.action_cancel)) } }
     )
 
     pendingAction?.let { action ->
@@ -226,10 +232,10 @@ fun SeamlessLoginScreen(
         }
         AlertDialog(onDismissRequest = { pendingAction = null },
             title = { Text(stringResource(title)) }, text = { Text(message) },
-            confirmButton = { TextButton(enabled = state.canManage, onClick = {
+            confirmButton = { ElasticTextButton(enabled = state.canManage, onClick = {
                 pendingAction = null; showEditor = false; onAction(action)
             }) { Text(stringResource(R.string.seamless_confirm)) } },
-            dismissButton = { TextButton(onClick = { pendingAction = null }) { Text(stringResource(R.string.action_cancel)) } }
+            dismissButton = { ElasticTextButton(onClick = { pendingAction = null }) { Text(stringResource(R.string.action_cancel)) } }
         )
     }
 }

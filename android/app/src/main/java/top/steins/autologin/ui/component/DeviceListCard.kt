@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -19,7 +20,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -34,12 +34,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import top.steins.autologin.R
-import top.steins.autologin.ui.theme.AppCardShape
+import top.steins.autologin.ui.theme.AppListCardShape
+import top.steins.autologin.ui.theme.CardHorizontalPadding
+import top.steins.autologin.ui.theme.CardVerticalPadding
+import top.steins.autologin.ui.theme.ListRowVerticalPadding
+import top.steins.autologin.ui.theme.ListRowMinHeight
 import top.steins.autologin.ui.theme.appCardElevation
 
 internal data class DeviceListEntry(
@@ -60,6 +65,7 @@ internal fun DeviceListCardContent(
     animationDurationMillis: Int,
     enabled: Boolean,
     showEmptyState: Boolean = true,
+    shape: Shape = AppListCardShape,
     onRemoveDevice: (DeviceListEntry) -> Unit
 ) {
     var renderedDevices by remember { mutableStateOf(devices) }
@@ -82,7 +88,7 @@ internal fun DeviceListCardContent(
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = AppCardShape,
+        shape = shape,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainer
         ),
@@ -95,7 +101,8 @@ internal fun DeviceListCardContent(
         ) {
             Text(
                 text = title,
-                modifier = Modifier.padding(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 8.dp),
+                modifier = Modifier.padding(start = CardHorizontalPadding, top = CardVerticalPadding,
+                    end = CardHorizontalPadding, bottom = 8.dp),
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.primary,
                 fontWeight = FontWeight.Bold
@@ -110,6 +117,7 @@ internal fun DeviceListCardContent(
                         initiallyVisible = isInitialComposition,
                         isCurrentDevice = device.isCurrentDevice,
                         enabled = enabled && visible,
+                        showSeparator = device.id != renderedDevices.lastOrNull()?.id,
                         onRemoveDevice = { onRemoveDevice(device) },
                         onHidden = {
                             if (currentDevices.none { it.id == device.id }) {
@@ -130,7 +138,7 @@ internal fun DeviceListCardContent(
             ) {
                 Text(
                     text = emptyText,
-                    modifier = Modifier.padding(16.dp),
+                    modifier = Modifier.padding(horizontal = CardHorizontalPadding, vertical = ListRowVerticalPadding),
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
@@ -146,6 +154,7 @@ private fun AnimatedDeviceRow(
     initiallyVisible: Boolean,
     isCurrentDevice: Boolean,
     enabled: Boolean,
+    showSeparator: Boolean,
     onRemoveDevice: () -> Unit,
     onHidden: () -> Unit
 ) {
@@ -170,11 +179,12 @@ private fun AnimatedDeviceRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                // 按钮触控区和图标画布已有留白，行尾不再叠加内边距。
-                .padding(start = 16.dp, top = 8.dp, bottom = 8.dp),
+                .heightIn(min = ListRowMinHeight)
+                .listRowSeparator(visible = showSeparator, startIndent = CardHorizontalPadding)
+                .padding(start = CardHorizontalPadding, end = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(modifier = Modifier.weight(1f)) {
+            Column(modifier = Modifier.weight(1f).padding(vertical = ListRowVerticalPadding)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
@@ -215,7 +225,7 @@ private fun AnimatedDeviceRow(
                 )
             }
             Spacer(modifier = Modifier.width(8.dp))
-            IconButton(
+            ElasticIconButton(
                 onClick = onRemoveDevice,
                 enabled = enabled,
                 modifier = Modifier.size(48.dp)

@@ -17,7 +17,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -36,6 +35,7 @@ import java.util.Locale
 import top.steins.autologin.R
 import top.steins.autologin.domain.model.HttpLogEntry
 import top.steins.autologin.domain.model.HttpLogEntryType
+import top.steins.autologin.ui.component.ElasticIconButton
 import top.steins.autologin.ui.theme.ScreenHorizontalPadding
 
 @Composable
@@ -165,7 +165,7 @@ internal fun LogEntryDetail(entry: HttpLogEntry) {
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.primary
                 )
-                IconButton(
+                ElasticIconButton(
                     onClick = {
                         copyResponseBodyToClipboard(context, entry.responseBody)
                     }

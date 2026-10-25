@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
@@ -26,12 +27,10 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
@@ -58,9 +57,17 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import top.steins.autologin.R
+import top.steins.autologin.ui.component.listRowSeparator
+import top.steins.autologin.ui.component.ElasticButton
+import top.steins.autologin.ui.component.ElasticIconButton
 import top.steins.autologin.ui.component.NavigationTopBar
 import top.steins.autologin.ui.component.WifiSsidInput
-import top.steins.autologin.ui.theme.AppCardShape
+import top.steins.autologin.ui.theme.AppListCardShape
+import top.steins.autologin.ui.theme.AppControlShape
+import top.steins.autologin.ui.theme.ListRowHorizontalPadding
+import top.steins.autologin.ui.theme.ListRowMinHeight
+import top.steins.autologin.ui.theme.ListRowVerticalPadding
+import top.steins.autologin.ui.theme.ScreenContentTopPadding
 import top.steins.autologin.ui.theme.ScreenHorizontalPadding
 import top.steins.autologin.ui.theme.appCardElevation
 
@@ -112,7 +119,7 @@ fun WifiConfigScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding),
-                contentPadding = PaddingValues(vertical = 16.dp),
+                contentPadding = PaddingValues(top = ScreenContentTopPadding, bottom = 16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 item(key = "controls") {
@@ -135,7 +142,7 @@ fun WifiConfigScreen(
                         Spacer(modifier = Modifier.height(16.dp))
 
                         // 扫描附近的 WiFi 按钮
-                        Button(
+                        ElasticButton(
                             onClick = {
                                 focusManager.clearFocus()
                                 showScanSheet = true
@@ -144,7 +151,7 @@ fun WifiConfigScreen(
                                 .fillMaxWidth()
                                 .padding(horizontal = ScreenHorizontalPadding)
                                 .height(54.dp),
-                            shape = AppCardShape
+                            shape = AppControlShape
                         ) {
                             Icon(
                                 painter = painterResource(R.drawable.add_circle),
@@ -192,7 +199,7 @@ fun WifiConfigScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = ScreenHorizontalPadding),
-                            shape = AppCardShape,
+                            shape = AppListCardShape,
                             colors = CardDefaults.cardColors(containerColor = wifiItemContainerColor),
                             elevation = appCardElevation()
                         ) {
@@ -203,6 +210,7 @@ fun WifiConfigScreen(
                                         TargetWifiRow(
                                             ssid = ssid,
                                             initiallyVisible = initiallyVisible,
+                                            showSeparator = ssid != targetSsids.lastOrNull(),
                                             onRemove = {
                                                 displayedSsids.remove(ssid)
                                                 onRemoveTargetWifi(ssid)
@@ -246,6 +254,7 @@ fun WifiConfigScreen(
 private fun TargetWifiRow(
     ssid: String,
     initiallyVisible: Boolean,
+    showSeparator: Boolean,
     onRemove: () -> Unit
 ) {
     var deleting by remember { mutableStateOf(false) }
@@ -284,17 +293,18 @@ private fun TargetWifiRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(56.dp)
-                .padding(start = 16.dp),
+                .heightIn(min = ListRowMinHeight)
+                .listRowSeparator(visible = showSeparator)
+                .padding(start = ListRowHorizontalPadding),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text(
                 text = ssid,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).padding(vertical = ListRowVerticalPadding),
                 style = MaterialTheme.typography.titleMedium
             )
-            IconButton(
+            ElasticIconButton(
                 onClick = {
                     focusManager.clearFocus()
                     deleting = true
