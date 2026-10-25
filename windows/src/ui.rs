@@ -353,22 +353,13 @@ impl App {
             } else {
                 strings::SSID_UNAVAILABLE
             });
-        let online = match self.view.online {
-            Online::Yes => strings::LOGGED_IN,
-            Online::No => strings::LOGGED_OUT,
-            Online::Unknown => strings::UNKNOWN,
-        };
-        window.set_network_status(
-            strings::network_status(
-                ssid,
-                if network.ipv4.is_empty() {
-                    "—"
-                } else {
-                    &network.ipv4
-                },
-                online,
-            )
-            .replace("\r\n", "\n")
+        window.set_network_name(ssid.into());
+        window.set_network_ipv4(
+            if network.ipv4.is_empty() {
+                "—"
+            } else {
+                &network.ipv4
+            }
             .into(),
         );
         let account = strings::account_card(&self.view.account_info, self.view.online);
@@ -486,6 +477,8 @@ fn set_labels(window: &MainWindow) {
     labels.set_network_page(strings::NETWORK_PAGE.into());
     labels.set_toggle_navigation(strings::TOGGLE_NAVIGATION.into());
     labels.set_network_title(strings::NETWORK_TITLE.into());
+    labels.set_network_name(strings::NETWORK_NAME.into());
+    labels.set_network_ipv4(strings::NETWORK_IPV4.into());
     labels.set_account_title(strings::ACCOUNT_TITLE.into());
     labels.set_account_username(strings::ACCOUNT_USERNAME.into());
     labels.set_remaining_money(strings::REMAINING_MONEY.into());

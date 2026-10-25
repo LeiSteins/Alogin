@@ -208,7 +208,7 @@ pub fn preview(window: &MainWindow, dark: bool, high_contrast: bool) {
         p.border = p.text;
         p.accent = rgb(255, 255, 0);
         p.accent_text = p.background;
-        p.hover = rgb(0, 64, 64);
+        p.hover = p.accent;
         p.navigation_selected = p.background;
     }
     p.dark = dark;

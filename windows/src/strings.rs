@@ -62,6 +62,8 @@ pub const ACCOUNT_USERNAME: &str = "用户名";
 pub const REMAINING_MONEY: &str = "剩余金额";
 pub const RETRY_FETCH: &str = "重试获取";
 pub const NETWORK_TITLE: &str = "网络状态";
+pub const NETWORK_NAME: &str = "网络";
+pub const NETWORK_IPV4: &str = "IPv4";
 pub const TRAFFIC_PROGRESS: &str = "流量使用情况";
 pub const ACCOUNT_FAILED: &str = "账号概览暂时无法读取，请稍后刷新。";
 pub const IDENTITY_FAILED: &str = "已认证，暂时无法确认在线账号，请稍后刷新。";
@@ -134,9 +136,6 @@ fn traffic_used_percent(usage_fraction: f32) -> String {
     format!("已用 {}%", (usage_fraction.clamp(0.0, 1.0) * 100.0) as u32)
 }
 
-pub fn network_status(ssid: &str, ipv4: &str, online: &str) -> String {
-    format!("网络：{ssid}\r\nIPv4：{ipv4}\r\n认证：{online}")
-}
 pub fn request_error(code: u32) -> String {
     format!("校园网请求失败（Windows 错误 {code}）。")
 }

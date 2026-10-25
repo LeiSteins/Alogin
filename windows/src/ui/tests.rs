@@ -55,6 +55,12 @@ fn snapshot_at_size(window: &MainWindow, name: &str, width: f32, height: f32) {
         .window()
         .set_size(slint::LogicalSize::new(width, height));
     window.show().unwrap();
+    window.window().take_snapshot().unwrap();
+    i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(200));
+    save_snapshot(window, name, width, height);
+}
+
+fn save_snapshot(window: &MainWindow, name: &str, width: f32, height: f32) {
     let pixels = window.window().take_snapshot().unwrap();
     let scale = window.window().scale_factor();
     assert_eq!(
@@ -74,6 +80,48 @@ fn snapshot_at_size(window: &MainWindow, name: &str, width: f32, height: f32) {
         image::ColorType::Rgba8,
     )
     .unwrap();
+}
+
+#[test]
+fn navigation_animation_interpolates_and_reverses_while_pages_remain_interactive() {
+    headless();
+    let (app, _, _) = fixture();
+    let window = app.window.as_ref().unwrap();
+    window.show().unwrap();
+    window.window().take_snapshot().unwrap();
+    let find = |label: &str| {
+        ElementHandle::find_by_accessible_label(window, label)
+            .next()
+            .unwrap()
+    };
+    let home = find(strings::HOME_PAGE);
+    let toggle = find(strings::TOGGLE_NAVIGATION);
+    let expanded = home.size().width;
+    toggle.invoke_accessible_default_action();
+    window.window().take_snapshot().unwrap();
+    i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(60));
+    window.window().take_snapshot().unwrap();
+    let intermediate = home.size().width;
+    assert!(intermediate > 40.0 && intermediate < expanded);
+    find(strings::ACCOUNTS_PAGE).invoke_accessible_default_action();
+    assert_eq!(
+        find(strings::ACCOUNTS_PAGE).accessible_checked(),
+        Some(true)
+    );
+    toggle.invoke_accessible_default_action();
+    window.window().take_snapshot().unwrap();
+    assert!((home.size().width - intermediate).abs() < 0.1);
+    i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(60));
+    window.window().take_snapshot().unwrap();
+    assert!(home.size().width > intermediate && home.size().width < expanded);
+    i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(200));
+    window.window().take_snapshot().unwrap();
+    assert_eq!(home.size().width, expanded);
+    toggle.invoke_accessible_default_action();
+    window.window().take_snapshot().unwrap();
+    i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(200));
+    window.window().take_snapshot().unwrap();
+    assert_eq!(home.size().width, 40.0);
 }
 
 #[test]
@@ -304,6 +352,8 @@ fn traffic_progress_tracks_verified_overview_and_clears_when_values_are_unavaila
 
 #[test]
 fn render_all_pages_in_light_dark_and_high_contrast_at_compact_size() {
+    use slint::platform::{PointerEventButton, WindowEvent};
+
     headless();
     let (mut app, _, _) = fixture();
     app.view.network = Network {
@@ -339,9 +389,54 @@ fn render_all_pages_in_light_dark_and_high_contrast_at_compact_size() {
             snapshot(window, &format!("{mode}-{page}"));
             snapshot_at_size(window, &format!("{mode}-{page}-default"), 860.0, 560.0);
         }
+        let navigation = ElementHandle::find_by_accessible_label(window, strings::ACCOUNTS_PAGE)
+            .next()
+            .unwrap();
+        let origin = navigation.absolute_position();
+        let size = navigation.size();
+        let position =
+            slint::LogicalPosition::new(origin.x + size.width / 2.0, origin.y + size.height / 2.0);
+        window
+            .window()
+            .dispatch_event(WindowEvent::PointerMoved { position });
+        snapshot(window, &format!("{mode}-navigation-hover"));
+        window.window().dispatch_event(WindowEvent::PointerPressed {
+            position,
+            button: PointerEventButton::Left,
+        });
+        snapshot(window, &format!("{mode}-navigation-pressed"));
+        window
+            .window()
+            .dispatch_event(WindowEvent::PointerReleased {
+                position,
+                button: PointerEventButton::Left,
+            });
+        window.window().dispatch_event(WindowEvent::PointerExited);
         click(window, strings::TOGGLE_NAVIGATION);
         snapshot(window, &format!("{mode}-navigation-collapsed"));
         click(window, strings::TOGGLE_NAVIGATION);
+        click(window, strings::HOME_PAGE);
+        snapshot_at_size(window, &format!("{mode}-home-wide"), 1200.0, 560.0);
+        window.set_show_account(false);
+        snapshot_at_size(window, &format!("{mode}-home-network-only"), 1200.0, 560.0);
+        window.set_show_account(true);
+        window.set_account_name("student-with-a-long-confirmed-username".into());
+        window.set_account_balance("".into());
+        window.set_show_traffic(false);
+        window.set_traffic_progress(0.0);
+        window.set_traffic_used_percent("—".into());
+        window.set_account_error(strings::ACCOUNT_FAILED.into());
+        window.set_network_name("宿舍网络名称较长测试Wi".into());
+        window.set_network_ipv4("—".into());
+        snapshot(window, &format!("{mode}-home-missing-wrapped-error"));
+        window.set_account_name("student-a".into());
+        window.set_account_balance("32.50 元".into());
+        window.set_show_traffic(true);
+        window.set_traffic_progress(1.0 / 6.0);
+        window.set_traffic_used_percent("已用 16%".into());
+        window.set_account_error("".into());
+        window.set_network_name("bjut_wifi".into());
+        window.set_network_ipv4("10.1.2.3".into());
     }
 }
 
@@ -500,7 +595,10 @@ fn native_host_keeps_running_hidden_and_recreates_the_slint_window() {
                     let window = app.window.as_ref().unwrap();
                     theme::refresh(window);
                     theme::title_bar(native_window(window), window);
-                    snapshot_at_size(window, "native-home", 860.0, 560.0);
+                    window
+                        .window()
+                        .set_size(slint::LogicalSize::new(860.0, 560.0));
+                    save_snapshot(window, "native-home", 860.0, 560.0);
                     // Exercise a real Slint callback through the Win32 host bridge.
                     window.invoke_home_action();
                 }

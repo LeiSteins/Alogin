@@ -31,7 +31,7 @@ export component ProgressBar inherits Rectangle {
 
 export component NavigationItem inherits Rectangle {
     in property <string> text;
-    in property <string> icon;
+    in property <image> icon;
     in property <bool> selected;
     in property <bool> compact;
     in property <bool> checkable: true;
@@ -39,7 +39,7 @@ export component NavigationItem inherits Rectangle {
     private property <bool> keyboard-focused: focus.has-focus && !root.pointer-focus;
     private property <bool> highlighted: AppTheme.high-contrast && (touch.has-hover || touch.pressed);
     callback clicked();
-    height: 46px;
+    height: 36px;
     vertical-stretch: 0;
     border-radius: 6px;
     background: touch.pressed ? AppTheme.pressed
@@ -57,25 +57,27 @@ export component NavigationItem inherits Rectangle {
         x: 0px;
         y: (parent.height - self.height) / 2;
         width: 3px;
-        height: 20px;
+        height: 16px;
         border-radius: 2px;
         background: AppTheme.accent;
         visible: root.selected;
     }
-    Path {
-        x: 16px;
+    Image {
+        x: 12px;
         y: (parent.height - self.height) / 2;
-        width: 20px;
-        height: 20px;
-        commands: root.icon;
-        stroke: root.highlighted ? AppTheme.accent-text : root.selected ? AppTheme.accent : AppTheme.muted;
-        stroke-width: 1.5px;
+        width: 16px;
+        height: 16px;
+        source: root.icon;
+        image-fit: contain;
+        colorize: root.highlighted ? AppTheme.accent-text : root.selected ? AppTheme.accent : AppTheme.muted;
+        accessible-role: none;
     }
     Text {
-        x: 52px;
-        width: max(0px, parent.width - 64px);
+        x: 40px;
+        width: max(0px, parent.width - 52px);
         height: parent.height;
-        visible: !root.compact;
+        opacity: root.compact ? 0 : 1;
+        animate opacity { duration: 180ms; easing: ease-in-out; }
         text: root.text;
         color: root.highlighted ? AppTheme.accent-text : root.selected ? AppTheme.text : AppTheme.muted;
         vertical-alignment: center;
