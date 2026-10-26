@@ -31,17 +31,23 @@ pub enum LogoutResult {
 
 impl DeviceSession {
     pub fn logout(&self, device: &AccountDevice) -> Result<LogoutResult, String> {
+        // Idle notifications with an unchanged snapshot do not expire this
+        // cookie session. Guard the entire write against new notifications.
+        let revision = crate::platform::network::revision();
         logout_with(&self.http, &self.username, &self.devices, device, &|| {
-            crate::platform::network::snapshot() == self.network
+            crate::platform::network::revision() == revision
+                && crate::platform::network::snapshot() == self.network
         })
     }
 }
 
 pub fn load(network: &Network) -> (AccountInfo, Option<DeviceSession>) {
+    let revision = crate::platform::network::revision();
     match Http::new() {
         Ok(http) => {
             let info = load_with(&http, network, &|| {
-                crate::platform::network::snapshot() == *network
+                crate::platform::network::revision() == revision
+                    && crate::platform::network::snapshot() == *network
             });
             let session =
                 info.username

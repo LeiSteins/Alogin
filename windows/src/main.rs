@@ -4,6 +4,7 @@
 mod account;
 mod app;
 mod domain;
+mod maintenance;
 mod network;
 mod platform;
 mod storage;

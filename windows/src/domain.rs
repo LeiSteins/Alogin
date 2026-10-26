@@ -107,6 +107,40 @@ pub enum LoginResult {
     Unknown,
 }
 
+impl LoginResult {
+    pub fn invalid_credentials(&self) -> bool {
+        matches!(self, Self::Failure(reason) if reason.to_ascii_lowercase().replace(' ', "").contains("ldapautherror") || reason.contains("密码"))
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct MaintenancePreferences {
+    pub check_interval_secs: u32,
+    pub retry_initial_secs: u32,
+    pub retry_max_secs: u32,
+    pub pause_after_logout: bool,
+}
+
+impl Default for MaintenancePreferences {
+    fn default() -> Self {
+        Self {
+            check_interval_secs: 30,
+            retry_initial_secs: 15,
+            retry_max_secs: 300,
+            pause_after_logout: true,
+        }
+    }
+}
+
+impl MaintenancePreferences {
+    pub fn valid(&self) -> bool {
+        (10..=300).contains(&self.check_interval_secs)
+            && (5..=300).contains(&self.retry_initial_secs)
+            && (self.retry_initial_secs..=1800).contains(&self.retry_max_secs)
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Network {
     pub interface: u32,
@@ -158,6 +192,8 @@ pub struct Preferences {
     pub auto_login: bool,
     #[serde(default)]
     pub appearance: Appearance,
+    #[serde(default)]
+    pub maintenance: MaintenancePreferences,
 }
 
 impl Default for Preferences {
@@ -166,6 +202,7 @@ impl Default for Preferences {
             target_ssids: vec!["bjut_wifi".into()],
             auto_login: false,
             appearance: Appearance::System,
+            maintenance: MaintenancePreferences::default(),
         }
     }
 }

@@ -7,6 +7,8 @@ import { AppTheme } from "theme.slint";
 export { AppTheme }
 import { SettingsPage, AboutPage, PreferencesLabels } from "preferences.slint";
 export { PreferencesLabels }
+import { MaintenancePage, MaintenanceLabels } from "maintenance.slint";
+export { MaintenanceLabels }
 
 export global Labels {
     in property <string> app;
@@ -136,6 +138,14 @@ export component MainWindow inherits Window {
     in-out property <bool> target-editor-open;
     in-out property <bool> saving-target;
     in-out property <bool> auto-login;
+    in-out property <bool> startup-enabled;
+    in property <string> startup-error;
+    in-out property <int> check-interval;
+    in-out property <int> retry-initial;
+    in-out property <int> retry-max;
+    in-out property <bool> pause-after-logout;
+    in property <string> maintenance-status;
+    in property <string> maintenance-detail;
     in-out property <int> appearance;
     private property <length> summary-height: root.show-account && home-cards.stacked
         ? network-card-view.height + 20px + account-card-view.height
@@ -150,6 +160,9 @@ export component MainWindow inherits Window {
     callback delete-account();
     callback select-account();
     callback save-auto-login();
+    callback save-startup();
+    callback save-maintenance();
+    callback resume-maintenance();
     callback save-appearance();
     callback open-about-link(int);
     callback add-current-wifi();
@@ -246,6 +259,14 @@ export component MainWindow inherits Window {
                     compact: root.compact-navigation;
                     clicked => { root.page = 2; }
                 }
+                NavigationItem {
+                    enabled: !root.editor-open;
+                    text: MaintenanceLabels.title;
+                    icon: @image-url("../resources/navigation/globe-check.svg");
+                    selected: root.page == 5;
+                    compact: root.compact-navigation;
+                    clicked => { root.page = 5; }
+                }
                 Rectangle { vertical-stretch: 1; }
                 NavigationItem {
                     enabled: !root.editor-open;
@@ -279,9 +300,26 @@ export component MainWindow inherits Window {
                     visible: root.page == 3;
                     enabled: root.page-enabled;
                     auto-login <=> root.auto-login;
+                    startup-enabled <=> root.startup-enabled;
+                    startup-error: root.startup-error;
                     appearance <=> root.appearance;
                     save-auto-login => { root.save-auto-login(); }
+                    save-startup => { root.save-startup(); }
                     save-appearance => { root.save-appearance(); }
+                }
+                MaintenancePage {
+                    visible: root.page == 5;
+                    enabled: root.page-enabled;
+                    auto-login <=> root.auto-login;
+                    check-interval <=> root.check-interval;
+                    retry-initial <=> root.retry-initial;
+                    retry-max <=> root.retry-max;
+                    pause-after-logout <=> root.pause-after-logout;
+                    status: root.maintenance-status;
+                    detail: root.maintenance-detail;
+                    save-auto-login => { root.save-auto-login(); }
+                    save-maintenance => { root.save-maintenance(); }
+                    resume => { root.resume-maintenance(); }
                 }
                 AboutPage {
                     visible: root.page == 4;

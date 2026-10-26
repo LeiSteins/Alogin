@@ -516,6 +516,143 @@ fn auto_login_toggle_saves_once_and_rolls_back_when_persistence_fails() {
 }
 
 #[test]
+fn startup_switch_uses_worker_and_restores_confirmed_state_on_failure() {
+    headless();
+    let (mut app, commands, results) = fixture();
+    let window = app.window.as_ref().unwrap();
+    click(window, strings::SETTINGS_PAGE);
+    assert!(!window.get_startup_enabled());
+    click(window, strings::STARTUP);
+    assert!(window.get_startup_enabled());
+    app.command(ID_STARTUP);
+    assert!(app.busy);
+    assert!(matches!(
+        commands.try_recv().unwrap(),
+        Command::SetStartup(true)
+    ));
+    app.command(ID_STARTUP);
+    assert!(commands.try_recv().is_err());
+    // A network result must not complete this pending command.
+    let mut background = app.view.clone();
+    background.background = true;
+    results.send(background).unwrap();
+    app.result();
+    assert!(app.busy);
+    let mut view = app.view.clone();
+    view.background = false;
+    view.failed = true;
+    view.message = strings::STARTUP_WRITE_FAILED.into();
+    results.send(view).unwrap();
+    app.result();
+    assert!(!app.busy);
+    assert!(!app.window.as_ref().unwrap().get_startup_enabled());
+    click(app.window.as_ref().unwrap(), strings::STARTUP);
+    app.command(ID_STARTUP);
+    assert!(matches!(
+        commands.try_recv().unwrap(),
+        Command::SetStartup(true)
+    ));
+    let mut view = app.view.clone();
+    view.failed = false;
+    view.startup = Ok(true);
+    results.send(view).unwrap();
+    app.result();
+    assert!(app.window.as_ref().unwrap().get_startup_enabled());
+    assert!(!app.view.preferences.auto_login);
+    app.close_window();
+    app.open_window().unwrap();
+    assert!(app.window.as_ref().unwrap().get_startup_enabled());
+}
+
+#[test]
+fn maintenance_navigation_settings_persist_transactionally_and_share_the_auto_login_switch() {
+    headless();
+    let (mut app, commands, results) = fixture();
+    let window = app.window.as_ref().unwrap();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(860.0, 760.0));
+    click(window, strings::MAINTENANCE_PAGE);
+    let target = ElementHandle::find_by_accessible_label(window, strings::NETWORK_PAGE)
+        .next()
+        .unwrap();
+    let maintenance = ElementHandle::find_by_accessible_label(window, strings::MAINTENANCE_PAGE)
+        .find(|element| element.accessible_checked() == Some(true))
+        .unwrap();
+    assert!(maintenance.absolute_position().y > target.absolute_position().y);
+    assert_eq!(maintenance.accessible_checked(), Some(true));
+    click(
+        window,
+        &format!("{} {}", strings::CHECK_INTERVAL, strings::SECONDS_60),
+    );
+    app.command(ID_MAINTENANCE);
+    let candidate = preference_reply(&mut app, &commands, &results, true);
+    assert_eq!(candidate.maintenance.check_interval_secs, 60);
+    assert_eq!(app.window.as_ref().unwrap().get_check_interval(), 30);
+    click(
+        app.window.as_ref().unwrap(),
+        &format!("{} {}", strings::CHECK_INTERVAL, strings::SECONDS_60),
+    );
+    app.command(ID_MAINTENANCE);
+    let candidate = preference_reply(&mut app, &commands, &results, false);
+    assert_eq!(candidate.maintenance.check_interval_secs, 60);
+    assert_eq!(app.window.as_ref().unwrap().get_check_interval(), 60);
+    click(app.window.as_ref().unwrap(), strings::AUTO);
+    app.command(ID_AUTO_LOGIN);
+    let candidate = preference_reply(&mut app, &commands, &results, false);
+    assert!(candidate.auto_login);
+    assert_eq!(candidate.maintenance.check_interval_secs, 60);
+    click(app.window.as_ref().unwrap(), strings::SETTINGS_PAGE);
+    assert!(app.window.as_ref().unwrap().get_auto_login());
+    click(app.window.as_ref().unwrap(), strings::TOGGLE_NAVIGATION);
+    click(app.window.as_ref().unwrap(), strings::MAINTENANCE_PAGE);
+    assert_eq!(app.window.as_ref().unwrap().get_check_interval(), 60);
+    app.command(ID_RESUME_MAINTENANCE);
+    assert!(matches!(
+        commands.try_recv().unwrap(),
+        Command::ResumeMaintenance
+    ));
+}
+
+#[test]
+fn background_results_do_not_complete_pending_account_save_or_discard_foreground_results() {
+    headless();
+    let (mut app, commands, results) = fixture();
+    let window = app.window.as_ref().unwrap();
+    click(window, strings::ACCOUNTS_PAGE);
+    click(window, strings::ADD_ACCOUNT);
+    window.set_username("draft-user".into());
+    window.set_password("synthetic-draft-password".into());
+    app.command(ID_SAVE);
+    assert!(matches!(
+        commands.try_recv().unwrap(),
+        Command::SaveAccount { .. }
+    ));
+    let mut background = app.view.clone();
+    background.background = true;
+    background.failed = true;
+    background.message = strings::REQUEST_TIMEOUT.into();
+    results.send(background).unwrap();
+    app.result();
+    assert!(app.busy);
+    assert!(app.window.as_ref().unwrap().get_saving_account());
+    assert!(app.window.as_ref().unwrap().get_account_editor_open());
+    assert!(app.pending_error.is_none());
+    let mut foreground = app.view.clone();
+    foreground.background = false;
+    foreground.failed = false;
+    foreground.message = strings::SAVED.into();
+    let mut following = foreground.clone();
+    following.background = true;
+    results.send(foreground).unwrap();
+    results.send(following).unwrap();
+    app.result();
+    assert!(!app.busy);
+    assert!(!app.window.as_ref().unwrap().get_saving_account());
+    assert!(!app.window.as_ref().unwrap().get_account_editor_open());
+}
+
+#[test]
 fn appearance_saves_through_worker_rolls_back_on_failure_and_preserves_other_preferences() {
     headless();
     let (mut app, commands, results) = fixture();
@@ -812,6 +949,50 @@ fn assert_editor_centered(window: &MainWindow, id: &str) {
 }
 
 #[test]
+fn network_notifications_leave_the_window_ready_and_allow_manual_commands_without_a_reply() {
+    headless();
+    let (mut app, commands, results) = fixture();
+    app.view.message = strings::LOGGED_IN.into();
+    app.window
+        .as_ref()
+        .unwrap()
+        .set_username("unsaved-account".into());
+    app.window
+        .as_ref()
+        .unwrap()
+        .set_password("unsaved-password".into());
+    app.submit(Command::NetworkChanged);
+    assert!(matches!(commands.recv().unwrap(), Command::NetworkChanged));
+    assert!(!app.busy);
+    assert!(app.window.as_ref().unwrap().get_ready());
+    assert_eq!(app.view.message, strings::LOGGED_IN);
+    // The worker intentionally sends no reply for an unchanged notification.
+    app.submit(Command::Refresh);
+    assert!(matches!(commands.recv().unwrap(), Command::Refresh));
+    assert!(app.busy);
+    let mut background = app.view.clone();
+    background.background = true;
+    results.send(background).unwrap();
+    app.result();
+    assert!(app.busy);
+    assert!(!app.window.as_ref().unwrap().get_ready());
+    assert_eq!(
+        app.window.as_ref().unwrap().get_username(),
+        "unsaved-account"
+    );
+    assert_eq!(
+        app.window.as_ref().unwrap().get_password(),
+        "unsaved-password"
+    );
+    let mut foreground = app.view.clone();
+    foreground.background = false;
+    results.send(foreground).unwrap();
+    app.result();
+    assert!(!app.busy);
+    assert!(app.window.as_ref().unwrap().get_ready());
+}
+
+#[test]
 fn home_action_and_busy_state_follow_existing_network_rules() {
     headless();
     let (mut app, commands, _) = fixture();
@@ -947,10 +1128,21 @@ fn render_all_pages_in_light_dark_and_high_contrast_at_compact_size() {
             ("home", strings::HOME_PAGE),
             ("accounts", strings::ACCOUNTS_PAGE),
             ("network", strings::NETWORK_PAGE),
+            ("maintenance", strings::MAINTENANCE_PAGE),
             ("settings", strings::SETTINGS_PAGE),
             ("about", strings::ABOUT_PAGE),
         ] {
             click(window, label);
+            if page == "maintenance" {
+                let resume =
+                    ElementHandle::find_by_accessible_label(window, strings::RESUME_MAINTENANCE)
+                        .next()
+                        .unwrap();
+                resume.scroll(0.0, 10000.0);
+                i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(200));
+                window.set_maintenance_status(strings::MAINTENANCE_OFF.into());
+                window.set_maintenance_detail("".into());
+            }
             snapshot(window, &format!("{mode}-{page}"));
             if page == "home" {
                 assert_home_card_layout(window, true);
@@ -980,6 +1172,36 @@ fn render_all_pages_in_light_dark_and_high_contrast_at_compact_size() {
                 );
             }
             snapshot_at_size(window, &format!("{mode}-{page}-default"), 860.0, 560.0);
+            if page == "settings" {
+                window.set_startup_error(strings::STARTUP_READ_FAILED.into());
+                snapshot(window, &format!("{mode}-settings-startup-error"));
+                snapshot_at_size(
+                    window,
+                    &format!("{mode}-settings-startup-error-default"),
+                    860.0,
+                    560.0,
+                );
+                window.set_startup_error("".into());
+            }
+            if page == "maintenance" {
+                window.set_maintenance_status(strings::MAINTENANCE_PASSWORD.into());
+                window.set_maintenance_detail("最近检测：暂时无法确认校园网认证状态，将在网络恢复后继续检测。请检查当前选中账号的凭据。".into());
+                snapshot(window, &format!("{mode}-maintenance-wrapped-error"));
+                let status =
+                    ElementHandle::find_by_accessible_label(window, strings::RESUME_MAINTENANCE)
+                        .next()
+                        .unwrap();
+                status.scroll(0.0, -1000.0);
+                i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(200));
+                save_snapshot(
+                    window,
+                    &format!("{mode}-maintenance-options-scrolled"),
+                    660.0,
+                    386.0,
+                );
+                window.set_maintenance_status(strings::MAINTENANCE_ONLINE.into());
+                window.set_maintenance_detail(strings::MAINTENANCE_CHECK_ONLINE.into());
+            }
             if page == "accounts" {
                 window.set_accounts(ModelRc::new(VecModel::from(
                     Vec::<slint::SharedString>::new(),
@@ -1330,7 +1552,9 @@ fn native_host_keeps_running_hidden_and_recreates_the_slint_window() {
     let test_app = app.clone();
     timer.start(
         slint::TimerMode::Repeated,
-        Duration::from_millis(150),
+        // Window creation and the first software frame run in separate event
+        // loop turns. Allow layout of all retained pages before pixel checks.
+        Duration::from_millis(500),
         move || {
             let mut app = test_app.borrow_mut();
             match stage.get() {

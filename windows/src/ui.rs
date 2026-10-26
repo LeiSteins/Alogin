@@ -53,6 +53,9 @@ const ID_DELETE_TARGET: usize = 109;
 const ID_HOME_ACTION: usize = 110;
 const ID_LOGOUT_DEVICE: usize = 111;
 const ID_APPEARANCE: usize = 112;
+const ID_MAINTENANCE: usize = 113;
+const ID_RESUME_MAINTENANCE: usize = 114;
+const ID_STARTUP: usize = 115;
 const ID_SHOW: usize = 201;
 const ID_EXIT: usize = 202;
 static TASKBAR_CREATED: AtomicU32 = AtomicU32::new(0);
@@ -90,6 +93,7 @@ struct App {
     tray: bool,
 }
 pub fn run() -> Result<(), String> {
+    let background = std::env::args().any(|arg| arg == "--background");
     let mutex = unsafe {
         CreateMutexW(
             ptr::null(),
@@ -105,8 +109,10 @@ pub fn run() -> Result<(), String> {
     if already_running {
         let host = unsafe { FindWindowW(wide(HOST_CLASS).as_ptr(), ptr::null()) };
         if !host.is_null() {
-            unsafe {
-                PostMessageW(host, OPEN_MESSAGE, 0, 0);
+            if !background {
+                unsafe {
+                    PostMessageW(host, OPEN_MESSAGE, 0, 0);
+                }
             }
             return Ok(());
         }
@@ -178,7 +184,7 @@ pub fn run() -> Result<(), String> {
             app.add_tray()?;
             app.worker = Some(Worker::start(host as usize)?);
             app.events = Some(NetworkEvents::subscribe(host)?);
-            if !std::env::args().any(|arg| arg == "--background") {
+            if !background {
                 // Winit creates native windows only while its event loop is
                 // active. Use the same path as tray/second-instance opens so
                 // the HWND exists before applying the icon and caption colors.
@@ -254,6 +260,9 @@ impl App {
         window.on_delete_account(move || post(host as _, UI_MESSAGE, ID_DELETE));
         window.on_select_account(move || post(host as _, UI_MESSAGE, ID_ACCOUNTS));
         window.on_save_auto_login(move || post(host as _, UI_MESSAGE, ID_AUTO_LOGIN));
+        window.on_save_startup(move || post(host as _, UI_MESSAGE, ID_STARTUP));
+        window.on_save_maintenance(move || post(host as _, UI_MESSAGE, ID_MAINTENANCE));
+        window.on_resume_maintenance(move || post(host as _, UI_MESSAGE, ID_RESUME_MAINTENANCE));
         window.on_save_appearance(move || post(host as _, UI_MESSAGE, ID_APPEARANCE));
         let weak = window.as_weak();
         window.on_open_about_link(move |index| {
@@ -332,10 +341,13 @@ impl App {
         };
         let invalidates_info = matches!(
             command,
-            Command::HomeAction | Command::Login | Command::Refresh | Command::NetworkChanged
+            Command::HomeAction | Command::Login | Command::Refresh
         );
         let user_action = !matches!(command, Command::NetworkChanged);
         match worker.commands.try_send(command) {
+            // A network notification may be a no-op; it has no user command
+            // to complete and must not put the window into a busy state.
+            Ok(()) if !user_action => return,
             Ok(()) => {
                 self.busy = true;
                 self.user_action = user_action;
@@ -360,21 +372,34 @@ impl App {
         let Some(worker) = &self.worker else {
             return;
         };
-        let mut latest = None;
+        let mut views = Vec::new();
         while let Ok(view) = worker.results.try_recv() {
-            latest = Some(view);
+            views.push(view);
         }
-        let Some(view) = latest else {
-            return;
-        };
+        for view in views {
+            self.apply_result(view);
+        }
+    }
+    fn apply_result(&mut self, view: View) {
         let sync_accounts = !self.initialized
             || self.view.accounts != view.accounts
             || self.view.selected != view.selected;
+        if view.background {
+            let sync_preferences = self.pending_preferences.is_none()
+                && (self.view.preferences.maintenance != view.preferences.maintenance
+                    || self.view.preferences.target_ssids != view.preferences.target_ssids
+                    || self.view.preferences.auto_login != view.preferences.auto_login);
+            self.view = view;
+            self.render(sync_accounts, sync_preferences);
+            return;
+        }
         let pending_preferences = self.pending_preferences.take();
         let sync_preferences = pending_preferences.is_some()
             || !self.initialized
             || self.view.preferences.target_ssids != view.preferences.target_ssids
             || self.view.preferences.auto_login != view.preferences.auto_login;
+        let sync_preferences =
+            sync_preferences || self.view.preferences.maintenance != view.preferences.maintenance;
         let sync_preferences =
             sync_preferences || self.view.preferences.appearance != view.preferences.appearance;
         let editor_error = view.failed && pending_preferences.as_ref().is_some_and(|p| p.editor);
@@ -429,6 +454,17 @@ impl App {
     }
     fn render(&self, sync_accounts: bool, sync_preferences: bool) {
         let Some(window) = &self.window else { return };
+        window.set_startup_enabled(self.view.startup.as_ref().copied().unwrap_or(false));
+        window.set_startup_error(
+            self.view
+                .startup
+                .as_ref()
+                .err()
+                .map_or("", String::as_str)
+                .into(),
+        );
+        window.set_maintenance_status(self.view.maintenance_status.as_str().into());
+        window.set_maintenance_detail(self.view.maintenance_detail.as_str().into());
         let network = &self.view.network;
         let ssid = network
             .ssid
@@ -529,6 +565,11 @@ impl App {
             set_target_items(window, &self.view.preferences.target_ssids);
             select_target(window, selected.as_deref());
             window.set_auto_login(self.view.preferences.auto_login);
+            let maintenance = &self.view.preferences.maintenance;
+            window.set_check_interval(maintenance.check_interval_secs as i32);
+            window.set_retry_initial(maintenance.retry_initial_secs as i32);
+            window.set_retry_max(maintenance.retry_max_secs as i32);
+            window.set_pause_after_logout(maintenance.pause_after_logout);
             let appearance = self.view.preferences.appearance.index();
             window.set_appearance(appearance);
             theme::refresh(window);
@@ -544,6 +585,30 @@ impl App {
             return;
         }
         match id {
+            ID_STARTUP => {
+                if let Some(window) = &self.window {
+                    self.submit(Command::SetStartup(window.get_startup_enabled()));
+                }
+            }
+            ID_RESUME_MAINTENANCE => self.submit(Command::ResumeMaintenance),
+            ID_MAINTENANCE => {
+                if let Some(window) = &self.window {
+                    let mut candidate = self.view.preferences.clone();
+                    candidate.maintenance = crate::domain::MaintenancePreferences {
+                        check_interval_secs: window
+                            .get_check_interval()
+                            .try_into()
+                            .unwrap_or_default(),
+                        retry_initial_secs: window
+                            .get_retry_initial()
+                            .try_into()
+                            .unwrap_or_default(),
+                        retry_max_secs: window.get_retry_max().try_into().unwrap_or_default(),
+                        pause_after_logout: window.get_pause_after_logout(),
+                    };
+                    self.save_preferences(candidate, selected_target(window), false);
+                }
+            }
             ID_APPEARANCE => {
                 if let Some(window) = &self.window
                     && let Some(appearance) = Appearance::from_index(window.get_appearance())
@@ -677,9 +742,16 @@ impl App {
     }
     fn save_preferences(&mut self, candidate: Preferences, selected: Option<String>, editor: bool) {
         let appearance = candidate.appearance;
+        let maintenance = candidate.maintenance;
+        if !maintenance.valid() {
+            self.render(false, true);
+            self.report_error(strings::INVALID_MAINTENANCE.into());
+            return;
+        }
         let candidate = match preferences(&candidate.target_ssids, candidate.auto_login) {
             Ok(mut candidate) => {
                 candidate.appearance = appearance;
+                candidate.maintenance = maintenance;
                 candidate
             }
             Err(error) => {
@@ -754,6 +826,24 @@ fn preferences(targets: &[String], auto_login: bool) -> Result<Preferences, Stri
     })
 }
 fn set_labels(window: &MainWindow) {
+    let maintenance = window.global::<MaintenanceLabels>();
+    maintenance.set_title(strings::MAINTENANCE_PAGE.into());
+    maintenance.set_summary(strings::MAINTENANCE_SUMMARY.into());
+    maintenance.set_state(strings::MAINTENANCE_STATE.into());
+    maintenance.set_auto_login(strings::AUTO.into());
+    maintenance.set_check_interval(strings::CHECK_INTERVAL.into());
+    maintenance.set_retry_initial(strings::RETRY_INITIAL.into());
+    maintenance.set_retry_max(strings::RETRY_MAX.into());
+    maintenance.set_retry_summary(strings::RETRY_SUMMARY.into());
+    maintenance.set_pause_after_logout(strings::PAUSE_AFTER_LOGOUT.into());
+    maintenance.set_resume(strings::RESUME_MAINTENANCE.into());
+    maintenance.set_seconds_15(strings::SECONDS_15.into());
+    maintenance.set_seconds_30(strings::SECONDS_30.into());
+    maintenance.set_seconds_60(strings::SECONDS_60.into());
+    maintenance.set_seconds_120(strings::SECONDS_120.into());
+    maintenance.set_minutes_2(strings::MINUTES_2.into());
+    maintenance.set_minutes_5(strings::MINUTES_5.into());
+    maintenance.set_minutes_10(strings::MINUTES_10.into());
     let preferences = window.global::<PreferencesLabels>();
     preferences.set_settings(strings::SETTINGS_PAGE.into());
     preferences.set_about(strings::ABOUT_PAGE.into());
@@ -762,6 +852,8 @@ fn set_labels(window: &MainWindow) {
     preferences.set_light(strings::APPEARANCE_LIGHT.into());
     preferences.set_dark(strings::APPEARANCE_DARK.into());
     preferences.set_auto_login(strings::AUTO.into());
+    preferences.set_startup(strings::STARTUP.into());
+    preferences.set_startup_summary(strings::STARTUP_SUMMARY.into());
     preferences.set_app(strings::APP.into());
     preferences.set_description(strings::ABOUT_DESCRIPTION.into());
     preferences.set_app_name(strings::APP_NAME_LABEL.into());

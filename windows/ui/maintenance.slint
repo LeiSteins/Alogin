@@ -1,0 +1,133 @@
+import { Button, CheckBox } from "widgets.slint";
+import { ScrollView } from "std-widgets.slint";
+import { AppTheme } from "theme.slint";
+import { OptionCard } from "preferences.slint";
+
+export global MaintenanceLabels {
+    in property <string> title;
+    in property <string> summary;
+    in property <string> state;
+    in property <string> auto-login;
+    in property <string> check-interval;
+    in property <string> retry-initial;
+    in property <string> retry-max;
+    in property <string> retry-summary;
+    in property <string> pause-after-logout;
+    in property <string> resume;
+    in property <string> seconds-15;
+    in property <string> seconds-30;
+    in property <string> seconds-60;
+    in property <string> seconds-120;
+    in property <string> minutes-2;
+    in property <string> minutes-5;
+    in property <string> minutes-10;
+}
+
+component IntervalRow inherits VerticalLayout {
+    in property <string> title;
+    in property <[string]> choices;
+    in property <[int]> values;
+    in property <bool> enabled;
+    in-out property <int> value;
+    callback saved();
+    spacing: 8px;
+    Text { text: root.title; color: AppTheme.text; wrap: word-wrap; }
+    HorizontalLayout {
+        spacing: 8px;
+        for label[index] in root.choices: Button {
+            text: label;
+            horizontal-stretch: 1;
+            enabled: root.enabled;
+            checkable: true;
+            checked: root.value == root.values[index];
+            accessible-label: root.title + " " + label;
+            clicked => {
+                if root.value != root.values[index] {
+                    root.value = root.values[index];
+                    root.saved();
+                }
+            }
+        }
+    }
+}
+
+export component MaintenancePage inherits VerticalLayout {
+    in property <bool> enabled;
+    in property <string> status;
+    in property <string> detail;
+    in-out property <bool> auto-login;
+    in-out property <int> check-interval;
+    in-out property <int> retry-initial;
+    in-out property <int> retry-max;
+    in-out property <bool> pause-after-logout;
+    callback save-auto-login();
+    callback save-maintenance();
+    callback resume();
+    spacing: 16px;
+    Text { text: MaintenanceLabels.title; font-size: 22px; font-weight: 700; color: AppTheme.text; }
+    ScrollView {
+        content-width: self.visible-width;
+        VerticalLayout {
+            spacing: 12px;
+            Text { text: MaintenanceLabels.summary; color: AppTheme.muted; wrap: word-wrap; }
+            OptionCard {
+                VerticalLayout {
+                    padding: 16px;
+                    spacing: 8px;
+                    Text { text: MaintenanceLabels.state; color: AppTheme.accent; font-weight: 700; }
+                    Text { text: root.status; color: AppTheme.text; wrap: word-wrap; }
+                    if root.detail != "": Text { text: root.detail; color: AppTheme.muted; wrap: word-wrap; }
+                    Button {
+                        text: MaintenanceLabels.resume;
+                        enabled: root.enabled && root.auto-login;
+                        clicked => { root.resume(); }
+                    }
+                }
+            }
+            OptionCard {
+                VerticalLayout {
+                    padding: 16px;
+                    spacing: 16px;
+                    CheckBox {
+                        text: MaintenanceLabels.auto-login;
+                        switch-style: true;
+                        checked <=> root.auto-login;
+                        enabled: root.enabled;
+                        toggled => { root.save-auto-login(); }
+                    }
+                    IntervalRow {
+                        title: MaintenanceLabels.check-interval;
+                        choices: [MaintenanceLabels.seconds-15, MaintenanceLabels.seconds-30, MaintenanceLabels.seconds-60, MaintenanceLabels.seconds-120];
+                        values: [15, 30, 60, 120];
+                        value <=> root.check-interval;
+                        enabled: root.enabled;
+                        saved => { root.save-maintenance(); }
+                    }
+                    IntervalRow {
+                        title: MaintenanceLabels.retry-initial;
+                        choices: [MaintenanceLabels.seconds-15, MaintenanceLabels.seconds-30, MaintenanceLabels.seconds-60];
+                        values: [15, 30, 60];
+                        value <=> root.retry-initial;
+                        enabled: root.enabled;
+                        saved => { root.save-maintenance(); }
+                    }
+                    IntervalRow {
+                        title: MaintenanceLabels.retry-max;
+                        choices: [MaintenanceLabels.minutes-2, MaintenanceLabels.minutes-5, MaintenanceLabels.minutes-10];
+                        values: [120, 300, 600];
+                        value <=> root.retry-max;
+                        enabled: root.enabled;
+                        saved => { root.save-maintenance(); }
+                    }
+                    Text { text: MaintenanceLabels.retry-summary; color: AppTheme.muted; wrap: word-wrap; }
+                    CheckBox {
+                        text: MaintenanceLabels.pause-after-logout;
+                        checked <=> root.pause-after-logout;
+                        enabled: root.enabled;
+                        toggled => { root.save-maintenance(); }
+                    }
+                }
+            }
+        }
+    }
+}

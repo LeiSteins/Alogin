@@ -97,6 +97,7 @@ impl Settings {
 
     fn validate(&self) -> bool {
         self.version == 1
+            && self.preferences.maintenance.valid()
             && self.accounts.len() <= 100
             && self.accounts.iter().enumerate().all(|(i, a)| {
                 !a.username.is_empty()
@@ -284,6 +285,13 @@ mod tests {
             crate::domain::Appearance::System
         );
         settings.preferences.appearance = crate::domain::Appearance::Dark;
+        assert_eq!(
+            settings.preferences.maintenance,
+            crate::domain::MaintenancePreferences::default()
+        );
+        settings.preferences.maintenance.check_interval_secs = 60;
+        settings.preferences.maintenance.retry_initial_secs = 30;
+        settings.preferences.maintenance.pause_after_logout = false;
         store.save(&settings).unwrap();
         let (_, restored) = Store::at(path.clone()).unwrap();
         assert_eq!(
@@ -291,6 +299,20 @@ mod tests {
             crate::domain::Appearance::Dark
         );
         assert!(restored.preferences.auto_login);
+        assert_eq!(restored.preferences.maintenance.check_interval_secs, 60);
+        assert_eq!(restored.preferences.maintenance.retry_initial_secs, 30);
+        assert!(!restored.preferences.maintenance.pause_after_logout);
+        settings.preferences.maintenance.check_interval_secs = 0;
+        assert!(store.save(&settings).is_err());
+        assert_eq!(
+            Store::at(path.clone())
+                .unwrap()
+                .1
+                .preferences
+                .maintenance
+                .check_interval_secs,
+            60
+        );
         assert_eq!(restored.preferences.target_ssids, ["custom"]);
         fs::remove_file(path).unwrap();
     }

@@ -10,6 +10,8 @@ export global PreferencesLabels {
     in property <string> light;
     in property <string> dark;
     in property <string> auto-login;
+    in property <string> startup;
+    in property <string> startup-summary;
     in property <string> app;
     in property <string> description;
     in property <string> app-name;
@@ -29,7 +31,7 @@ export global PreferencesLabels {
     in property <string> updates-summary;
 }
 
-component OptionCard inherits Rectangle {
+export component OptionCard inherits Rectangle {
     height: content.min-height;
     background: AppTheme.surface;
     border-radius: 12px;
@@ -142,8 +144,11 @@ component InfoRow inherits Rectangle {
 export component SettingsPage inherits VerticalLayout {
     in property <bool> enabled;
     in-out property <bool> auto-login;
+    in-out property <bool> startup-enabled;
+    in property <string> startup-error;
     in-out property <int> appearance;
     callback save-auto-login();
+    callback save-startup();
     callback save-appearance();
     spacing: 16px;
     Text {
@@ -188,6 +193,31 @@ export component SettingsPage inherits VerticalLayout {
                         checked <=> root.auto-login;
                         enabled: root.enabled;
                         toggled => { root.save-auto-login(); }
+                    }
+                }
+            }
+            OptionCard {
+                VerticalLayout {
+                    padding: 16px;
+                    spacing: 8px;
+                    CheckBox {
+                        text: PreferencesLabels.startup;
+                        switch-style: true;
+                        checked <=> root.startup-enabled;
+                        enabled: root.enabled;
+                        toggled => { root.save-startup(); }
+                    }
+                    Text {
+                        text: PreferencesLabels.startup-summary;
+                        font-size: 12px;
+                        color: AppTheme.muted;
+                        wrap: word-wrap;
+                    }
+                    if root.startup-error != "": Text {
+                        text: root.startup-error;
+                        font-size: 12px;
+                        color: AppTheme.error;
+                        wrap: word-wrap;
                     }
                 }
             }

@@ -243,6 +243,16 @@ fn connected_ssid(interface: u32) -> Option<String> {
 
 pub const NETWORK_MESSAGE: u32 = windows_sys::Win32::UI::WindowsAndMessaging::WM_APP + 2;
 
+static REVISION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+pub fn revision() -> u64 {
+    REVISION.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+fn changed() {
+    REVISION.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+}
+
 pub struct NetworkEvents {
     interface: HANDLE,
     address: HANDLE,
@@ -322,6 +332,7 @@ unsafe extern "system" fn interface_changed(
     _: *const MIB_IPINTERFACE_ROW,
     _: MIB_NOTIFICATION_TYPE,
 ) {
+    changed();
     unsafe {
         PostMessageW(context.cast_mut(), NETWORK_MESSAGE, 0, 0);
     }
@@ -331,6 +342,7 @@ unsafe extern "system" fn address_changed(
     _: *const MIB_UNICASTIPADDRESS_ROW,
     _: MIB_NOTIFICATION_TYPE,
 ) {
+    changed();
     unsafe {
         PostMessageW(context.cast_mut(), NETWORK_MESSAGE, 0, 0);
     }
@@ -340,11 +352,13 @@ unsafe extern "system" fn route_changed(
     _: *const MIB_IPFORWARD_ROW2,
     _: MIB_NOTIFICATION_TYPE,
 ) {
+    changed();
     unsafe {
         PostMessageW(context.cast_mut(), NETWORK_MESSAGE, 0, 0);
     }
 }
 unsafe extern "system" fn wifi_changed(_: *mut L2_NOTIFICATION_DATA, context: *mut c_void) {
+    changed();
     unsafe {
         PostMessageW(context.cast(), NETWORK_MESSAGE, 0, 0);
     }
