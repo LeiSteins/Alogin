@@ -1,6 +1,6 @@
 use crate::{
     app::{Command, RESULT_MESSAGE, View, Worker},
-    domain::{HomeAction, NetworkKind, Online, Preferences},
+    domain::{HomeAction, Network, NetworkKind, Online, Preferences},
     platform::{
         network::{NETWORK_MESSAGE, NetworkEvents},
         wide,
@@ -9,7 +9,7 @@ use crate::{
 };
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use slint::winit_030::{EventResult, WinitWindowAccessor};
-use slint::{ComponentHandle, ModelRc, VecModel};
+use slint::{ComponentHandle, Model, ModelRc, VecModel};
 use std::{
     cell::RefCell,
     ptr,
@@ -44,7 +44,10 @@ const ID_REFRESH: usize = 102;
 const ID_ACCOUNTS: usize = 103;
 const ID_SAVE: usize = 104;
 const ID_DELETE: usize = 105;
-const ID_SETTINGS: usize = 106;
+const ID_AUTO_LOGIN: usize = 106;
+const ID_ADD_CURRENT_WIFI: usize = 107;
+const ID_ADD_TARGET: usize = 108;
+const ID_DELETE_TARGET: usize = 109;
 const ID_HOME_ACTION: usize = 110;
 const ID_SHOW: usize = 201;
 const ID_EXIT: usize = 202;
@@ -64,6 +67,10 @@ impl Drop for Mutex {
 thread_local! {
     static APP: RefCell<std::rc::Weak<RefCell<App>>> = const { RefCell::new(std::rc::Weak::new()) };
 }
+struct PendingPreferences {
+    selected: Option<String>,
+    editor: bool,
+}
 struct App {
     host: HWND,
     window: Option<MainWindow>,
@@ -75,6 +82,7 @@ struct App {
     initialized: bool,
     user_action: bool,
     pending_error: Option<String>,
+    pending_preferences: Option<PendingPreferences>,
     tray: bool,
 }
 pub fn run() -> Result<(), String> {
@@ -132,6 +140,7 @@ pub fn run() -> Result<(), String> {
         initialized: false,
         user_action: false,
         pending_error: None,
+        pending_preferences: None,
         tray: false,
     }));
     let host = unsafe {
@@ -239,7 +248,10 @@ impl App {
         window.on_save_account(move || post(host as _, UI_MESSAGE, ID_SAVE));
         window.on_delete_account(move || post(host as _, UI_MESSAGE, ID_DELETE));
         window.on_select_account(move || post(host as _, UI_MESSAGE, ID_ACCOUNTS));
-        window.on_save_settings(move || post(host as _, UI_MESSAGE, ID_SETTINGS));
+        window.on_save_auto_login(move || post(host as _, UI_MESSAGE, ID_AUTO_LOGIN));
+        window.on_add_current_wifi(move || post(host as _, UI_MESSAGE, ID_ADD_CURRENT_WIFI));
+        window.on_add_target(move || post(host as _, UI_MESSAGE, ID_ADD_TARGET));
+        window.on_delete_target(move || post(host as _, UI_MESSAGE, ID_DELETE_TARGET));
         window.window().on_close_requested(move || {
             post(host as _, CLOSE_MESSAGE, 0);
             slint::CloseRequestResponse::KeepWindowShown
@@ -326,15 +338,47 @@ impl App {
         let sync_accounts = !self.initialized
             || self.view.accounts != view.accounts
             || self.view.selected != view.selected;
-        let sync_preferences = !self.initialized
+        let pending_preferences = self.pending_preferences.take();
+        let sync_preferences = pending_preferences.is_some()
+            || !self.initialized
             || self.view.preferences.target_ssids != view.preferences.target_ssids
             || self.view.preferences.auto_login != view.preferences.auto_login;
-        let error = (view.failed && (self.user_action || view.fatal)).then(|| view.message.clone());
+        let editor_error = view.failed && pending_preferences.as_ref().is_some_and(|p| p.editor);
+        let error = (view.failed && !editor_error && (self.user_action || view.fatal))
+            .then(|| view.message.clone());
         self.user_action = false;
+        if let Some(window) = &self.window
+            && window.get_saving_account()
+        {
+            window.set_saving_account(false);
+            if !view.failed {
+                window.invoke_close_account_editor();
+            }
+        }
         self.view = view;
+        if let Some(window) = &self.window
+            && let Some(pending) = &pending_preferences
+        {
+            window.set_saving_target(false);
+            if pending.editor {
+                if self.view.failed {
+                    window.set_target_error(self.view.message.as_str().into());
+                } else {
+                    window.set_target_name("".into());
+                    window.set_target_error("".into());
+                    window.invoke_close_target_editor();
+                }
+            }
+        }
         self.busy = false;
         self.initialized = true;
         self.render(sync_accounts, sync_preferences);
+        if !self.view.failed
+            && let Some(pending) = pending_preferences
+            && let Some(window) = &self.window
+        {
+            select_target(window, pending.selected.as_deref());
+        }
         if let Some(error) = error {
             self.report_error(error);
         }
@@ -363,6 +407,7 @@ impl App {
                 strings::SSID_UNAVAILABLE
             });
         window.set_network_name(ssid.into());
+        window.set_can_add_current_wifi(current_wifi(network).is_some());
         window.set_network_ipv4(
             if network.ipv4.is_empty() {
                 "—"
@@ -407,11 +452,15 @@ impl App {
                     .map(|s| s.as_str().into())
                     .collect::<Vec<_>>(),
             )));
-            window.set_username(self.view.selected.as_deref().unwrap_or("").into());
-            window.set_password("".into());
+            if !window.get_account_editor_open() {
+                window.set_username("".into());
+                window.set_password("".into());
+            }
         }
         if sync_preferences {
-            window.set_targets(self.view.preferences.target_ssids.join("\n").into());
+            let selected = selected_target(window);
+            set_target_items(window, &self.view.preferences.target_ssids);
+            select_target(window, selected.as_deref());
             window.set_auto_login(self.view.preferences.auto_login);
         }
     }
@@ -432,7 +481,13 @@ impl App {
                     let username = window.get_username().trim().to_owned();
                     let password = Zeroizing::new(window.get_password().to_string());
                     window.set_password("".into());
+                    window.set_saving_account(true);
                     self.submit(Command::SaveAccount { username, password });
+                    if !self.busy
+                        && let Some(window) = &self.window
+                    {
+                        window.set_saving_account(false);
+                    }
                 }
             }
             ID_DELETE => {
@@ -450,21 +505,134 @@ impl App {
                     }
                 }
             }
-            ID_SETTINGS => {
+            ID_AUTO_LOGIN => {
                 if let Some(window) = &self.window {
-                    match preferences(&window.get_targets(), window.get_auto_login()) {
-                        Ok(preferences) => self.submit(Command::SavePreferences(preferences)),
-                        Err(error) => self.report_error(error),
+                    let mut candidate = self.view.preferences.clone();
+                    candidate.auto_login = window.get_auto_login();
+                    if candidate.auto_login != self.view.preferences.auto_login {
+                        self.save_preferences(candidate, selected_target(window), false);
+                    }
+                }
+            }
+            ID_ADD_CURRENT_WIFI => {
+                if let Some(window) = &self.window
+                    && let Some(ssid) = current_wifi(&self.view.network)
+                {
+                    let mut candidate = self.view.preferences.clone();
+                    let ssid = ssid.to_owned();
+                    if candidate.target_ssids.contains(&ssid) {
+                        select_target(window, Some(&ssid));
+                    } else {
+                        candidate.target_ssids.push(ssid.clone());
+                        self.save_preferences(candidate, Some(ssid), false);
+                    }
+                }
+            }
+            ID_ADD_TARGET => {
+                if let Some(window) = &self.window {
+                    let name = window.get_target_name();
+                    let name = name.trim();
+                    let error = if name.is_empty() || name.contains(['\r', '\n']) {
+                        Some(strings::INVALID_WIFI)
+                    } else if name.len() > 32 {
+                        Some(strings::SSID_TOO_LONG)
+                    } else {
+                        None
+                    };
+                    if let Some(error) = error {
+                        window.set_target_error(error.into());
+                        return;
+                    }
+                    window.set_target_error("".into());
+                    let mut candidate = self.view.preferences.clone();
+                    if candidate.target_ssids.iter().any(|s| s == name) {
+                        select_target(window, Some(name));
+                        window.set_target_name("".into());
+                        window.invoke_close_target_editor();
+                    } else {
+                        candidate.target_ssids.push(name.to_owned());
+                        self.save_preferences(candidate, Some(name.to_owned()), true);
+                    }
+                }
+            }
+            ID_DELETE_TARGET => {
+                if let Some(window) = &self.window {
+                    let mut candidate = self.view.preferences.clone();
+                    let targets = &mut candidate.target_ssids;
+                    let index = window.get_target_index();
+                    if index >= 0 && (index as usize) < targets.len() {
+                        targets.remove(index as usize);
+                        let next = targets
+                            .get((index as usize).min(targets.len().saturating_sub(1)))
+                            .cloned();
+                        self.save_preferences(candidate, next, false);
                     }
                 }
             }
             _ => (),
         }
     }
+    fn save_preferences(&mut self, candidate: Preferences, selected: Option<String>, editor: bool) {
+        let candidate = match preferences(&candidate.target_ssids, candidate.auto_login) {
+            Ok(candidate) => candidate,
+            Err(error) => {
+                self.report_error(error);
+                return;
+            }
+        };
+        self.pending_preferences = Some(PendingPreferences { selected, editor });
+        if let Some(window) = &self.window {
+            window.set_saving_target(editor);
+        }
+        self.submit(Command::SavePreferences(candidate));
+        if !self.busy {
+            self.pending_preferences = None;
+            if let Some(window) = &self.window {
+                window.set_saving_target(false);
+            }
+            self.render(false, true);
+        }
+    }
 }
-fn preferences(targets: &str, auto_login: bool) -> Result<Preferences, String> {
+fn current_wifi(network: &Network) -> Option<&str> {
+    network.ssid.as_deref().filter(|ssid| {
+        network.kind == NetworkKind::Wifi
+            && !ssid.is_empty()
+            && ssid.len() <= 32
+            && *ssid == ssid.trim()
+            && !ssid.contains(['\r', '\n'])
+    })
+}
+fn target_items(window: &MainWindow) -> Vec<String> {
+    window
+        .get_target_items()
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
+}
+fn set_target_items(window: &MainWindow, targets: &[String]) {
+    window.set_target_items(ModelRc::new(VecModel::from(
+        targets
+            .iter()
+            .map(|s| s.as_str().into())
+            .collect::<Vec<_>>(),
+    )));
+}
+fn selected_target(window: &MainWindow) -> Option<String> {
+    usize::try_from(window.get_target_index())
+        .ok()
+        .and_then(|index| target_items(window).get(index).cloned())
+}
+fn select_target(window: &MainWindow, name: Option<&str>) {
+    let index = name.and_then(|name| window.get_target_items().iter().position(|s| s == name));
+    window.set_target_index(index.map_or(-1, |index| index as i32));
+}
+fn preferences(targets: &[String], auto_login: bool) -> Result<Preferences, String> {
     let mut target_ssids = Vec::new();
-    for line in targets.lines().map(str::trim).filter(|s| !s.is_empty()) {
+    for line in targets.iter().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        if line.contains(['\r', '\n']) {
+            return Err(strings::INVALID_WIFI.into());
+        }
         if line.len() > 32 {
             return Err(strings::SSID_TOO_LONG.into());
         }
@@ -493,13 +661,22 @@ fn set_labels(window: &MainWindow) {
     labels.set_retry_fetch(strings::RETRY_FETCH.into());
     labels.set_traffic_progress(strings::TRAFFIC_PROGRESS.into());
     labels.set_accounts(strings::ACCOUNTS.into());
+    labels.set_no_saved_accounts(strings::NO_SAVED_ACCOUNTS.into());
     labels.set_username(strings::USERNAME.into());
     labels.set_password(strings::PASSWORD.into());
+    labels.set_add_account(strings::ADD_ACCOUNT.into());
+    labels.set_edit_account(strings::EDIT_ACCOUNT.into());
+    labels.set_cancel(strings::CANCEL.into());
     labels.set_save(strings::SAVE.into());
     labels.set_delete(strings::DELETE.into());
     labels.set_targets(strings::TARGETS.into());
+    labels.set_wifi_name(strings::WIFI_NAME.into());
+    labels.set_add_wifi(strings::ADD_WIFI.into());
+    labels.set_add(strings::ADD.into());
+    labels.set_delete_wifi(strings::DELETE_WIFI.into());
+    labels.set_no_targets(strings::NO_TARGETS.into());
+    labels.set_add_current_wifi(strings::ADD_CURRENT_WIFI.into());
     labels.set_auto(strings::AUTO.into());
-    labels.set_save_settings(strings::SAVE_SETTINGS.into());
 }
 fn native_window(window: &MainWindow) -> HWND {
     window

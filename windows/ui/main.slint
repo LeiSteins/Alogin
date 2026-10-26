@@ -1,4 +1,4 @@
-import { Button, CheckBox, ComboBox, LineEdit, TextEdit, NavigationItem } from "widgets.slint";
+import { Button, CheckBox, LineEdit, NavigationItem } from "widgets.slint";
 import { ScrollView } from "std-widgets.slint";
 import { AccountCard } from "account-card.slint";
 import { AppTheme } from "theme.slint";
@@ -19,13 +19,22 @@ export global Labels {
     in property <string> retry-fetch;
     in property <string> traffic-progress;
     in property <string> accounts;
+    in property <string> no-saved-accounts;
     in property <string> username;
     in property <string> password;
+    in property <string> add-account;
+    in property <string> edit-account;
+    in property <string> cancel;
     in property <string> save;
     in property <string> delete;
     in property <string> targets;
+    in property <string> wifi-name;
+    in property <string> add-wifi;
+    in property <string> add;
+    in property <string> delete-wifi;
+    in property <string> no-targets;
+    in property <string> add-current-wifi;
     in property <string> auto;
-    in property <string> save-settings;
 }
 
 component NetworkCard inherits Rectangle {
@@ -87,6 +96,7 @@ export component MainWindow inherits Window {
     in property <bool> show-account;
     in property <string> network-name;
     in property <string> network-ipv4;
+    in property <bool> can-add-current-wifi;
     in property <string> account-name;
     in property <string> account-balance;
     in property <string> account-error;
@@ -100,7 +110,17 @@ export component MainWindow inherits Window {
     in-out property <int> account-index: -1;
     in-out property <string> username;
     in-out property <string> password;
-    in-out property <string> targets;
+    in-out property <bool> account-editor-open;
+    in-out property <bool> saving-account;
+    private property <bool> editing-account;
+    private property <bool> editor-open: root.account-editor-open || root.target-editor-open;
+    private property <bool> page-enabled: root.ready && !root.editor-open;
+    in-out property <[string]> target-items;
+    in-out property <int> target-index: -1;
+    in-out property <string> target-name;
+    in-out property <string> target-error;
+    in-out property <bool> target-editor-open;
+    in-out property <bool> saving-target;
     in-out property <bool> auto-login;
     private property <length> home-card-height: root.show-account && home-cards.stacked
         ? network-card-view.height + 20px + account-card-view.height
@@ -111,7 +131,53 @@ export component MainWindow inherits Window {
     callback save-account();
     callback delete-account();
     callback select-account();
-    callback save-settings();
+    callback save-auto-login();
+    callback add-current-wifi();
+    callback add-target();
+    callback delete-target();
+
+    changed target-index => { root.reveal-target(); }
+
+    function reveal-target() {
+        if root.target-index >= 0 {
+            if root.target-index * 48px + target-scroll.content-y < 0px {
+                target-scroll.content-y = -root.target-index * 48px;
+            }
+            if root.target-index * 48px + 44px + target-scroll.content-y > target-scroll.visible-height {
+                target-scroll.content-y = target-scroll.visible-height - (root.target-index * 48px + 44px);
+            }
+        }
+    }
+
+    function open-account-editor(edit: bool) {
+        if root.page-enabled {
+            if edit || root.editing-account {
+                root.username = edit ? root.accounts[root.account-index] : "";
+                root.password = "";
+            }
+            root.editing-account = edit;
+            root.account-editor-open = true;
+            editor-username.focus();
+        }
+    }
+    public function close-account-editor() {
+        if !root.saving-account {
+            root.account-editor-open = false;
+            add-account-button.focus();
+        }
+    }
+    function open-target-editor() {
+        if root.page-enabled {
+            root.target-editor-open = true;
+            editor-wifi-name.focus();
+        }
+    }
+    public function close-target-editor() {
+        if root.target-editor-open && !root.saving-target {
+            root.target-editor-open = false;
+            add-wifi-button.focus();
+        }
+    }
 
     HorizontalLayout {
         spacing: 0px;
@@ -126,6 +192,7 @@ export component MainWindow inherits Window {
                 padding-bottom: 12px;
                 spacing: 4px;
                 NavigationItem {
+                    enabled: !root.editor-open;
                     text: Labels.toggle-navigation;
                     checkable: false;
                     compact: true;
@@ -136,6 +203,7 @@ export component MainWindow inherits Window {
                     clicked => { root.compact-navigation = !root.compact-navigation; }
                 }
                 NavigationItem {
+                    enabled: !root.editor-open;
                     text: Labels.home;
                     icon: @image-url("../resources/navigation/house.svg");
                     selected: root.page == 0;
@@ -143,6 +211,7 @@ export component MainWindow inherits Window {
                     clicked => { root.page = 0; }
                 }
                 NavigationItem {
+                    enabled: !root.editor-open;
                     text: Labels.accounts-page;
                     icon: @image-url("../resources/navigation/folder-user.svg");
                     selected: root.page == 1;
@@ -150,6 +219,7 @@ export component MainWindow inherits Window {
                     clicked => { root.page = 1; }
                 }
                 NavigationItem {
+                    enabled: !root.editor-open;
                     text: Labels.network-page;
                     icon: @image-url("../resources/navigation/wifi.svg");
                     selected: root.page == 2;
@@ -206,7 +276,7 @@ export component MainWindow inherits Window {
                                 usage: root.traffic-progress;
                                 used-percent: root.traffic-used-percent;
                                 traffic-amount: root.traffic-amount;
-                                enabled: root.ready;
+                                enabled: root.page-enabled;
                                 x: parent.stacked ? 0px : parent.card-width + 20px;
                                 y: parent.stacked ? network-card-view.height + 20px : 0px;
                                 width: parent.card-width;
@@ -220,7 +290,7 @@ export component MainWindow inherits Window {
                             text: root.action-label;
                             width: 148px;
                             height: 36px;
-                            enabled: root.ready;
+                            enabled: root.page-enabled;
                             primary: true;
                             clicked => { root.home-action(); }
                         }
@@ -229,67 +299,276 @@ export component MainWindow inherits Window {
                 VerticalLayout {
                     visible: root.page == 1;
                     spacing: 12px;
-                    Text { text: Labels.accounts; color: AppTheme.text; }
+                    HorizontalLayout {
+                        Text { text: Labels.accounts; color: AppTheme.text; vertical-alignment: center; }
+                        Rectangle { horizontal-stretch: 1; }
+                        add-account-button := Button {
+                            text: Labels.add-account;
+                            enabled: root.page-enabled;
+                            primary: true;
+                            clicked => { root.open-account-editor(false); }
+                        }
+                    }
+                    Rectangle {
+                        background: AppTheme.surface;
+                        border-radius: 8px;
+                        border-width: 1px;
+                        border-color: AppTheme.border;
+                        vertical-stretch: 1;
+                        accessible-role: groupbox;
+                        accessible-label: Labels.accounts;
+                        ScrollView {
+                            x: 4px;
+                            y: 4px;
+                            width: parent.width - 8px;
+                            height: parent.height - 8px;
+                            content-width: self.visible-width;
+                            VerticalLayout {
+                                spacing: 4px;
+                                for account[index] in root.accounts: NavigationItem {
+                                    height: 44px;
+                                    text: account;
+                                    icon: @image-url("../resources/navigation/folder-user.svg");
+                                    selected: root.account-index == index;
+                                    enabled: root.page-enabled;
+                                    clicked => {
+                                        if root.account-index != index {
+                                            root.account-index = index;
+                                            root.select-account();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if root.accounts.length == 0: Text {
+                            x: 16px;
+                            width: parent.width - 32px;
+                            text: Labels.no-saved-accounts;
+                            color: AppTheme.muted;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                            wrap: word-wrap;
+                        }
+                    }
                     HorizontalLayout {
                         spacing: 12px;
-                        ComboBox {
-                            label: Labels.accounts;
-                            model: root.accounts;
-                            current-index <=> root.account-index;
-                            enabled: root.ready && root.accounts.length > 0;
-                            horizontal-stretch: 1;
-                            selected => { root.select-account(); }
+                        Rectangle { horizontal-stretch: 1; }
+                        Button {
+                            text: Labels.edit-account;
+                            enabled: root.page-enabled && root.account-index >= 0;
+                            clicked => { root.open-account-editor(true); }
                         }
                         Button {
                             text: Labels.delete;
-                            enabled: root.ready && root.account-index >= 0;
+                            enabled: root.page-enabled && root.account-index >= 0;
                             clicked => { root.delete-account(); }
                         }
                     }
-                    Text { text: Labels.username; color: AppTheme.text; }
-                    LineEdit { label: Labels.username; text <=> root.username; enabled: root.ready; }
-                    Text { text: Labels.password; color: AppTheme.text; }
-                    LineEdit {
-                        label: Labels.password;
-                        text <=> root.password;
-                        input-type: InputType.password;
-                        enabled: root.ready;
-                        accepted => { root.save-account(); }
-                    }
-                    HorizontalLayout {
-                        Button {
-                            text: Labels.save;
-                            enabled: root.ready;
-                            primary: true;
-                            clicked => { root.save-account(); }
-                        }
-                        Rectangle { horizontal-stretch: 1; }
-                    }
-                    Rectangle { vertical-stretch: 1; }
                 }
                 VerticalLayout {
                     visible: root.page == 2;
                     spacing: 12px;
-                    Text { text: Labels.targets; color: AppTheme.text; }
-                    TextEdit {
-                        label: Labels.targets;
-                        text <=> root.targets;
-                        enabled: root.ready;
+                    HorizontalLayout {
+                        spacing: 12px;
+                        Text { text: Labels.targets; color: AppTheme.text; vertical-alignment: center; }
+                        Rectangle { horizontal-stretch: 1; }
+                        Button {
+                            text: Labels.add-current-wifi;
+                            enabled: root.page-enabled && root.can-add-current-wifi;
+                            clicked => { root.add-current-wifi(); }
+                        }
+                        add-wifi-button := Button {
+                            text: Labels.add-wifi;
+                            enabled: root.page-enabled;
+                            primary: true;
+                            clicked => { root.open-target-editor(); }
+                        }
+                    }
+                    Rectangle {
+                        background: AppTheme.surface;
+                        border-radius: 8px;
+                        border-width: 1px;
+                        border-color: AppTheme.border;
                         vertical-stretch: 1;
+                        accessible-role: groupbox;
+                        accessible-label: Labels.targets;
+                        target-scroll := ScrollView {
+                            x: 4px;
+                            y: 4px;
+                            width: parent.width - 8px;
+                            height: parent.height - 8px;
+                            content-width: self.visible-width;
+                            changed visible-height => { root.reveal-target(); }
+                            VerticalLayout {
+                                spacing: 4px;
+                                for ssid[index] in root.target-items: NavigationItem {
+                                    height: 44px;
+                                    text: ssid;
+                                    icon: @image-url("../resources/navigation/wifi.svg");
+                                    selected: root.target-index == index;
+                                    enabled: root.page-enabled;
+                                    clicked => { root.target-index = index; }
+                                }
+                            }
+                        }
+                        if root.target-items.length == 0: Text {
+                            x: 16px;
+                            width: parent.width - 32px;
+                            text: Labels.no-targets;
+                            color: AppTheme.muted;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                            wrap: word-wrap;
+                        }
                     }
                     CheckBox {
                         text: Labels.auto;
                         checked <=> root.auto-login;
-                        enabled: root.ready;
+                        enabled: root.page-enabled;
+                        toggled => { root.save-auto-login(); }
                     }
                     HorizontalLayout {
+                        spacing: 12px;
+                        Rectangle { horizontal-stretch: 1; }
                         Button {
-                            text: Labels.save-settings;
+                            text: Labels.delete-wifi;
+                            enabled: root.page-enabled && root.target-index >= 0
+                                && root.target-index < root.target-items.length;
+                            clicked => { root.delete-target(); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Keep the editor inside the client area and centered during window resizing.
+    Rectangle {
+        visible: root.target-editor-open;
+        background: AppTheme.scrim;
+        TouchArea { }
+        FocusScope {
+            key-pressed(event) => {
+                if event.text == Key.Escape {
+                    root.close-target-editor();
+                    return accept;
+                }
+                return reject;
+            }
+            target-editor := Rectangle {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                width: min(420px, parent.width - 48px);
+                height: target-editor-layout.min-height;
+                background: AppTheme.surface;
+                border-radius: 12px;
+                border-width: 1px;
+                border-color: AppTheme.border;
+                accessible-role: groupbox;
+                accessible-label: Labels.add-wifi;
+                target-editor-layout := VerticalLayout {
+                    padding: 24px;
+                    spacing: 12px;
+                    Text {
+                        text: Labels.add-wifi;
+                        color: AppTheme.text;
+                        font-size: 20px;
+                        font-weight: 700;
+                    }
+                    Text { text: Labels.wifi-name; color: AppTheme.text; }
+                    editor-wifi-name := LineEdit {
+                        label: Labels.wifi-name;
+                        text <=> root.target-name;
+                        enabled: root.ready;
+                        accepted => { if root.ready { root.add-target(); } }
+                    }
+                    if root.target-error != "": Text {
+                        text: root.target-error;
+                        color: AppTheme.error;
+                        wrap: word-wrap;
+                    }
+                    HorizontalLayout {
+                        padding-top: 8px;
+                        spacing: 12px;
+                        Rectangle { horizontal-stretch: 1; }
+                        Button {
+                            text: Labels.cancel;
+                            enabled: !root.saving-target;
+                            clicked => { root.close-target-editor(); }
+                        }
+                        Button {
+                            text: root.saving-target ? root.action-label : Labels.add;
+                            enabled: root.ready && root.target-name != "";
+                            primary: true;
+                            clicked => { root.add-target(); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Rectangle {
+        visible: root.account-editor-open;
+        background: AppTheme.scrim;
+        TouchArea { }
+        FocusScope {
+            key-pressed(event) => {
+                if event.text == Key.Escape {
+                    root.close-account-editor();
+                    return accept;
+                }
+                return reject;
+            }
+            account-editor := Rectangle {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                width: min(420px, parent.width - 48px);
+                height: editor-layout.min-height;
+                background: AppTheme.surface;
+                border-radius: 12px;
+                border-width: 1px;
+                border-color: AppTheme.border;
+                accessible-role: groupbox;
+                accessible-label: root.editing-account ? Labels.edit-account : Labels.add-account;
+                editor-layout := VerticalLayout {
+                    padding: 24px;
+                    spacing: 12px;
+                    Text {
+                        text: root.editing-account ? Labels.edit-account : Labels.add-account;
+                        color: AppTheme.text;
+                        font-size: 20px;
+                        font-weight: 700;
+                    }
+                    Text { text: Labels.username; color: AppTheme.text; }
+                    editor-username := LineEdit {
+                        label: Labels.username;
+                        text <=> root.username;
+                        enabled: root.ready;
+                        accepted => { editor-password.focus(); }
+                    }
+                    Text { text: Labels.password; color: AppTheme.text; wrap: word-wrap; }
+                    editor-password := LineEdit {
+                        label: Labels.password;
+                        text <=> root.password;
+                        input-type: InputType.password;
+                        enabled: root.ready;
+                        accepted => { if root.ready { root.save-account(); } }
+                    }
+                    HorizontalLayout {
+                        padding-top: 8px;
+                        spacing: 12px;
+                        Rectangle { horizontal-stretch: 1; }
+                        Button {
+                            text: Labels.cancel;
+                            enabled: !root.saving-account;
+                            clicked => { root.close-account-editor(); }
+                        }
+                        Button {
+                            text: root.saving-account ? root.action-label : Labels.save;
                             enabled: root.ready;
                             primary: true;
-                            clicked => { root.save-settings(); }
+                            clicked => { root.save-account(); }
                         }
-                        Rectangle { horizontal-stretch: 1; }
                     }
                 }
             }

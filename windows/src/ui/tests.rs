@@ -23,6 +23,7 @@ fn fixture() -> (App, mpsc::Receiver<Command>, mpsc::Sender<View>) {
         initialized: true,
         user_action: false,
         pending_error: None,
+        pending_preferences: None,
         tray: false,
     };
     app.render(true, true);
@@ -130,14 +131,14 @@ fn pages_keep_drafts_and_refresh_keeps_them_while_authentication_card_tracks_ses
     let (mut app, _, results) = fixture();
     let window = app.window.as_ref().unwrap();
     window.set_username("draft-user".into());
-    window.set_targets("draft-wifi".into());
+    window.set_target_name("draft-wifi".into());
     click(window, strings::TOGGLE_NAVIGATION);
     click(window, strings::ACCOUNTS_PAGE);
     click(window, strings::NETWORK_PAGE);
     click(window, strings::HOME_PAGE);
     click(window, strings::TOGGLE_NAVIGATION);
     assert_eq!(window.get_username(), "draft-user");
-    assert_eq!(window.get_targets(), "draft-wifi");
+    assert_eq!(window.get_target_name(), "draft-wifi");
     assert!(!window.get_show_account());
     let mut view = app.view.clone();
     view.online = Online::Yes;
@@ -148,7 +149,7 @@ fn pages_keep_drafts_and_refresh_keeps_them_while_authentication_card_tracks_ses
     assert!(window.get_show_account());
     assert_eq!(window.get_account_name(), "portal-user");
     assert_eq!(window.get_username(), "draft-user");
-    assert_eq!(window.get_targets(), "draft-wifi");
+    assert_eq!(window.get_target_name(), "draft-wifi");
 }
 
 #[test]
@@ -187,15 +188,259 @@ fn account_submission_clears_password_and_failed_selection_restores_saved_accoun
 
 #[test]
 fn network_editor_normalizes_entries_and_enforces_ssid_byte_limit() {
-    let p = preferences(" bjut_wifi \r\nbjut_wifi\n\n宿舍网络\n", false).unwrap();
+    let p = preferences(
+        &[
+            " bjut_wifi ".into(),
+            "bjut_wifi".into(),
+            "".into(),
+            "宿舍网络".into(),
+        ],
+        false,
+    )
+    .unwrap();
     assert_eq!(p.target_ssids, ["bjut_wifi", "宿舍网络"]);
     assert!(!p.auto_login);
-    assert!(preferences(&"网".repeat(11), true).is_err());
-    assert!(preferences(&"a".repeat(32), true).is_ok());
+    assert!(preferences(&["网".repeat(11)], true).is_err());
+    assert!(preferences(&["a".repeat(32)], true).is_ok());
+    assert!(preferences(&["wifi\nother".into()], true).is_err());
+}
+
+fn preference_reply(
+    app: &mut App,
+    commands: &mpsc::Receiver<Command>,
+    results: &mpsc::Sender<View>,
+    failed: bool,
+) -> Preferences {
+    let Command::SavePreferences(candidate) =
+        commands.recv_timeout(Duration::from_secs(1)).unwrap()
+    else {
+        panic!("expected immediate preferences save");
+    };
+    let mut view = app.view.clone();
+    view.failed = failed;
+    if failed {
+        view.message = strings::STORAGE_FAILED.into();
+    } else {
+        view.preferences = candidate.clone();
+        view.message = strings::SAVED.into();
+    }
+    results.send(view).unwrap();
+    app.result();
+    candidate
 }
 
 #[test]
-fn mouse_and_keyboard_activate_controls_and_account_popup() {
+fn target_edits_save_immediately_and_only_change_the_list_after_success() {
+    use slint::platform::WindowEvent;
+    headless();
+    let (mut app, commands, results) = fixture();
+    let window = app.window.as_ref().unwrap();
+    click(window, strings::NETWORK_PAGE);
+    snapshot(window, "target-list-before-editing");
+    click(window, strings::ADD_WIFI);
+    assert_editor_centered(window, "MainWindow::target-editor");
+    click(window, strings::HOME_PAGE);
+    assert_eq!(
+        ElementHandle::find_by_accessible_label(window, strings::NETWORK_PAGE)
+            .next()
+            .unwrap()
+            .accessible_checked(),
+        Some(true)
+    );
+    for (name, error) in [
+        ("   ".to_string(), strings::INVALID_WIFI),
+        ("wifi\nother".to_string(), strings::INVALID_WIFI),
+        ("网".repeat(11), strings::SSID_TOO_LONG),
+    ] {
+        app.window
+            .as_ref()
+            .unwrap()
+            .set_target_name(name.clone().into());
+        app.command(ID_ADD_TARGET);
+        let window = app.window.as_ref().unwrap();
+        assert_eq!(window.get_target_error(), error);
+        assert_eq!(window.get_target_name(), name);
+        assert!(window.get_target_editor_open());
+        assert!(commands.try_recv().is_err());
+    }
+    app.window
+        .as_ref()
+        .unwrap()
+        .set_target_name("  宿舍网络  ".into());
+    app.command(ID_ADD_TARGET);
+    let window = app.window.as_ref().unwrap();
+    assert!(window.get_saving_target());
+    assert!(!window.get_ready());
+    snapshot(window, "network-saving-custom");
+    click(window, strings::CANCEL);
+    assert!(window.get_target_editor_open());
+    assert_eq!(target_items(window), ["bjut_wifi"]);
+    assert_eq!(app.view.preferences.target_ssids, ["bjut_wifi"]);
+    let candidate = preference_reply(&mut app, &commands, &results, true);
+    assert_eq!(candidate.target_ssids, ["bjut_wifi", "宿舍网络"]);
+    let window = app.window.as_ref().unwrap();
+    assert!(window.get_target_editor_open());
+    assert!(!window.get_saving_target());
+    assert_eq!(window.get_target_error(), strings::STORAGE_FAILED);
+    snapshot(window, "network-save-failed");
+    assert_eq!(window.get_target_name(), "  宿舍网络  ");
+    assert_eq!(target_items(window), ["bjut_wifi"]);
+    assert!(app.pending_error.is_none());
+    app.command(ID_ADD_TARGET);
+    preference_reply(&mut app, &commands, &results, false);
+    let window = app.window.as_ref().unwrap();
+    assert_eq!(target_items(window), ["bjut_wifi", "宿舍网络"]);
+    assert_eq!(window.get_target_index(), 1);
+    assert!(!window.get_target_editor_open());
+    assert!(window.get_target_name().is_empty());
+    click(window, strings::ADD_WIFI);
+    window.set_target_name("宿舍网络".into());
+    app.command(ID_ADD_TARGET);
+    let window = app.window.as_ref().unwrap();
+    assert!(!window.get_target_editor_open());
+    assert!(commands.try_recv().is_err());
+    click(window, strings::ADD_WIFI);
+    window.set_target_name("unsaved-input".into());
+    window.window().dispatch_event(WindowEvent::KeyPressed {
+        text: slint::platform::Key::Escape.into(),
+    });
+    click(window, strings::HOME_PAGE);
+    click(window, strings::NETWORK_PAGE);
+    click(window, strings::ADD_WIFI);
+    assert_eq!(window.get_target_name(), "unsaved-input");
+    click(window, strings::CANCEL);
+    app.command(ID_DELETE_TARGET);
+    assert_eq!(
+        target_items(app.window.as_ref().unwrap()),
+        ["bjut_wifi", "宿舍网络"]
+    );
+    preference_reply(&mut app, &commands, &results, true);
+    let window = app.window.as_ref().unwrap();
+    assert_eq!(target_items(window), ["bjut_wifi", "宿舍网络"]);
+    assert_eq!(window.get_target_index(), 1);
+    assert!(app.pending_error.is_some());
+    app.command(ID_DELETE_TARGET);
+    preference_reply(&mut app, &commands, &results, false);
+    assert_eq!(target_items(app.window.as_ref().unwrap()), ["bjut_wifi"]);
+    app.command(ID_DELETE_TARGET);
+    preference_reply(&mut app, &commands, &results, false);
+    assert!(target_items(app.window.as_ref().unwrap()).is_empty());
+    assert_eq!(app.window.as_ref().unwrap().get_target_index(), -1);
+    app.command(ID_DELETE_TARGET);
+    assert!(commands.try_recv().is_err());
+}
+
+#[test]
+fn adding_current_wifi_saves_immediately_and_existing_targets_are_only_selected() {
+    headless();
+    let (mut app, commands, results) = fixture();
+    app.view.network = Network {
+        kind: NetworkKind::Wifi,
+        ssid: Some("宿舍网络".into()),
+        ipv4: "10.1.2.3".into(),
+        ..Network::default()
+    };
+    app.render(false, false);
+    let window = app.window.as_ref().unwrap();
+    window.set_target_name("custom-draft".into());
+    app.command(ID_ADD_CURRENT_WIFI);
+    assert_eq!(target_items(app.window.as_ref().unwrap()), ["bjut_wifi"]);
+    app.command(ID_ADD_CURRENT_WIFI);
+    let candidate = preference_reply(&mut app, &commands, &results, true);
+    assert_eq!(candidate.target_ssids, ["bjut_wifi", "宿舍网络"]);
+    assert!(!candidate.auto_login);
+    assert_eq!(target_items(app.window.as_ref().unwrap()), ["bjut_wifi"]);
+    app.command(ID_ADD_CURRENT_WIFI);
+    preference_reply(&mut app, &commands, &results, false);
+    let window = app.window.as_ref().unwrap();
+    assert_eq!(target_items(window), ["bjut_wifi", "宿舍网络"]);
+    assert_eq!(window.get_target_name(), "custom-draft");
+    assert_eq!(window.get_target_index(), 1);
+    app.command(ID_ADD_CURRENT_WIFI);
+    assert!(commands.try_recv().is_err());
+}
+
+#[test]
+fn auto_login_toggle_saves_once_and_rolls_back_when_persistence_fails() {
+    headless();
+    let (mut app, commands, results) = fixture();
+    let window = app.window.as_ref().unwrap();
+    click(window, strings::NETWORK_PAGE);
+    let toggles = Rc::new(std::cell::Cell::new(0));
+    let counter = toggles.clone();
+    window.on_save_auto_login(move || counter.set(counter.get() + 1));
+    click(window, strings::AUTO);
+    assert_eq!(toggles.get(), 1);
+    assert!(window.get_auto_login());
+    app.command(ID_AUTO_LOGIN);
+    let candidate = preference_reply(&mut app, &commands, &results, true);
+    assert!(candidate.auto_login);
+    assert!(!app.window.as_ref().unwrap().get_auto_login());
+    assert!(!app.view.preferences.auto_login);
+    assert_eq!(toggles.get(), 1);
+    click(app.window.as_ref().unwrap(), strings::AUTO);
+    app.command(ID_AUTO_LOGIN);
+    preference_reply(&mut app, &commands, &results, false);
+    assert!(app.window.as_ref().unwrap().get_auto_login());
+    assert!(app.view.preferences.auto_login);
+    assert_eq!(toggles.get(), 2);
+    assert!(commands.try_recv().is_err());
+}
+
+#[test]
+fn current_wifi_addition_rejects_unavailable_names_and_obeys_busy_state() {
+    headless();
+    let (mut app, commands, _) = fixture();
+    for (kind, ssid) in [
+        (NetworkKind::Unknown, Some("wifi".into())),
+        (NetworkKind::Ethernet, Some("wifi".into())),
+        (NetworkKind::Wifi, None),
+        (NetworkKind::Wifi, Some(String::new())),
+        (NetworkKind::Wifi, Some(" ".into())),
+        (NetworkKind::Wifi, Some(" wifi ".into())),
+        (NetworkKind::Wifi, Some("网".repeat(11))),
+        (NetworkKind::Wifi, Some("wifi\nother".into())),
+        (NetworkKind::Wifi, Some("wifi\rother".into())),
+    ] {
+        app.view.network.kind = kind;
+        app.view.network.ssid = ssid;
+        app.render(false, false);
+        assert!(!app.window.as_ref().unwrap().get_can_add_current_wifi());
+        app.command(ID_ADD_CURRENT_WIFI);
+        assert_eq!(target_items(app.window.as_ref().unwrap()), ["bjut_wifi"]);
+    }
+    app.view.network.kind = NetworkKind::Wifi;
+    app.view.network.ssid = Some("a".repeat(32));
+    app.busy = true;
+    app.render(false, false);
+    let window = app.window.as_ref().unwrap();
+    click(window, strings::NETWORK_PAGE);
+    let additions = Rc::new(std::cell::Cell::new(0));
+    let add_count = additions.clone();
+    window.on_add_current_wifi(move || add_count.set(add_count.get() + 1));
+    click(window, strings::ADD_CURRENT_WIFI);
+    assert_eq!(additions.get(), 0);
+    app.command(ID_ADD_CURRENT_WIFI);
+    assert_eq!(target_items(app.window.as_ref().unwrap()), ["bjut_wifi"]);
+    app.busy = false;
+    app.render(false, false);
+    app.command(ID_ADD_CURRENT_WIFI);
+    let window = app.window.as_ref().unwrap();
+    assert_eq!(target_items(window), ["bjut_wifi"]);
+    let Command::SavePreferences(candidate) =
+        commands.recv_timeout(Duration::from_secs(1)).unwrap()
+    else {
+        panic!("expected immediate save");
+    };
+    assert_eq!(
+        candidate.target_ssids,
+        ["bjut_wifi".to_string(), "a".repeat(32)]
+    );
+    assert!(commands.try_recv().is_err());
+}
+
+#[test]
+fn mouse_and_keyboard_activate_controls_and_visible_account_list() {
     use slint::platform::{PointerEventButton, WindowEvent};
     headless();
     let (app, _, _) = fixture();
@@ -223,6 +468,8 @@ fn mouse_and_keyboard_activate_controls_and_account_popup() {
     assert!(!window.get_auto_login());
     find(strings::ACCOUNTS_PAGE).mock_single_click(PointerEventButton::Left);
     window.window().take_snapshot().unwrap();
+    find(strings::ADD_ACCOUNT).mock_single_click(PointerEventButton::Left);
+    window.window().take_snapshot().unwrap();
     let saves = Rc::new(std::cell::Cell::new(0));
     let save_count = saves.clone();
     window.on_save_account(move || save_count.set(save_count.get() + 1));
@@ -235,6 +482,7 @@ fn mouse_and_keyboard_activate_controls_and_account_popup() {
         .window()
         .dispatch_event(WindowEvent::KeyReleased { text: "\n".into() });
     assert_eq!(saves.get(), 2);
+    click(window, strings::CANCEL);
     find(strings::DELETE).mock_single_click(PointerEventButton::Left);
     snapshot(window, "button-pointer-focus");
     window
@@ -244,16 +492,128 @@ fn mouse_and_keyboard_activate_controls_and_account_popup() {
         .window()
         .dispatch_event(WindowEvent::KeyReleased { text: "\n".into() });
     snapshot(window, "button-keyboard-focus");
-    let picker = ElementHandle::find_by_accessible_label(window, strings::ACCOUNTS)
-        .find(|element| {
-            element.accessible_role() == Some(i_slint_backend_testing::AccessibleRole::Combobox)
-        })
-        .unwrap();
-    picker.mock_single_click(PointerEventButton::Left);
-    i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(1));
-    snapshot(window, "account-popup");
+    assert_eq!(find("student-a").accessible_checked(), Some(true));
+    assert_eq!(find("student-b").accessible_checked(), Some(false));
+    let selections = Rc::new(std::cell::Cell::new(0));
+    let selection_count = selections.clone();
+    window.on_select_account(move || selection_count.set(selection_count.get() + 1));
     find("student-b").mock_single_click(PointerEventButton::Left);
     assert_eq!(window.get_account_index(), 1);
+    assert_eq!(selections.get(), 1);
+    snapshot(window, "account-list-pointer-focus");
+    find("student-b").mock_single_click(PointerEventButton::Left);
+    assert_eq!(selections.get(), 1);
+    window.set_account_index(0);
+    window
+        .window()
+        .dispatch_event(WindowEvent::KeyPressed { text: " ".into() });
+    window
+        .window()
+        .dispatch_event(WindowEvent::KeyReleased { text: " ".into() });
+    assert_eq!(window.get_account_index(), 1);
+    assert_eq!(selections.get(), 2);
+    snapshot(window, "account-list-keyboard-focus");
+    window.set_ready(false);
+    find("student-a").mock_single_click(PointerEventButton::Left);
+    assert_eq!(window.get_account_index(), 1);
+    assert_eq!(selections.get(), 2);
+}
+
+#[test]
+fn account_editor_blocks_background_preserves_drafts_and_waits_for_save_result() {
+    use slint::platform::{PointerEventButton, WindowEvent};
+
+    headless();
+    let (mut app, commands, results) = fixture();
+    let window = app.window.as_ref().unwrap();
+    click(window, strings::ACCOUNTS_PAGE);
+    snapshot(window, "accounts-before-editor");
+    let before = window.window().take_snapshot().unwrap();
+    click(window, strings::ADD_ACCOUNT);
+    snapshot(window, "accounts-editor-open");
+    assert!(window.get_account_editor_open());
+    assert!(window.get_username().is_empty());
+    assert_account_editor_centered(window);
+    let after = window.window().take_snapshot().unwrap();
+    let corner = |pixels: &slint::SharedPixelBuffer<slint::Rgba8Pixel>| {
+        pixels.as_slice()[10 * pixels.width() as usize + 10]
+    };
+    assert!(u16::from(corner(&after).r) < u16::from(corner(&before).r));
+    let network = ElementHandle::find_by_accessible_label(window, strings::NETWORK_PAGE)
+        .next()
+        .unwrap();
+    network.mock_single_click(PointerEventButton::Left);
+    network.invoke_accessible_default_action();
+    assert_eq!(network.accessible_checked(), Some(false));
+    assert_eq!(network.accessible_enabled(), Some(false));
+    window.set_username("draft-user".into());
+    window.set_password("test-only-password".into());
+    window.window().dispatch_event(WindowEvent::KeyPressed {
+        text: slint::platform::Key::Escape.into(),
+    });
+    assert!(!window.get_account_editor_open());
+    click(window, strings::NETWORK_PAGE);
+    click(window, strings::ACCOUNTS_PAGE);
+    click(window, strings::ADD_ACCOUNT);
+    assert_eq!(window.get_username(), "draft-user");
+    assert_eq!(window.get_password(), "test-only-password");
+    app.command(ID_SAVE);
+    assert!(matches!(
+        commands.recv().unwrap(),
+        Command::SaveAccount { .. }
+    ));
+    let window = app.window.as_ref().unwrap();
+    assert!(window.get_account_editor_open());
+    assert!(window.get_saving_account());
+    click(window, strings::CANCEL);
+    assert!(window.get_account_editor_open());
+    assert!(window.get_password().is_empty());
+    let mut failed = app.view.clone();
+    failed.failed = true;
+    failed.message = strings::STORAGE_FAILED.into();
+    results.send(failed).unwrap();
+    app.result();
+    let window = app.window.as_ref().unwrap();
+    assert!(window.get_account_editor_open());
+    assert!(!window.get_saving_account());
+    assert_eq!(window.get_username(), "draft-user");
+    window.set_password("test-only-password".into());
+    app.command(ID_SAVE);
+    assert!(matches!(
+        commands.recv().unwrap(),
+        Command::SaveAccount { .. }
+    ));
+    let mut saved = app.view.clone();
+    saved.failed = false;
+    saved.accounts.push("draft-user".into());
+    saved.selected = Some("draft-user".into());
+    results.send(saved).unwrap();
+    app.result();
+    let window = app.window.as_ref().unwrap();
+    assert!(!window.get_account_editor_open());
+    assert!(!window.get_saving_account());
+    assert_eq!(window.get_account_index(), 2);
+    click(window, strings::EDIT_ACCOUNT);
+    assert_eq!(window.get_username(), "draft-user");
+    assert!(window.get_password().is_empty());
+    click(window, strings::CANCEL);
+}
+
+fn assert_account_editor_centered(window: &MainWindow) {
+    assert_editor_centered(window, "MainWindow::account-editor");
+}
+
+fn assert_editor_centered(window: &MainWindow, id: &str) {
+    let editor = ElementHandle::find_by_element_id(window, id)
+        .next()
+        .unwrap();
+    let position = editor.absolute_position();
+    let size = editor.size();
+    let scale = window.window().scale_factor();
+    let window_size = window.window().size();
+    assert!((position.x * 2.0 + size.width - window_size.width as f32 / scale).abs() < 1.0);
+    assert!((position.y * 2.0 + size.height - window_size.height as f32 / scale).abs() < 1.0);
+    assert!(position.x >= 24.0 && position.y >= 24.0);
 }
 
 #[test]
@@ -421,6 +781,107 @@ fn render_all_pages_in_light_dark_and_high_contrast_at_compact_size() {
                 );
             }
             snapshot_at_size(window, &format!("{mode}-{page}-default"), 860.0, 560.0);
+            if page == "accounts" {
+                window.set_accounts(ModelRc::new(VecModel::from(
+                    Vec::<slint::SharedString>::new(),
+                )));
+                window.set_account_index(-1);
+                snapshot(window, &format!("{mode}-accounts-empty"));
+                window.set_accounts(ModelRc::new(VecModel::from(
+                    (0..20)
+                        .map(|index| {
+                            format!("student-{index:02}-with-a-long-saved-account-name").into()
+                        })
+                        .collect::<Vec<slint::SharedString>>(),
+                )));
+                window.set_account_index(0);
+                snapshot(window, &format!("{mode}-accounts-many"));
+                let first = ElementHandle::find_by_accessible_label(
+                    window,
+                    "student-00-with-a-long-saved-account-name",
+                )
+                .next()
+                .unwrap();
+                let before = first.absolute_position();
+                first.scroll(0.0, -1000.0);
+                i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(200));
+                window.window().take_snapshot().unwrap();
+                assert!(first.absolute_position().y < before.y);
+                save_snapshot(
+                    window,
+                    &format!("{mode}-accounts-many-scrolled"),
+                    660.0,
+                    386.0,
+                );
+                window.set_accounts(ModelRc::new(VecModel::from(vec![
+                    "student-a".into(),
+                    "student-b".into(),
+                ])));
+                window.set_account_index(0);
+                click(window, strings::ADD_ACCOUNT);
+                snapshot(window, &format!("{mode}-add-account"));
+                assert_account_editor_centered(window);
+                snapshot_at_size(window, &format!("{mode}-add-account-default"), 860.0, 560.0);
+                assert_account_editor_centered(window);
+                click(window, strings::CANCEL);
+                click(window, strings::EDIT_ACCOUNT);
+                snapshot(window, &format!("{mode}-edit-account"));
+                click(window, strings::CANCEL);
+            }
+            if page == "network" {
+                window.set_can_add_current_wifi(false);
+                snapshot(window, &format!("{mode}-network-wifi-unavailable"));
+                window.set_can_add_current_wifi(true);
+                set_target_items(window, &[]);
+                snapshot(window, &format!("{mode}-network-empty"));
+                snapshot_at_size(
+                    window,
+                    &format!("{mode}-network-empty-default"),
+                    860.0,
+                    560.0,
+                );
+                set_target_items(
+                    window,
+                    &(0..20)
+                        .map(|i| format!("campus-wifi-{i:02}-long-ssid-name"))
+                        .collect::<Vec<_>>(),
+                );
+                snapshot(window, &format!("{mode}-network-many"));
+                window.set_target_index(19);
+                snapshot(window, &format!("{mode}-network-many-selected"));
+                let last = ElementHandle::find_by_accessible_label(
+                    window,
+                    "campus-wifi-19-long-ssid-name",
+                )
+                .next()
+                .unwrap();
+                let save = ElementHandle::find_by_accessible_label(window, strings::DELETE_WIFI)
+                    .next()
+                    .unwrap();
+                assert!(last.absolute_position().y > 36.0);
+                assert!(
+                    last.absolute_position().y + last.size().height < save.absolute_position().y
+                );
+                click(window, strings::ADD_WIFI);
+                snapshot(window, &format!("{mode}-network-add-custom"));
+                assert_editor_centered(window, "MainWindow::target-editor");
+                snapshot_at_size(
+                    window,
+                    &format!("{mode}-network-add-custom-default"),
+                    860.0,
+                    560.0,
+                );
+                assert_editor_centered(window, "MainWindow::target-editor");
+                window.set_target_error(strings::SSID_TOO_LONG.into());
+                window.set_target_name("网".repeat(11).into());
+                snapshot(window, &format!("{mode}-network-invalid-name"));
+                assert_editor_centered(window, "MainWindow::target-editor");
+                click(window, strings::CANCEL);
+                window.set_target_error("".into());
+                window.set_target_name("".into());
+                window.set_target_index(-1);
+                set_target_items(window, &["bjut_wifi".into()]);
+            }
             if page == "home" {
                 assert_eq!(assert_home_card_layout(window, false), 312.0);
                 for (name, width, stacked, card_width) in [
