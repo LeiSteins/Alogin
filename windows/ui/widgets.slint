@@ -108,6 +108,7 @@ export component Button inherits Rectangle {
     in property <string> text;
     in property <bool> enabled: true;
     in property <bool> primary;
+    in property <bool> danger;
     in property <bool> checkable;
     in-out property <bool> checked;
     private property <bool> pointer-focus;
@@ -136,7 +137,8 @@ export component Button inherits Rectangle {
     }
     label := Text {
         text: root.text;
-        color: !root.enabled ? AppTheme.muted : root.primary || root.checked ? AppTheme.accent-text : AppTheme.button-text;
+        color: !root.enabled ? AppTheme.muted : root.primary || root.checked ? AppTheme.accent-text
+            : root.danger ? AppTheme.error : AppTheme.button-text;
         horizontal-alignment: center;
         vertical-alignment: center;
         accessible-role: none;
@@ -162,7 +164,10 @@ export component Button inherits Rectangle {
 export component CheckBox inherits Rectangle {
     in property <string> text;
     in property <bool> enabled: true;
+    in property <bool> switch-style;
     in-out property <bool> checked;
+    private property <bool> pointer-focus;
+    private property <bool> keyboard-focused: root.enabled && focus.has-focus && !root.pointer-focus;
     callback toggled();
     min-height: 32px;
     vertical-stretch: 0;
@@ -181,22 +186,37 @@ export component CheckBox inherits Rectangle {
     }
     HorizontalLayout {
         spacing: 10px;
+        if root.switch-style: Text {
+            text: root.text;
+            color: root.enabled ? AppTheme.text : AppTheme.muted;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+            wrap: word-wrap;
+        }
         Rectangle {
-            width: 20px;
-            height: 20px;
+            width: root.switch-style ? 40px : 20px;
+            height: root.switch-style ? 22px : 20px;
             y: (parent.height - self.height) / 2;
-            border-radius: 4px;
-            border-width: focus.has-focus ? 2px : 1px;
-            border-color: !root.enabled ? AppTheme.muted : focus.has-focus ? AppTheme.accent : AppTheme.border;
+            border-radius: root.switch-style ? 11px : 4px;
+            border-width: root.keyboard-focused ? 2px : 1px;
+            border-color: !root.enabled ? AppTheme.muted : root.keyboard-focused ? AppTheme.accent : AppTheme.border;
             background: root.checked ? AppTheme.accent : AppTheme.input;
-            Text {
+            if !root.switch-style: Text {
                 text: root.checked ? "✓" : "";
                 color: root.enabled ? AppTheme.accent-text : AppTheme.muted;
                 horizontal-alignment: center;
                 vertical-alignment: center;
             }
+            if root.switch-style: Rectangle {
+                x: root.checked ? parent.width - self.width - 4px : 4px;
+                y: 4px;
+                width: 14px;
+                height: 14px;
+                border-radius: 7px;
+                background: root.checked ? AppTheme.accent-text : AppTheme.muted;
+            }
         }
-        Text {
+        if !root.switch-style: Text {
             text: root.text;
             color: root.enabled ? AppTheme.text : AppTheme.muted;
             vertical-alignment: center;
@@ -205,12 +225,14 @@ export component CheckBox inherits Rectangle {
     }
     focus := FocusScope {
         enabled: root.enabled;
+        changed has-focus => { if !self.has-focus { root.pointer-focus = false; } }
         key-pressed(event) => {
+            root.pointer-focus = false;
             if event.text == " " { root.toggle(); return accept; }
             return reject;
         }
     }
-    TouchArea { enabled: root.enabled; clicked => { focus.focus(); root.toggle(); } }
+    TouchArea { enabled: root.enabled; clicked => { root.pointer-focus = true; focus.focus(); root.toggle(); } }
 }
 
 export component LineEdit inherits Rectangle {

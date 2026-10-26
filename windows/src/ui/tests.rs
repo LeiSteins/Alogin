@@ -1,5 +1,5 @@
 use super::*;
-use crate::domain::{AccountInfo, AccountOverview, Network};
+use crate::domain::{AccountDevice, AccountInfo, AccountOverview, Network};
 use i_slint_backend_testing::{ElementHandle, TestingBackend, TestingBackendOptions};
 use std::{sync::mpsc, time::Duration};
 
@@ -39,10 +39,138 @@ fn headless() {
     .unwrap();
 }
 
+fn sample_devices() -> Vec<AccountDevice> {
+    vec![
+        AccountDevice {
+            session_id: "other".into(),
+            ip: "10.1.2.4".into(),
+            mac: "AA:BB:CC:DD:EE:02".into(),
+        },
+        AccountDevice {
+            session_id: "current".into(),
+            ip: "10.1.2.3".into(),
+            mac: "AA:BB:CC:DD:EE:01".into(),
+        },
+    ]
+}
+
+#[test]
+fn devices_sort_current_first_bind_operations_to_generation_and_render_all_states() {
+    headless();
+    let (mut app, commands, _) = fixture();
+    app.view.online = Online::Yes;
+    app.view.network = Network {
+        kind: NetworkKind::Ethernet,
+        ipv4: "10.1.2.3".into(),
+        ..Default::default()
+    };
+    app.view.device_generation = 7;
+    app.view.account_info = AccountInfo {
+        username: Some("student-a".into()),
+        devices: Some(sample_devices()),
+        overview: Some(AccountOverview {
+            used_megabytes: Some(2048.0),
+            remaining_megabytes: Some(10240.0),
+            money_yuan: Some(32.5),
+        }),
+        ..Default::default()
+    };
+    app.render(false, false);
+    let window = app.window.as_ref().unwrap();
+    assert!(window.get_show_devices());
+    assert_eq!(
+        window.get_devices().row_data(0).unwrap().session_id,
+        "current"
+    );
+    assert!(window.get_devices().row_data(0).unwrap().current);
+    assert!(!window.get_devices().row_data(1).unwrap().current);
+    let normal_devices = window.get_devices();
+    for (mode, dark, contrast) in [
+        ("light", false, false),
+        ("dark", true, false),
+        ("contrast", false, true),
+    ] {
+        window.set_devices(normal_devices.clone());
+        theme::preview(window, dark, contrast);
+        snapshot_at_size(window, &format!("{mode}-devices-default"), 860.0, 560.0);
+        let refresh = ElementHandle::find_by_accessible_label(window, strings::REFRESH)
+            .next()
+            .unwrap();
+        let fixed = refresh.absolute_position();
+        snapshot(window, &format!("{mode}-devices-minimum"));
+        let fixed_min = refresh.absolute_position();
+        scroll_home_to_devices(window);
+        let card = ElementHandle::find_by_element_id(window, "MainWindow::device-card-view")
+            .next()
+            .unwrap();
+        assert!(card.absolute_position().y >= 24.0);
+        assert!(card.absolute_position().y + card.size().height <= fixed_min.y - 20.0);
+        assert_eq!(refresh.absolute_position(), fixed_min);
+        save_snapshot(window, &format!("{mode}-devices-scrolled"), 660.0, 386.0);
+        snapshot_at_size(window, &format!("{mode}-devices-wide"), 1200.0, 560.0);
+        assert!(fixed.y > 0.0);
+        window.set_devices(ModelRc::default());
+        snapshot(window, &format!("{mode}-devices-empty"));
+        scroll_home_to_devices(window);
+        save_snapshot(window, &format!("{mode}-devices-empty"), 660.0, 386.0);
+        window.set_devices_available(false);
+        window.set_devices_error(strings::DEVICES_FAILED.into());
+        snapshot(window, &format!("{mode}-devices-error"));
+        scroll_home_to_devices(window);
+        save_snapshot(window, &format!("{mode}-devices-error"), 660.0, 386.0);
+        window.set_devices_error("".into());
+        window.set_devices_available(true);
+        window.set_devices(ModelRc::new(VecModel::from(vec![DeviceRow {
+            session_id: "current".into(),
+            mac: "AA:BB:CC:DD:EE:01".into(),
+            ip: "IP：2001:db8:1234:5678:abcd:ef01:2345:6789".into(),
+            current: true,
+        }])));
+        snapshot(window, &format!("{mode}-devices-wrapped"));
+        scroll_home_to_devices(window);
+        save_snapshot(window, &format!("{mode}-devices-wrapped"), 660.0, 386.0);
+    }
+    app.render(false, false);
+    let window = app.window.as_ref().unwrap();
+    // The callback captures the generation displayed at click time.
+    scroll_home_to_devices(window);
+    click(window, strings::LOGOUT_DEVICE);
+    app.view.device_generation = 8;
+    app.command(ID_LOGOUT_DEVICE);
+    assert!(commands.try_recv().is_err());
+    app.render(false, false);
+    click(app.window.as_ref().unwrap(), strings::LOGOUT_DEVICE);
+    app.command(ID_LOGOUT_DEVICE);
+    let Command::LogoutDevice(request) = commands.recv().unwrap() else {
+        panic!("expected logout");
+    };
+    assert_eq!(request.generation, 8);
+    assert_eq!(request.username, "student-a");
+    assert_eq!(request.device.session_id, "current");
+    assert_eq!(request.network, app.view.network);
+    assert!(!app.window.as_ref().unwrap().get_ready());
+    app.command(ID_LOGOUT_DEVICE);
+    assert!(commands.try_recv().is_err());
+    app.busy = false;
+    app.view.online = Online::No;
+    app.render(false, false);
+    assert!(!app.window.as_ref().unwrap().get_show_devices());
+    assert_eq!(app.window.as_ref().unwrap().get_devices().row_count(), 0);
+}
+
+fn scroll_home_to_devices(window: &MainWindow) {
+    ElementHandle::find_by_element_id(window, "MainWindow::home-scroll")
+        .next()
+        .unwrap()
+        .scroll(0.0, -2000.0);
+    i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(200));
+    window.window().take_snapshot().unwrap();
+}
+
 fn click(window: &MainWindow, label: &str) {
     ElementHandle::find_by_accessible_label(window, label)
         .next()
-        .unwrap()
+        .unwrap_or_else(|| panic!("missing control: {label}"))
         .invoke_accessible_default_action();
     i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(1));
 }
@@ -365,7 +493,7 @@ fn auto_login_toggle_saves_once_and_rolls_back_when_persistence_fails() {
     headless();
     let (mut app, commands, results) = fixture();
     let window = app.window.as_ref().unwrap();
-    click(window, strings::NETWORK_PAGE);
+    click(window, strings::SETTINGS_PAGE);
     let toggles = Rc::new(std::cell::Cell::new(0));
     let counter = toggles.clone();
     window.on_save_auto_login(move || counter.set(counter.get() + 1));
@@ -385,6 +513,73 @@ fn auto_login_toggle_saves_once_and_rolls_back_when_persistence_fails() {
     assert!(app.view.preferences.auto_login);
     assert_eq!(toggles.get(), 2);
     assert!(commands.try_recv().is_err());
+}
+
+#[test]
+fn appearance_saves_through_worker_rolls_back_on_failure_and_preserves_other_preferences() {
+    headless();
+    let (mut app, commands, results) = fixture();
+    let window = app.window.as_ref().unwrap();
+    window.set_username("draft-user".into());
+    window.set_password("draft-password".into());
+    window.set_target_name("draft-wifi".into());
+    click(window, strings::SETTINGS_PAGE);
+    click(window, strings::APPEARANCE_DARK);
+    app.command(ID_APPEARANCE);
+    let candidate = preference_reply(&mut app, &commands, &results, false);
+    assert_eq!(candidate.appearance, Appearance::Dark);
+    assert_eq!(candidate.target_ssids, ["bjut_wifi"]);
+    let window = app.window.as_ref().unwrap();
+    assert!(window.global::<AppTheme>().get_dark());
+    click(window, strings::APPEARANCE_LIGHT);
+    app.command(ID_APPEARANCE);
+    preference_reply(&mut app, &commands, &results, true);
+    let window = app.window.as_ref().unwrap();
+    assert_eq!(window.get_appearance(), Appearance::Dark.index());
+    assert!(window.global::<AppTheme>().get_dark());
+    // Other preference edits must not reset the chosen appearance.
+    click(window, strings::AUTO);
+    app.command(ID_AUTO_LOGIN);
+    let candidate = preference_reply(&mut app, &commands, &results, false);
+    assert_eq!(candidate.appearance, Appearance::Dark);
+    let window = app.window.as_ref().unwrap();
+    click(window, strings::ABOUT_PAGE);
+    click(window, strings::TOGGLE_NAVIGATION);
+    click(window, strings::ACCOUNTS_PAGE);
+    assert_eq!(window.get_username(), "draft-user");
+    assert_eq!(window.get_password(), "draft-password");
+    assert_eq!(window.get_target_name(), "draft-wifi");
+}
+
+#[test]
+fn about_links_use_fixed_destinations_and_update_entry_is_inactive() {
+    headless();
+    let (app, commands, _) = fixture();
+    let window = app.window.as_ref().unwrap();
+    click(window, strings::ABOUT_PAGE);
+    snapshot(window, "about-bottom-navigation");
+    ElementHandle::find_by_element_id(window, "AboutPage::about-scroll")
+        .next()
+        .unwrap()
+        .scroll(0.0, -2000.0);
+    window.window().take_snapshot().unwrap();
+    let links = Rc::new(RefCell::new(Vec::new()));
+    let opened = links.clone();
+    window.on_open_about_link(move |index| opened.borrow_mut().push(index));
+    for label in [strings::HOMEPAGE, strings::SOURCE, strings::LICENSE_DETAILS] {
+        click(window, label);
+    }
+    click(window, strings::CHECK_UPDATES);
+    assert_eq!(*links.borrow(), [0, 1, 2]);
+    assert!(commands.try_recv().is_err());
+    let settings = ElementHandle::find_by_accessible_label(window, strings::SETTINGS_PAGE)
+        .next()
+        .unwrap();
+    let about = ElementHandle::find_by_accessible_label(window, strings::ABOUT_PAGE)
+        .next()
+        .unwrap();
+    assert!(about.absolute_position().y > settings.absolute_position().y);
+    assert!(about.absolute_position().y + about.size().height >= 370.0);
 }
 
 #[test]
@@ -455,7 +650,7 @@ fn mouse_and_keyboard_activate_controls_and_visible_account_list() {
             .next()
             .unwrap_or_else(|| panic!("missing control: {label}"))
     };
-    find(strings::NETWORK_PAGE).mock_single_click(PointerEventButton::Left);
+    find(strings::SETTINGS_PAGE).mock_single_click(PointerEventButton::Left);
     window.window().take_snapshot().unwrap();
     find(strings::AUTO).mock_single_click(PointerEventButton::Left);
     assert!(window.get_auto_login());
@@ -666,6 +861,7 @@ fn traffic_progress_tracks_verified_overview_and_clears_when_values_are_unavaila
             money_yuan: None,
         }),
         error: None,
+        ..Default::default()
     };
     app.render(false, false);
     let window = app.window.as_ref().unwrap();
@@ -737,6 +933,7 @@ fn render_all_pages_in_light_dark_and_high_contrast_at_compact_size() {
             money_yuan: Some(32.5),
         }),
         error: None,
+        ..Default::default()
     };
     app.render(true, true);
     let window = app.window.as_ref().unwrap();
@@ -750,6 +947,8 @@ fn render_all_pages_in_light_dark_and_high_contrast_at_compact_size() {
             ("home", strings::HOME_PAGE),
             ("accounts", strings::ACCOUNTS_PAGE),
             ("network", strings::NETWORK_PAGE),
+            ("settings", strings::SETTINGS_PAGE),
+            ("about", strings::ABOUT_PAGE),
         ] {
             click(window, label);
             snapshot(window, &format!("{mode}-{page}"));
@@ -932,6 +1131,9 @@ fn render_all_pages_in_light_dark_and_high_contrast_at_compact_size() {
         window.set_traffic_used_percent("—".into());
         window.set_traffic_amount("2G / —".into());
         window.set_account_error(strings::ACCOUNT_FAILED.into());
+        window.set_devices_available(false);
+        window.set_devices(ModelRc::default());
+        window.set_devices_error(strings::DEVICES_FAILED.into());
         window.set_network_name("宿舍网络名称较长测试Wi".into());
         window.set_network_ipv4("—".into());
         snapshot(window, &format!("{mode}-home-missing-wrapped-error"));
@@ -942,6 +1144,8 @@ fn render_all_pages_in_light_dark_and_high_contrast_at_compact_size() {
         window.set_traffic_used_percent("已用 16%".into());
         window.set_traffic_amount("2G / 12G".into());
         window.set_account_error("".into());
+        window.set_devices_available(true);
+        window.set_devices_error("".into());
         window.set_network_name("bjut_wifi".into());
         window.set_network_ipv4("10.1.2.3".into());
     }
@@ -956,6 +1160,7 @@ fn assert_home_card_layout(window: &MainWindow, stacked: bool) -> f32 {
     let network = find("MainWindow::network-card-view");
     let account = find("MainWindow::account-card-view");
     let content = find("MainWindow::home-cards");
+
     let width = network.size().width;
     assert!((250.0..=600.0).contains(&width));
     assert_eq!(width, account.size().width);
@@ -967,16 +1172,20 @@ fn assert_home_card_layout(window: &MainWindow, stacked: bool) -> f32 {
             account_origin.y,
             network_origin.y + network.size().height + 20.0
         );
+        let summary_height = network.size().height + 20.0 + account.size().height;
+        assert!(content.size().height >= summary_height);
         assert_eq!(
-            content.size().height,
-            network.size().height + 20.0 + account.size().height
+            content.size().height > summary_height,
+            window.get_show_devices()
         );
     } else {
         assert_eq!(account_origin.y, network_origin.y);
         assert_eq!(account_origin.x, network_origin.x + width + 20.0);
+        let summary_height = network.size().height.max(account.size().height);
+        assert!(content.size().height >= summary_height);
         assert_eq!(
-            content.size().height,
-            network.size().height.max(account.size().height)
+            content.size().height > summary_height,
+            window.get_show_devices()
         );
     }
     assert!(
@@ -1136,6 +1345,7 @@ fn native_host_keeps_running_hidden_and_recreates_the_slint_window() {
                     );
                     app.close_window();
                     assert!(app.window.is_none());
+                    app.view.preferences.appearance = Appearance::Dark;
                     results.send(app.view.clone()).unwrap();
                     app.busy = true;
                     post(app.host, RESULT_MESSAGE, 0);
@@ -1150,13 +1360,17 @@ fn native_host_keeps_running_hidden_and_recreates_the_slint_window() {
                     assert!(!native.is_null());
                     old_window.set(native);
                     assert_native_chrome(window);
-                    theme::preview(window, false, false);
+                    assert!(window.global::<AppTheme>().get_dark());
+                    window.set_appearance(Appearance::Light.index());
+                    theme::refresh(window);
                     theme::title_bar(native, window);
                 }
                 3 => {
                     let window = app.window.as_ref().unwrap();
                     assert_native_chrome(window);
-                    theme::preview(window, true, false);
+                    assert!(!window.global::<AppTheme>().get_dark());
+                    window.set_appearance(Appearance::Dark.index());
+                    theme::refresh(window);
                     theme::title_bar(native_window(window), window);
                 }
                 4 => {

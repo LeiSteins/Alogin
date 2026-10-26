@@ -1,8 +1,12 @@
-import { Button, CheckBox, LineEdit, NavigationItem } from "widgets.slint";
+import { Button, LineEdit, NavigationItem } from "widgets.slint";
 import { ScrollView } from "std-widgets.slint";
 import { AccountCard } from "account-card.slint";
+import { DeviceCard, DeviceRow } from "device-card.slint";
+export { DeviceRow }
 import { AppTheme } from "theme.slint";
 export { AppTheme }
+import { SettingsPage, AboutPage, PreferencesLabels } from "preferences.slint";
+export { PreferencesLabels }
 
 export global Labels {
     in property <string> app;
@@ -34,7 +38,10 @@ export global Labels {
     in property <string> delete-wifi;
     in property <string> no-targets;
     in property <string> add-current-wifi;
-    in property <string> auto;
+    in property <string> devices-title;
+    in property <string> no-devices;
+    in property <string> current-device;
+    in property <string> logout-device;
 }
 
 component NetworkCard inherits Rectangle {
@@ -94,6 +101,13 @@ export component MainWindow inherits Window {
     default-font-size: 14px;
     in property <bool> ready;
     in property <bool> show-account;
+    in property <bool> show-devices;
+    in property <[DeviceRow]> devices;
+    in property <string> devices-error;
+    in property <bool> devices-available;
+    in property <string> device-generation;
+    out property <string> requested-device;
+    out property <string> requested-generation;
     in property <string> network-name;
     in property <string> network-ipv4;
     in property <bool> can-add-current-wifi;
@@ -122,16 +136,22 @@ export component MainWindow inherits Window {
     in-out property <bool> target-editor-open;
     in-out property <bool> saving-target;
     in-out property <bool> auto-login;
-    private property <length> home-card-height: root.show-account && home-cards.stacked
+    in-out property <int> appearance;
+    private property <length> summary-height: root.show-account && home-cards.stacked
         ? network-card-view.height + 20px + account-card-view.height
         : max(network-card-view.height, root.show-account ? account-card-view.height : 0px);
+    private property <length> home-card-height: root.summary-height
+        + (root.show-devices ? 20px + device-card-view.height : 0px);
     private property <int> page;
     private property <bool> compact-navigation;
     callback home-action();
+    callback logout-device();
     callback save-account();
     callback delete-account();
     callback select-account();
     callback save-auto-login();
+    callback save-appearance();
+    callback open-about-link(int);
     callback add-current-wifi();
     callback add-target();
     callback delete-target();
@@ -227,6 +247,22 @@ export component MainWindow inherits Window {
                     clicked => { root.page = 2; }
                 }
                 Rectangle { vertical-stretch: 1; }
+                NavigationItem {
+                    enabled: !root.editor-open;
+                    text: PreferencesLabels.settings;
+                    icon: @image-url("../resources/navigation/settings.svg");
+                    selected: root.page == 3;
+                    compact: root.compact-navigation;
+                    clicked => { root.page = 3; }
+                }
+                NavigationItem {
+                    enabled: !root.editor-open;
+                    text: PreferencesLabels.about;
+                    icon: @image-url("../resources/navigation/info.svg");
+                    selected: root.page == 4;
+                    compact: root.compact-navigation;
+                    clicked => { root.page = 4; }
+                }
             }
         }
         // Keep each page instantiated: switching pages preserves form drafts.
@@ -239,10 +275,22 @@ export component MainWindow inherits Window {
                 y: 24px;
                 width: parent.width - 48px;
                 height: parent.height - 48px;
+                SettingsPage {
+                    visible: root.page == 3;
+                    enabled: root.page-enabled;
+                    auto-login <=> root.auto-login;
+                    appearance <=> root.appearance;
+                    save-auto-login => { root.save-auto-login(); }
+                    save-appearance => { root.save-appearance(); }
+                }
+                AboutPage {
+                    visible: root.page == 4;
+                    open-link(index) => { root.open-about-link(index); }
+                }
                 VerticalLayout {
                     visible: root.page == 0;
                     spacing: 20px;
-                    ScrollView {
+                    home-scroll := ScrollView {
                         vertical-stretch: 1;
                         content-width: max(250px, self.visible-width);
                         content-height: max(self.visible-height, root.home-card-height);
@@ -281,6 +329,27 @@ export component MainWindow inherits Window {
                                 y: parent.stacked ? network-card-view.height + 20px : 0px;
                                 width: parent.card-width;
                                 retry => { root.home-action(); }
+                            }
+                            device-card-view := DeviceCard {
+                                visible: root.show-devices;
+                                x: 0px;
+                                y: root.summary-height + 20px;
+                                width: parent.stacked ? parent.card-width : parent.card-width * 2 + 20px;
+                                title: Labels.devices-title;
+                                empty-label: Labels.no-devices;
+                                current-label: Labels.current-device;
+                                logout-label: Labels.logout-device;
+                                retry-label: Labels.retry-fetch;
+                                devices: root.devices;
+                                available: root.devices-available;
+                                error: root.devices-error;
+                                enabled: root.page-enabled;
+                                retry => { root.home-action(); }
+                                logout(id) => {
+                                    root.requested-device = id;
+                                    root.requested-generation = root.device-generation;
+                                    root.logout-device();
+                                }
                             }
                         }
                     }
@@ -420,12 +489,6 @@ export component MainWindow inherits Window {
                             vertical-alignment: center;
                             wrap: word-wrap;
                         }
-                    }
-                    CheckBox {
-                        text: Labels.auto;
-                        checked <=> root.auto-login;
-                        enabled: root.page-enabled;
-                        toggled => { root.save-auto-login(); }
                     }
                     HorizontalLayout {
                         spacing: 12px;

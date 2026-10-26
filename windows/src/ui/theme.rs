@@ -1,6 +1,6 @@
 //! Event-driven Windows theme adaptation for Slint and the native tray menu.
 use super::{AppTheme, MainWindow};
-use crate::platform::wide;
+use crate::{domain::Appearance, platform::wide};
 use slint::ComponentHandle;
 use std::{mem, ptr};
 use windows_sys::Win32::{
@@ -38,6 +38,9 @@ fn use_dark(apps_use_light: Option<u32>, high_contrast: bool) -> bool {
 
 impl Palette {
     fn system() -> Self {
+        Self::for_appearance(Appearance::System)
+    }
+    fn for_appearance(appearance: Appearance) -> Self {
         let mut contrast = HIGHCONTRASTW {
             cbSize: mem::size_of::<HIGHCONTRASTW>() as u32,
             ..Default::default()
@@ -64,7 +67,12 @@ impl Palette {
                 &mut size,
             )
         };
-        if use_dark((code == ERROR_SUCCESS).then_some(value), high_contrast) {
+        let light = match appearance {
+            Appearance::System => (code == ERROR_SUCCESS).then_some(value),
+            Appearance::Light => Some(1),
+            Appearance::Dark => Some(0),
+        };
+        if use_dark(light, high_contrast) {
             Self::dark()
         } else {
             unsafe {
@@ -150,7 +158,12 @@ impl Drop for Theme {
 }
 
 pub fn refresh(window: &MainWindow) {
-    apply(window, Palette::system());
+    apply(
+        window,
+        Palette::for_appearance(
+            Appearance::from_index(window.get_appearance()).unwrap_or_default(),
+        ),
+    );
 }
 fn apply(window: &MainWindow, p: Palette) {
     let theme = window.global::<AppTheme>();

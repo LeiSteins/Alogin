@@ -1,6 +1,8 @@
 use crate::{
     app::{Command, RESULT_MESSAGE, View, Worker},
-    domain::{HomeAction, Network, NetworkKind, Online, Preferences},
+    domain::{
+        Appearance, DeviceLogoutRequest, HomeAction, Network, NetworkKind, Online, Preferences,
+    },
     platform::{
         network::{NETWORK_MESSAGE, NetworkEvents},
         wide,
@@ -49,6 +51,8 @@ const ID_ADD_CURRENT_WIFI: usize = 107;
 const ID_ADD_TARGET: usize = 108;
 const ID_DELETE_TARGET: usize = 109;
 const ID_HOME_ACTION: usize = 110;
+const ID_LOGOUT_DEVICE: usize = 111;
+const ID_APPEARANCE: usize = 112;
 const ID_SHOW: usize = 201;
 const ID_EXIT: usize = 202;
 static TASKBAR_CREATED: AtomicU32 = AtomicU32::new(0);
@@ -245,10 +249,38 @@ impl App {
         theme::refresh(&window);
         let host = self.host as usize;
         window.on_home_action(move || post(host as _, UI_MESSAGE, ID_HOME_ACTION));
+        window.on_logout_device(move || post(host as _, UI_MESSAGE, ID_LOGOUT_DEVICE));
         window.on_save_account(move || post(host as _, UI_MESSAGE, ID_SAVE));
         window.on_delete_account(move || post(host as _, UI_MESSAGE, ID_DELETE));
         window.on_select_account(move || post(host as _, UI_MESSAGE, ID_ACCOUNTS));
         window.on_save_auto_login(move || post(host as _, UI_MESSAGE, ID_AUTO_LOGIN));
+        window.on_save_appearance(move || post(host as _, UI_MESSAGE, ID_APPEARANCE));
+        let weak = window.as_weak();
+        window.on_open_about_link(move |index| {
+            // Only the three compiled-in public project links can be launched.
+            if let Some(url) = usize::try_from(index)
+                .ok()
+                .and_then(|i| strings::ABOUT_LINKS.get(i))
+            {
+                let owner = weak
+                    .upgrade()
+                    .map(|window| native_window(&window))
+                    .unwrap_or(ptr::null_mut());
+                let result = unsafe {
+                    ShellExecuteW(
+                        owner,
+                        wide("open").as_ptr(),
+                        wide(url).as_ptr(),
+                        ptr::null(),
+                        ptr::null(),
+                        SW_SHOWNORMAL,
+                    )
+                };
+                if result as isize <= 32 {
+                    show_window_error(owner, strings::OPEN_LINK_FAILED);
+                }
+            }
+        });
         window.on_add_current_wifi(move || post(host as _, UI_MESSAGE, ID_ADD_CURRENT_WIFI));
         window.on_add_target(move || post(host as _, UI_MESSAGE, ID_ADD_TARGET));
         window.on_delete_target(move || post(host as _, UI_MESSAGE, ID_DELETE_TARGET));
@@ -343,6 +375,8 @@ impl App {
             || !self.initialized
             || self.view.preferences.target_ssids != view.preferences.target_ssids
             || self.view.preferences.auto_login != view.preferences.auto_login;
+        let sync_preferences =
+            sync_preferences || self.view.preferences.appearance != view.preferences.appearance;
         let editor_error = view.failed && pending_preferences.as_ref().is_some_and(|p| p.editor);
         let error = (view.failed && !editor_error && (self.user_action || view.fatal))
             .then(|| view.message.clone());
@@ -426,6 +460,39 @@ impl App {
         window.set_traffic_progress(account.progress.unwrap_or_default());
         window.set_traffic_used_percent(account.used_percent.into());
         window.set_traffic_amount(account.traffic_amount.into());
+        let info = &self.view.account_info;
+        let show_devices = self.view.online == Online::Yes && info.username.is_some();
+        window.set_show_devices(show_devices);
+        window.set_devices_available(show_devices && info.devices.is_some());
+        window.set_device_generation(self.view.device_generation.to_string().into());
+        window.set_devices_error(
+            if show_devices {
+                info.devices_error
+                    .as_deref()
+                    .or_else(|| info.devices.is_none().then_some(strings::DEVICES_FAILED))
+                    .unwrap_or_default()
+            } else {
+                ""
+            }
+            .into(),
+        );
+        let mut devices = if show_devices {
+            info.devices.clone().unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        devices.sort_by_key(|device| device.ip != network.ipv4);
+        window.set_devices(ModelRc::new(VecModel::from(
+            devices
+                .into_iter()
+                .map(|device| DeviceRow {
+                    current: !device.ip.is_empty() && device.ip == network.ipv4,
+                    ip: strings::device_ip(&device.ip).into(),
+                    mac: device.mac.into(),
+                    session_id: device.session_id.into(),
+                })
+                .collect::<Vec<_>>(),
+        )));
         window.set_action_label(
             if self.busy {
                 strings::BUSY
@@ -462,6 +529,10 @@ impl App {
             set_target_items(window, &self.view.preferences.target_ssids);
             select_target(window, selected.as_deref());
             window.set_auto_login(self.view.preferences.auto_login);
+            let appearance = self.view.preferences.appearance.index();
+            window.set_appearance(appearance);
+            theme::refresh(window);
+            theme::title_bar(native_window(window), window);
         }
     }
     fn command(&mut self, id: usize) {
@@ -473,9 +544,41 @@ impl App {
             return;
         }
         match id {
+            ID_APPEARANCE => {
+                if let Some(window) = &self.window
+                    && let Some(appearance) = Appearance::from_index(window.get_appearance())
+                    && appearance != self.view.preferences.appearance
+                {
+                    let mut candidate = self.view.preferences.clone();
+                    candidate.appearance = appearance;
+                    self.save_preferences(candidate, selected_target(window), false);
+                }
+            }
             ID_HOME_ACTION => self.submit(Command::HomeAction),
             ID_LOGIN => self.submit(Command::Login),
             ID_REFRESH => self.submit(Command::Refresh),
+            ID_LOGOUT_DEVICE => {
+                if let Some(window) = &self.window {
+                    let generation = window.get_requested_generation().parse::<u64>().ok();
+                    let info = &self.view.account_info;
+                    if generation == Some(self.view.device_generation)
+                        && self.view.online == Online::Yes
+                        && let Some(username) = &info.username
+                        && let Some(device) = info.devices.as_ref().and_then(|devices| {
+                            devices.iter().find(|device| {
+                                device.session_id == window.get_requested_device().as_str()
+                            })
+                        })
+                    {
+                        self.submit(Command::LogoutDevice(DeviceLogoutRequest {
+                            generation: self.view.device_generation,
+                            network: self.view.network.clone(),
+                            username: username.clone(),
+                            device: device.clone(),
+                        }));
+                    }
+                }
+            }
             ID_SAVE => {
                 if let Some(window) = &self.window {
                     let username = window.get_username().trim().to_owned();
@@ -573,8 +676,12 @@ impl App {
         }
     }
     fn save_preferences(&mut self, candidate: Preferences, selected: Option<String>, editor: bool) {
+        let appearance = candidate.appearance;
         let candidate = match preferences(&candidate.target_ssids, candidate.auto_login) {
-            Ok(candidate) => candidate,
+            Ok(mut candidate) => {
+                candidate.appearance = appearance;
+                candidate
+            }
             Err(error) => {
                 self.report_error(error);
                 return;
@@ -643,9 +750,35 @@ fn preferences(targets: &[String], auto_login: bool) -> Result<Preferences, Stri
     Ok(Preferences {
         target_ssids,
         auto_login,
+        ..Preferences::default()
     })
 }
 fn set_labels(window: &MainWindow) {
+    let preferences = window.global::<PreferencesLabels>();
+    preferences.set_settings(strings::SETTINGS_PAGE.into());
+    preferences.set_about(strings::ABOUT_PAGE.into());
+    preferences.set_appearance(strings::APPEARANCE.into());
+    preferences.set_system(strings::APPEARANCE_SYSTEM.into());
+    preferences.set_light(strings::APPEARANCE_LIGHT.into());
+    preferences.set_dark(strings::APPEARANCE_DARK.into());
+    preferences.set_auto_login(strings::AUTO.into());
+    preferences.set_app(strings::APP.into());
+    preferences.set_description(strings::ABOUT_DESCRIPTION.into());
+    preferences.set_app_name(strings::APP_NAME_LABEL.into());
+    preferences.set_version_label(strings::VERSION_LABEL.into());
+    preferences.set_version(env!("CARGO_PKG_VERSION").into());
+    preferences.set_identifier_label(strings::IDENTIFIER_LABEL.into());
+    preferences.set_identifier(strings::IDENTIFIER.into());
+    preferences.set_license_label(strings::LICENSE_LABEL.into());
+    preferences.set_license(env!("CARGO_PKG_LICENSE").into());
+    preferences.set_homepage(strings::HOMEPAGE.into());
+    preferences.set_homepage_summary(strings::HOMEPAGE_SUMMARY.into());
+    preferences.set_source(strings::SOURCE.into());
+    preferences.set_source_summary(strings::SOURCE_SUMMARY.into());
+    preferences.set_license_details(strings::LICENSE_DETAILS.into());
+    preferences.set_license_summary(strings::LICENSE_SUMMARY.into());
+    preferences.set_updates(strings::CHECK_UPDATES.into());
+    preferences.set_updates_summary(strings::UPDATES_UNAVAILABLE.into());
     let labels = window.global::<Labels>();
     labels.set_app(strings::APP.into());
     labels.set_home(strings::HOME_PAGE.into());
@@ -676,7 +809,10 @@ fn set_labels(window: &MainWindow) {
     labels.set_delete_wifi(strings::DELETE_WIFI.into());
     labels.set_no_targets(strings::NO_TARGETS.into());
     labels.set_add_current_wifi(strings::ADD_CURRENT_WIFI.into());
-    labels.set_auto(strings::AUTO.into());
+    labels.set_devices_title(strings::DEVICES_TITLE.into());
+    labels.set_no_devices(strings::NO_DEVICES.into());
+    labels.set_current_device(strings::CURRENT_DEVICE.into());
+    labels.set_logout_device(strings::LOGOUT_DEVICE.into());
 }
 fn native_window(window: &MainWindow) -> HWND {
     window

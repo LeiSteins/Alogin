@@ -274,6 +274,28 @@ mod tests {
     }
 
     #[test]
+    fn legacy_settings_default_to_system_and_appearance_survives_restart() {
+        let path = temp_path();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, r#"{"version":1,"accounts":[],"selected":null,"preferences":{"target_ssids":["custom"],"auto_login":true}}"#).unwrap();
+        let (store, mut settings) = Store::at(path.clone()).unwrap();
+        assert_eq!(
+            settings.preferences.appearance,
+            crate::domain::Appearance::System
+        );
+        settings.preferences.appearance = crate::domain::Appearance::Dark;
+        store.save(&settings).unwrap();
+        let (_, restored) = Store::at(path.clone()).unwrap();
+        assert_eq!(
+            restored.preferences.appearance,
+            crate::domain::Appearance::Dark
+        );
+        assert!(restored.preferences.auto_login);
+        assert_eq!(restored.preferences.target_ssids, ["custom"]);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn missing_password_requires_an_existing_decryptable_account() {
         let mut settings = Settings::default();
         assert!(settings.upsert("first".into(), "").is_err());

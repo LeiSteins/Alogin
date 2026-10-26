@@ -7,6 +7,33 @@ pub const EXIT: &str = "退出";
 pub const HOME_PAGE: &str = "主页";
 pub const ACCOUNTS_PAGE: &str = "账号管理";
 pub const NETWORK_PAGE: &str = "目标网络";
+pub const SETTINGS_PAGE: &str = "设置";
+pub const ABOUT_PAGE: &str = "关于";
+pub const APPEARANCE: &str = "外观设置";
+pub const APPEARANCE_SYSTEM: &str = "跟随系统";
+pub const APPEARANCE_LIGHT: &str = "浅色";
+pub const APPEARANCE_DARK: &str = "深色";
+pub const ABOUT_DESCRIPTION: &str =
+    "一款 Windows 网络认证助手，用于在已配置的目标网络上完成认证，并查看网络与账号状态。";
+pub const APP_NAME_LABEL: &str = "应用名称";
+pub const VERSION_LABEL: &str = "版本";
+pub const IDENTIFIER_LABEL: &str = "应用标识";
+pub const IDENTIFIER: &str = "top.steins.alogin.windows";
+pub const LICENSE_LABEL: &str = "开源许可";
+pub const HOMEPAGE: &str = "项目主页";
+pub const HOMEPAGE_SUMMARY: &str = "访问项目官方网站";
+pub const SOURCE: &str = "项目源码";
+pub const SOURCE_SUMMARY: &str = "在 GitHub 上查看源代码";
+pub const LICENSE_DETAILS: &str = "许可说明";
+pub const LICENSE_SUMMARY: &str = "查看完整许可条款";
+pub const CHECK_UPDATES: &str = "检查更新";
+pub const UPDATES_UNAVAILABLE: &str = "暂未接入更新服务";
+pub const OPEN_LINK_FAILED: &str = "无法打开链接，请检查默认浏览器设置。";
+pub const ABOUT_LINKS: [&str; 3] = [
+    "https://steins.top/alogin/",
+    "https://github.com/LeiSteins/Alogin",
+    "https://github.com/LeiSteins/Alogin/blob/main/LICENSE",
+];
 pub const TOGGLE_NAVIGATION: &str = "展开或收起导航";
 pub const ACCOUNTS: &str = "已保存账号";
 pub const NO_SAVED_ACCOUNTS: &str = "暂无已保存账号";
@@ -67,6 +94,15 @@ pub const APP_DATA_FAILED: &str = "无法找到 Windows 本地应用数据目录
 pub const READ_FAILED: &str = "无法读取本地配置，请检查文件权限。";
 pub const SUBSCRIBE_FAILED: &str = "无法订阅 Windows 网络变化通知。";
 pub const REQUEST_TIMEOUT: &str = "门户请求超时，请稍后重试。";
+pub const DEVICES_TITLE: &str = "在线设备";
+pub const NO_DEVICES: &str = "当前没有在线设备";
+pub const CURRENT_DEVICE: &str = "本机";
+pub const LOGOUT_DEVICE: &str = "下线设备";
+pub const DEVICES_FAILED: &str = "在线设备列表暂时无法读取，请刷新后重试。";
+pub const DEVICE_STALE: &str = "设备或会话已变化，请刷新账号信息后重试。";
+pub const DEVICE_LOGOUT_FAILED: &str = "校园网系统未能下线该设备，请刷新后重试。";
+pub const DEVICE_LOGOUT_SUCCESS: &str = "设备已下线。";
+pub const DEVICE_LOGOUT_UNKNOWN: &str = "无法确认下线结果，已刷新状态，请核对在线设备列表。";
 pub const ACCOUNT_TITLE: &str = "已登录";
 pub const ACCOUNT_USERNAME: &str = "用户名";
 pub const REMAINING_MONEY: &str = "剩余金额";
@@ -160,6 +196,9 @@ fn traffic_used_percent(usage_fraction: f32) -> String {
 pub fn request_error(code: u32) -> String {
     format!("校园网请求失败（Windows 错误 {code}）。")
 }
+pub fn device_ip(ip: &str) -> String {
+    format!("IP：{ip}")
+}
 pub fn detection_error(status: u32) -> String {
     format!("门户探测失败（HTTP {status}）。")
 }
@@ -182,6 +221,7 @@ mod tests {
                 money_yuan: Some(-2.5),
             }),
             error: None,
+            ..Default::default()
         };
         let text = account_card(&info, Online::Yes);
         assert_eq!(text.username, "student");
@@ -213,6 +253,7 @@ mod tests {
                     money_yuan: None,
                 }),
                 error: None,
+                ..Default::default()
             };
             assert_eq!(account_card(&info, Online::Yes).traffic_amount, expected);
         }
@@ -224,6 +265,7 @@ mod tests {
             username: Some("student".into()),
             overview: None,
             error: Some(ACCOUNT_EXPIRED.into()),
+            ..Default::default()
         };
         let text = account_card(&info, Online::Yes);
         assert_eq!(text.username, "student");

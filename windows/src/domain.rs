@@ -39,6 +39,42 @@ pub struct AccountInfo {
     pub username: Option<String>,
     pub overview: Option<AccountOverview>,
     pub error: Option<String>,
+    pub devices: Option<Vec<AccountDevice>>,
+    pub devices_error: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AccountDevice {
+    pub session_id: String,
+    pub ip: String,
+    pub mac: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct DeviceLogoutRequest {
+    pub generation: u64,
+    pub network: Network,
+    pub username: String,
+    pub device: AccountDevice,
+}
+
+impl DeviceLogoutRequest {
+    pub fn matches(
+        &self,
+        generation: u64,
+        network: &Network,
+        online: Online,
+        info: &AccountInfo,
+    ) -> bool {
+        self.generation == generation
+            && self.network == *network
+            && online == Online::Yes
+            && info.username.as_ref() == Some(&self.username)
+            && info
+                .devices
+                .as_ref()
+                .is_some_and(|devices| devices.contains(&self.device))
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -87,11 +123,41 @@ pub enum NetworkKind {
     Ethernet,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Appearance {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
+impl Appearance {
+    pub fn from_index(index: i32) -> Option<Self> {
+        match index {
+            0 => Some(Self::System),
+            1 => Some(Self::Light),
+            2 => Some(Self::Dark),
+            _ => None,
+        }
+    }
+
+    pub fn index(self) -> i32 {
+        match self {
+            Self::System => 0,
+            Self::Light => 1,
+            Self::Dark => 2,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Preferences {
     pub target_ssids: Vec<String>,
     pub auto_login: bool,
+    #[serde(default)]
+    pub appearance: Appearance,
 }
 
 impl Default for Preferences {
@@ -99,6 +165,7 @@ impl Default for Preferences {
         Self {
             target_ssids: vec!["bjut_wifi".into()],
             auto_login: false,
+            appearance: Appearance::System,
         }
     }
 }
@@ -215,6 +282,64 @@ pub fn page_variable(page: &str, name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn logout_admission_requires_same_generation_identity_network_and_exact_device() {
+        let device = AccountDevice {
+            session_id: "s".into(),
+            ip: "10.1.2.4".into(),
+            mac: "AA:BB:CC:DD:EE:FF".into(),
+        };
+        let network = Network {
+            ipv4: "10.1.2.3".into(),
+            kind: NetworkKind::Ethernet,
+            ..Default::default()
+        };
+        let info = AccountInfo {
+            username: Some("student".into()),
+            devices: Some(vec![device.clone()]),
+            ..Default::default()
+        };
+        let request = DeviceLogoutRequest {
+            generation: 1,
+            network: network.clone(),
+            username: "student".into(),
+            device,
+        };
+        assert!(request.matches(1, &network, Online::Yes, &info));
+        assert!(!request.matches(2, &network, Online::Yes, &info));
+        assert!(!request.matches(1, &network, Online::Unknown, &info));
+        assert!(!request.matches(
+            1,
+            &Network {
+                kind: NetworkKind::Wifi,
+                ..network.clone()
+            },
+            Online::Yes,
+            &info
+        ));
+        assert!(!request.matches(
+            1,
+            &network,
+            Online::Yes,
+            &AccountInfo {
+                username: Some("other".into()),
+                ..info.clone()
+            }
+        ));
+        let mut changed = info.clone();
+        changed.devices.as_mut().unwrap()[0].ip = "10.1.2.5".into();
+        assert!(!request.matches(1, &network, Online::Yes, &changed));
+        assert!(!request.matches(
+            1,
+            &network,
+            Online::Yes,
+            &AccountInfo {
+                devices: None,
+                ..info
+            }
+        ));
+    }
 
     #[test]
     fn traffic_usage_requires_known_nonnegative_values_and_a_positive_finite_total() {
@@ -379,6 +504,7 @@ mod tests {
         let mut settings = Preferences {
             target_ssids: vec!["bjut".into()],
             auto_login: false,
+            ..Preferences::default()
         };
         let mut network = Network {
             interface: 1,

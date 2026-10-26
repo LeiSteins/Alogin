@@ -1,0 +1,238 @@
+import { Button, CheckBox } from "widgets.slint";
+import { ScrollView } from "std-widgets.slint";
+import { AppTheme } from "theme.slint";
+
+export global PreferencesLabels {
+    in property <string> settings;
+    in property <string> about;
+    in property <string> appearance;
+    in property <string> system;
+    in property <string> light;
+    in property <string> dark;
+    in property <string> auto-login;
+    in property <string> app;
+    in property <string> description;
+    in property <string> app-name;
+    in property <string> version-label;
+    in property <string> version;
+    in property <string> identifier-label;
+    in property <string> identifier;
+    in property <string> license-label;
+    in property <string> license;
+    in property <string> homepage;
+    in property <string> homepage-summary;
+    in property <string> source;
+    in property <string> source-summary;
+    in property <string> license-details;
+    in property <string> license-summary;
+    in property <string> updates;
+    in property <string> updates-summary;
+}
+
+component OptionCard inherits Rectangle {
+    height: content.min-height;
+    background: AppTheme.surface;
+    border-radius: 12px;
+    border-width: 1px;
+    border-color: AppTheme.border;
+    content := VerticalLayout {
+        padding: 1px;
+        spacing: 0px;
+        @children
+    }
+}
+
+component OptionRow inherits Rectangle {
+    in property <string> title;
+    in property <string> summary;
+    in property <bool> enabled: true;
+    in property <bool> separator: true;
+    private property <bool> pointer-focus;
+    private property <bool> highlighted: root.enabled && (touch.has-hover || touch.pressed);
+    private property <bool> keyboard-focused: root.enabled && focus.has-focus && !root.pointer-focus;
+    callback clicked();
+    height: max(56px, content.min-height + 24px);
+    border-radius: 10px;
+    background: root.highlighted ? AppTheme.hover : transparent;
+    border-width: root.keyboard-focused ? 1px : 0px;
+    border-color: AppTheme.accent;
+    accessible-role: button;
+    accessible-label: root.title;
+    accessible-enabled: root.enabled;
+    accessible-action-default => { if root.enabled { root.clicked(); } }
+    forward-focus: focus;
+    content := HorizontalLayout {
+        x: 16px;
+        y: 12px;
+        width: parent.width - 32px;
+        height: parent.height - 24px;
+        spacing: 16px;
+        VerticalLayout {
+            spacing: 4px;
+            Text {
+                text: root.title;
+                font-size: 14px;
+                color: AppTheme.high-contrast && root.highlighted ? AppTheme.accent-text
+                    : root.enabled ? AppTheme.text : AppTheme.muted;
+                wrap: word-wrap;
+            }
+            if root.summary != "": Text {
+                text: root.summary;
+                font-size: 12px;
+                color: AppTheme.high-contrast && root.highlighted ? AppTheme.accent-text : AppTheme.muted;
+                wrap: word-wrap;
+            }
+        }
+        Text {
+            text: "›";
+            width: 16px;
+            font-size: 22px;
+            color: AppTheme.high-contrast && root.highlighted ? AppTheme.accent-text : AppTheme.muted;
+            vertical-alignment: center;
+        }
+    }
+    if root.separator: Rectangle {
+        x: 16px;
+        y: parent.height - 1px;
+        width: parent.width - self.x - 16px;
+        height: 1px;
+        background: AppTheme.border;
+    }
+    focus := FocusScope {
+        enabled: root.enabled;
+        changed has-focus => { if !self.has-focus { root.pointer-focus = false; } }
+        key-pressed(event) => {
+            root.pointer-focus = false;
+            if event.text == " " || event.text == "\n" { root.clicked(); return accept; }
+            return reject;
+        }
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => { root.pointer-focus = true; focus.focus(); root.clicked(); }
+    }
+}
+
+component InfoRow inherits Rectangle {
+    in property <string> title;
+    in property <string> value;
+    in property <bool> separator: true;
+    height: max(56px, content.min-height + 24px);
+    accessible-role: text;
+    accessible-label: root.title;
+    accessible-value: root.value;
+    content := HorizontalLayout {
+        x: 16px;
+        y: 12px;
+        width: parent.width - 32px;
+        height: parent.height - 24px;
+        spacing: 16px;
+        Text { text: root.title; color: AppTheme.muted; wrap: word-wrap; }
+        Text { text: root.value; color: AppTheme.text; horizontal-alignment: right; wrap: word-wrap; }
+    }
+    if root.separator: Rectangle {
+        x: 16px;
+        y: parent.height - 1px;
+        width: parent.width - 32px;
+        height: 1px;
+        background: AppTheme.border;
+    }
+}
+
+export component SettingsPage inherits VerticalLayout {
+    in property <bool> enabled;
+    in-out property <bool> auto-login;
+    in-out property <int> appearance;
+    callback save-auto-login();
+    callback save-appearance();
+    spacing: 16px;
+    Text {
+        text: PreferencesLabels.settings;
+        color: AppTheme.text;
+        font-size: 22px;
+        font-weight: 700;
+    }
+    ScrollView {
+        content-width: self.visible-width;
+        VerticalLayout {
+            spacing: 12px;
+            OptionCard {
+                VerticalLayout {
+                    padding: 16px;
+                    spacing: 16px;
+                    Text { text: PreferencesLabels.appearance; color: AppTheme.text; font-weight: 700; }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        for label[index] in [PreferencesLabels.system, PreferencesLabels.light, PreferencesLabels.dark]: Button {
+                            text: label;
+                            horizontal-stretch: 1;
+                            checkable: true;
+                            checked: root.appearance == index;
+                            enabled: root.enabled;
+                            clicked => {
+                                if root.appearance != index {
+                                    root.appearance = index;
+                                    root.save-appearance();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            OptionCard {
+                VerticalLayout {
+                    padding: 16px;
+                    CheckBox {
+                        text: PreferencesLabels.auto-login;
+                        switch-style: true;
+                        checked <=> root.auto-login;
+                        enabled: root.enabled;
+                        toggled => { root.save-auto-login(); }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component AboutPage inherits VerticalLayout {
+    callback open-link(int);
+    spacing: 16px;
+    Text { text: PreferencesLabels.about; color: AppTheme.text; font-size: 22px; font-weight: 700; }
+    about-scroll := ScrollView {
+        content-width: self.visible-width;
+        VerticalLayout {
+            spacing: 12px;
+            HorizontalLayout {
+                Rectangle { horizontal-stretch: 1; }
+                Image { source: @image-url("../resources/icon.png"); width: 88px; height: 88px; image-fit: contain; }
+                Rectangle { horizontal-stretch: 1; }
+            }
+            Text {
+                text: PreferencesLabels.app;
+                color: AppTheme.text;
+                font-size: 24px;
+                font-weight: 700;
+                horizontal-alignment: center;
+            }
+            Text {
+                text: PreferencesLabels.description;
+                color: AppTheme.muted;
+                horizontal-alignment: center;
+                wrap: word-wrap;
+            }
+            OptionCard {
+                InfoRow { title: PreferencesLabels.app-name; value: PreferencesLabels.app; }
+                InfoRow { title: PreferencesLabels.version-label; value: PreferencesLabels.version; }
+                InfoRow { title: PreferencesLabels.identifier-label; value: PreferencesLabels.identifier; }
+                InfoRow { title: PreferencesLabels.license-label; value: PreferencesLabels.license; separator: false; }
+            }
+            OptionCard {
+                OptionRow { title: PreferencesLabels.homepage; summary: PreferencesLabels.homepage-summary; clicked => { root.open-link(0); } }
+                OptionRow { title: PreferencesLabels.source; summary: PreferencesLabels.source-summary; clicked => { root.open-link(1); } }
+                OptionRow { title: PreferencesLabels.license-details; summary: PreferencesLabels.license-summary; clicked => { root.open-link(2); } }
+                OptionRow { title: PreferencesLabels.updates; summary: PreferencesLabels.updates-summary; enabled: false; separator: false; }
+            }
+        }
+    }
+}

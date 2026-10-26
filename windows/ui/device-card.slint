@@ -1,0 +1,84 @@
+import { Button } from "widgets.slint";
+import { AppTheme } from "theme.slint";
+
+export struct DeviceRow {
+    session-id: string,
+    mac: string,
+    ip: string,
+    current: bool,
+}
+
+export component DeviceCard inherits Rectangle {
+    in property <[DeviceRow]> devices;
+    in property <string> title;
+    in property <string> empty-label;
+    in property <string> current-label;
+    in property <string> logout-label;
+    in property <string> retry-label;
+    in property <string> error;
+    in property <bool> available;
+    in property <bool> enabled;
+    callback logout(string);
+    callback retry();
+    height: content.min-height;
+    background: AppTheme.surface;
+    border-radius: 12px;
+    border-width: 1px;
+    border-color: AppTheme.border;
+    accessible-role: groupbox;
+    accessible-label: root.title;
+    content := VerticalLayout {
+        padding: 16px;
+        spacing: 12px;
+        Text { text: root.title; color: AppTheme.accent; font-weight: 700; }
+        for device[index] in root.devices: VerticalLayout {
+            spacing: 12px;
+            if index > 0: Rectangle { height: 1px; background: AppTheme.border; }
+            HorizontalLayout {
+                spacing: 12px;
+                VerticalLayout {
+                    spacing: 4px;
+                    horizontal-stretch: 1;
+                    Text {
+                        text: device.mac;
+                        color: AppTheme.text;
+                        font-weight: 700;
+                        wrap: word-wrap;
+                        height: self.preferred-height;
+                    }
+                    Text {
+                        text: device.ip;
+                        color: AppTheme.muted;
+                        wrap: word-wrap;
+                        height: self.preferred-height;
+                    }
+                }
+                if device.current: Text {
+                    text: root.current-label;
+                    color: AppTheme.accent;
+                    font-weight: 700;
+                    vertical-alignment: center;
+                }
+                Button {
+                    text: root.logout-label;
+                    danger: true;
+                    enabled: root.enabled && root.available;
+                    clicked => { root.logout(device.session-id); }
+                }
+            }
+        }
+        if root.available && root.devices.length == 0: Text {
+            text: root.empty-label;
+            color: AppTheme.muted;
+            wrap: word-wrap;
+        }
+        if root.error != "": VerticalLayout {
+            spacing: 12px;
+            Text { text: root.error; color: AppTheme.error; wrap: word-wrap; }
+            HorizontalLayout {
+                Rectangle { horizontal-stretch: 1; }
+                Button { text: root.retry-label; enabled: root.enabled; clicked => { root.retry(); } }
+            }
+        }
+    }
+}

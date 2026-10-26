@@ -1,7 +1,6 @@
-//! Read-only account lookup. A fresh WinHTTP cookie session is scoped to one
-//! verified identity and network snapshot, then discarded after the lookup.
+//! Account lookup and device operations scoped to a verified identity and network.
 use crate::{
-    domain::{AccountInfo, AccountOverview, Network, page_variable, query},
+    domain::{AccountDevice, AccountInfo, AccountOverview, Network, page_variable, query},
     platform::http::{Host, Http, Response},
     strings,
 };
@@ -16,15 +15,53 @@ impl Transport for Http {
     }
 }
 
-pub fn load(network: &Network) -> AccountInfo {
+pub struct DeviceSession {
+    http: Http,
+    network: Network,
+    username: String,
+    devices: Vec<AccountDevice>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum LogoutResult {
+    Success,
+    Failure,
+    Indeterminate,
+}
+
+impl DeviceSession {
+    pub fn logout(&self, device: &AccountDevice) -> Result<LogoutResult, String> {
+        logout_with(&self.http, &self.username, &self.devices, device, &|| {
+            crate::platform::network::snapshot() == self.network
+        })
+    }
+}
+
+pub fn load(network: &Network) -> (AccountInfo, Option<DeviceSession>) {
     match Http::new() {
-        Ok(http) => load_with(&http, network, &|| {
-            crate::platform::network::snapshot() == *network
-        }),
-        Err(_) => AccountInfo {
-            error: Some(strings::IDENTITY_FAILED.into()),
-            ..Default::default()
-        },
+        Ok(http) => {
+            let info = load_with(&http, network, &|| {
+                crate::platform::network::snapshot() == *network
+            });
+            let session =
+                info.username
+                    .as_ref()
+                    .zip(info.devices.as_ref())
+                    .map(|(username, devices)| DeviceSession {
+                        http,
+                        network: network.clone(),
+                        username: username.clone(),
+                        devices: devices.clone(),
+                    });
+            (info, session)
+        }
+        Err(_) => (
+            AccountInfo {
+                error: Some(strings::IDENTITY_FAILED.into()),
+                ..Default::default()
+            },
+            None,
+        ),
     }
 }
 
@@ -59,16 +96,152 @@ fn load_with(
         return AccountInfo::default();
     }
     match result {
-        Ok(overview) => AccountInfo {
-            username: Some(username),
-            overview: Some(overview),
-            error: None,
-        },
+        Ok(overview) => {
+            let devices = get_current(
+                client,
+                current,
+                Host::SelfService,
+                false,
+                "/Self/dashboard/getOnlineList",
+            )
+            .and_then(|response| {
+                if !response.success() {
+                    return Err(strings::ACCOUNT_EXPIRED.into());
+                }
+                parse_devices(&response.text()).map_err(str::to_owned)
+            });
+            if !current() {
+                return AccountInfo::default();
+            }
+            let (devices, devices_error) = match devices {
+                Ok(devices) => (Some(devices), None),
+                Err(_) => (None, Some(strings::DEVICES_FAILED.into())),
+            };
+            AccountInfo {
+                username: Some(username),
+                overview: Some(overview),
+                error: None,
+                devices,
+                devices_error,
+            }
+        }
         Err(error) => AccountInfo {
             username: Some(username),
             overview: None,
             error: Some(error),
+            ..Default::default()
         },
+    }
+}
+
+fn canonical_mac(value: &str) -> Option<String> {
+    if !value
+        .bytes()
+        .all(|ch| ch.is_ascii_hexdigit() || b":-. ".contains(&ch))
+    {
+        return None;
+    }
+    let mac: String = value.chars().filter(char::is_ascii_hexdigit).collect();
+    (mac.len() == 12).then(|| mac.to_ascii_uppercase())
+}
+
+fn parse_devices(text: &str) -> Result<Vec<AccountDevice>, &'static str> {
+    let data: Value = serde_json::from_str(text).map_err(|_| strings::DEVICES_FAILED)?;
+    let rows = data.as_array().ok_or(strings::DEVICES_FAILED)?;
+    let mut devices = Vec::new();
+    for row in rows {
+        let field = |key| {
+            row.get(key)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty() && !value.chars().any(char::is_control))
+                .ok_or(strings::DEVICES_FAILED)
+        };
+        let session_id = field("sessionId")?.to_owned();
+        let ip = field("ip")?.to_owned();
+        let mac = canonical_mac(field("mac")?).ok_or(strings::DEVICES_FAILED)?;
+        if devices
+            .iter()
+            .any(|device: &AccountDevice| device.session_id == session_id)
+        {
+            return Err(strings::DEVICES_FAILED);
+        }
+        devices.push(AccountDevice {
+            session_id,
+            ip,
+            mac: (0..6)
+                .map(|i| &mac[i * 2..i * 2 + 2])
+                .collect::<Vec<_>>()
+                .join(":"),
+        });
+    }
+    Ok(devices)
+}
+
+fn logout_with(
+    client: &impl Transport,
+    username: &str,
+    devices: &[AccountDevice],
+    device: &AccountDevice,
+    current: &impl Fn() -> bool,
+) -> Result<LogoutResult, String> {
+    if !devices.contains(device) {
+        return Err(strings::DEVICE_STALE.into());
+    }
+    let mac = canonical_mac(&device.mac).ok_or(strings::DEVICE_STALE)?;
+    // Verify the portal identity again, using only the already established cookie
+    // session. An expired session must never silently renew and replay a write.
+    let identity = get_current(client, current, Host::Lgn, false, "/")?;
+    if !identity.success() || parse_identity(&identity.text()).as_deref() != Some(username) {
+        return Err(strings::DEVICE_STALE.into());
+    }
+    if !current() {
+        return Err(strings::NETWORK_CHANGED.into());
+    }
+    let path = format!(
+        "/Self/dashboard/tooffline?{}",
+        query(&[
+            ("sessionid", &device.session_id),
+            ("ip", &device.ip),
+            ("mac", &mac),
+        ])
+    );
+    // Once dispatched, transport/HTTP failures cannot prove whether the server
+    // performed the operation. Refresh the list, without replaying the request.
+    let response = client.get(Host::SelfService, false, &path);
+    if !current() {
+        return Err(strings::NETWORK_CHANGED.into());
+    }
+    let Ok(response) = response else {
+        return Ok(LogoutResult::Indeterminate);
+    };
+    if (300..400).contains(&response.status) {
+        return Err(strings::ACCOUNT_EXPIRED.into());
+    }
+    if !response.success() {
+        return Ok(LogoutResult::Indeterminate);
+    }
+    Ok(parse_logout(&response.text()))
+}
+
+fn parse_logout(text: &str) -> LogoutResult {
+    let Ok(data) = serde_json::from_str::<Value>(text) else {
+        return LogoutResult::Indeterminate;
+    };
+    let success = match &data["success"] {
+        Value::Bool(value) => Some(*value),
+        Value::Number(value) => value.as_f64().map(|value| value != 0.0),
+        Value::String(value) => match value.trim().to_ascii_lowercase().as_str() {
+            "true" | "1" => Some(true),
+            "false" | "0" => Some(false),
+            _ => None,
+        },
+        _ => None,
+    };
+    match success {
+        Some(true) => LogoutResult::Success,
+        Some(false) => LogoutResult::Failure,
+        None => LogoutResult::Indeterminate,
     }
 }
 
@@ -327,6 +500,145 @@ mod tests {
     }
     fn fake(responses: Vec<Response>) -> Fake {
         Fake(RefCell::new(responses.into()), RefCell::new(Vec::new()))
+    }
+
+    fn device() -> AccountDevice {
+        parse_devices(r#"[{"sessionId":"s&1","ip":"10.1.2.3","mac":"aabbccddeeff"}]"#)
+            .unwrap()
+            .remove(0)
+    }
+
+    #[test]
+    fn device_list_validates_every_row_and_keeps_empty_distinct_from_unavailable() {
+        assert_eq!(device().mac, "AA:BB:CC:DD:EE:FF");
+        assert_eq!(parse_devices("[]"), Ok(vec![]));
+        for text in [
+            "{}",
+            "null",
+            "<html>login</html>",
+            r#"[{"sessionId":"s","ip":"","mac":"aabbccddeeff"}]"#,
+            r#"[{"sessionId":"s","ip":"10.1.2.3","mac":"invalid"}]"#,
+            r#"[{"sessionId":"s","ip":"10.1.2.3","mac":"aabbccddeeff"},{}]"#,
+            r#"[{"sessionId":"s","ip":"1","mac":"aabbccddeeff"},{"sessionId":"s","ip":"2","mac":"aabbccddeeff"}]"#,
+        ] {
+            assert!(parse_devices(text).is_err(), "{text}");
+        }
+        for (body, available) in [("[]", true), ("malformed", false)] {
+            let client = fake(vec![
+                identity(),
+                sso(),
+                response(200, "ready", ""),
+                dashboard(),
+                response(200, body, ""),
+            ]);
+            let info = load_with(&client, &Network::default(), &|| true);
+            assert!(info.overview.is_some());
+            assert_eq!(info.username.as_deref(), Some("student"));
+            assert_eq!(info.devices.is_some(), available);
+            assert_eq!(info.devices_error.is_some(), !available);
+            assert_eq!(
+                client.1.borrow().last().unwrap().2,
+                "/Self/dashboard/getOnlineList"
+            );
+        }
+    }
+
+    #[test]
+    fn logout_uses_existing_session_encodes_values_and_never_follows_or_replays_writes() {
+        let device = device();
+        for (reply, expected) in [
+            (
+                response(200, r#"{"success":true}"#, ""),
+                Ok(LogoutResult::Success),
+            ),
+            (
+                response(200, r#"{"success":false}"#, ""),
+                Ok(LogoutResult::Failure),
+            ),
+            (
+                response(200, "unknown", ""),
+                Ok(LogoutResult::Indeterminate),
+            ),
+            (response(503, "", ""), Ok(LogoutResult::Indeterminate)),
+            (
+                response(302, "", "/Self/login"),
+                Err(strings::ACCOUNT_EXPIRED.into()),
+            ),
+        ] {
+            let client = fake(vec![identity(), reply]);
+            assert_eq!(
+                logout_with(
+                    &client,
+                    "student",
+                    std::slice::from_ref(&device),
+                    &device,
+                    &|| true
+                ),
+                expected
+            );
+            let requests = client.1.borrow();
+            assert_eq!(requests.len(), 2);
+            assert_eq!(requests[1].0, Host::SelfService);
+            assert_eq!(
+                requests[1].2,
+                "/Self/dashboard/tooffline?sessionid=s%261&ip=10.1.2.3&mac=AABBCCDDEEFF"
+            );
+        }
+        for (text, expected) in [
+            (r#"{"success":"1"}"#, LogoutResult::Success),
+            (r#"{"success":0}"#, LogoutResult::Failure),
+            (r#"{"result":1}"#, LogoutResult::Indeterminate),
+        ] {
+            assert_eq!(parse_logout(text), expected);
+        }
+    }
+
+    #[test]
+    fn logout_rejects_stale_devices_identity_and_network_before_submission() {
+        let device = device();
+        let client = fake(vec![]);
+        assert!(logout_with(&client, "student", &[], &device, &|| true).is_err());
+        assert!(client.1.borrow().is_empty());
+        let client = fake(vec![identity()]);
+        assert!(
+            logout_with(
+                &client,
+                "another",
+                std::slice::from_ref(&device),
+                &device,
+                &|| true
+            )
+            .is_err()
+        );
+        assert_eq!(client.1.borrow().len(), 1);
+        let client = fake(vec![identity()]);
+        let checks = Cell::new(0);
+        assert!(
+            logout_with(
+                &client,
+                "student",
+                std::slice::from_ref(&device),
+                &device,
+                &|| {
+                    checks.set(checks.get() + 1);
+                    checks.get() < 3
+                }
+            )
+            .is_err()
+        );
+        assert_eq!(client.1.borrow().len(), 1);
+        let client = fake(vec![identity()]);
+        assert_eq!(
+            logout_with(
+                &client,
+                "student",
+                std::slice::from_ref(&device),
+                &device,
+                &|| true
+            ),
+            Ok(LogoutResult::Indeterminate)
+        );
+        assert_eq!(client.1.borrow().len(), 2);
     }
 
     #[test]

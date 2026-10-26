@@ -15,6 +15,7 @@ pub enum Command {
     Login,
     Refresh,
     NetworkChanged,
+    LogoutDevice(DeviceLogoutRequest),
     SaveAccount {
         username: String,
         password: Zeroizing<String>,
@@ -33,6 +34,7 @@ pub struct View {
     pub network: Network,
     pub online: Online,
     pub account_info: AccountInfo,
+    pub device_generation: u64,
     pub message: String,
     pub failed: bool,
     pub fatal: bool,
@@ -46,6 +48,7 @@ impl Default for View {
             network: Network::default(),
             online: Online::Unknown,
             account_info: AccountInfo::default(),
+            device_generation: 0,
             message: strings::LOADING.into(),
             failed: false,
             fatal: false,
@@ -105,6 +108,8 @@ impl Worker {
                     network: Network::default(),
                     online: Online::Unknown,
                     account_info: AccountInfo::default(),
+                    device_session: None,
+                    device_generation: 0,
                     last_auto: None,
                 };
                 let initial = session.handle(Command::NetworkChanged);
@@ -139,6 +144,8 @@ struct Session {
     network: Network,
     online: Online,
     account_info: AccountInfo,
+    device_session: Option<crate::account::DeviceSession>,
+    device_generation: u64,
     last_auto: Option<(Network, String)>,
 }
 
@@ -152,6 +159,7 @@ impl Session {
             network: self.network.clone(),
             online: self.online,
             account_info: self.account_info.clone(),
+            device_generation: self.device_generation,
             message: result.unwrap_or_else(|error| error),
             failed,
             fatal: false,
@@ -173,6 +181,7 @@ impl Session {
                 }
             }
             Command::Login => self.login(None, false),
+            Command::LogoutDevice(request) => self.logout_device(request),
             Command::SaveAccount { username, password } => {
                 self.update(|settings| settings.upsert(username, &password))?;
                 Ok(strings::SAVED.into())
@@ -219,6 +228,7 @@ impl Session {
             self.last_auto = None;
             self.online = Online::Unknown;
             self.account_info = AccountInfo::default();
+            self.device_session = None;
         }
         self.network = network;
         self.remember_detected_wifi()?;
@@ -244,6 +254,7 @@ impl Session {
             self.network = current;
             self.online = Online::Unknown;
             self.account_info = AccountInfo::default();
+            self.device_session = None;
             return Err(strings::NETWORK_CHANGED.into());
         }
         // An unknown result must not trigger repeated credential submissions.
@@ -261,6 +272,7 @@ impl Session {
         let network = snapshot();
         self.online = Online::Unknown;
         self.account_info = AccountInfo::default();
+        self.device_session = None;
         if expected.as_ref().is_some_and(|previous| {
             previous != &network
                 || automatic && !self.settings.preferences.allows_auto_login(&network)
@@ -313,6 +325,7 @@ impl Session {
         self.network = snapshot();
         self.online = Online::Unknown;
         self.account_info = AccountInfo::default();
+        self.device_session = None;
         self.remember_detected_wifi()?;
         if usable_ipv4(&self.network.ipv4) {
             self.online = Campus::new()?.status(&self.network);
@@ -344,12 +357,50 @@ impl Session {
 
     fn load_account(&mut self) -> Result<(), String> {
         self.ensure_current()?;
-        self.account_info = if self.online == Online::Yes {
+        self.device_generation = self.device_generation.wrapping_add(1);
+        let (info, session) = if self.online == Online::Yes {
             crate::account::load(&self.network)
         } else {
-            AccountInfo::default()
+            (AccountInfo::default(), None)
         };
+        self.account_info = info;
+        self.device_session = session;
         self.ensure_current()
+    }
+
+    fn logout_device(&mut self, request: DeviceLogoutRequest) -> Result<String, String> {
+        self.ensure_current()?;
+        if !request.matches(
+            self.device_generation,
+            &self.network,
+            self.online,
+            &self.account_info,
+        ) {
+            return Err(strings::DEVICE_STALE.into());
+        }
+        let result = self
+            .device_session
+            .as_ref()
+            .ok_or(strings::DEVICE_STALE)?
+            .logout(&request.device);
+        self.ensure_current()?;
+        match result {
+            Ok(crate::account::LogoutResult::Failure) => Err(strings::DEVICE_LOGOUT_FAILED.into()),
+            Ok(outcome) => {
+                self.refresh()?;
+                if outcome == crate::account::LogoutResult::Success {
+                    Ok(strings::DEVICE_LOGOUT_SUCCESS.into())
+                } else {
+                    Err(strings::DEVICE_LOGOUT_UNKNOWN.into())
+                }
+            }
+            Err(error) => {
+                self.device_session = None;
+                self.account_info.devices = None;
+                self.account_info.devices_error = Some(error.clone());
+                Err(error)
+            }
+        }
     }
 
     fn ensure_current(&mut self) -> Result<(), String> {
@@ -358,6 +409,7 @@ impl Session {
             self.network = current;
             self.online = Online::Unknown;
             self.account_info = AccountInfo::default();
+            self.device_session = None;
             Err(strings::NETWORK_CHANGED.into())
         } else {
             Ok(())
@@ -389,6 +441,8 @@ mod tests {
             online: Online::Unknown,
             account_info: AccountInfo::default(),
             last_auto: None,
+            device_session: None,
+            device_generation: 0,
         };
         session.network = Network {
             kind: NetworkKind::Wifi,
