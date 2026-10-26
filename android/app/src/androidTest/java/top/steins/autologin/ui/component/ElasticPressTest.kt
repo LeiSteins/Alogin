@@ -3,6 +3,8 @@ package top.steins.autologin.ui.component
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
@@ -29,6 +31,7 @@ import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performSemanticsAction
@@ -91,6 +94,58 @@ class ElasticPressTest {
     }
 
     @Test
+    fun draggingAcrossScreen_keepsFollowingAfterLeavingButtonAndDoesNotClickOnReturn() {
+        var clicks = 0
+        showPaintTarget { clicks++ }
+        val target = composeRule.onNodeWithTag("target")
+        val layout = target.fetchSemanticsNode().boundsInRoot
+        val farCorner = farCornerFrom("target")
+        val rest = paintedBounds()
+        target.performTouchInput { down(center) }
+        composeRule.mainClock.advanceTimeBy(200)
+        val pressed = paintedBounds()
+
+        target.performTouchInput { moveTo(farCorner) }
+        composeRule.mainClock.advanceTimeBy(240)
+        val below = paintedBounds()
+        assertTrue(below.width > rest.width)
+        assertTrue(below.left + below.right > pressed.left + pressed.right)
+        assertTrue(below.top + below.bottom > pressed.top + pressed.bottom)
+
+        target.performTouchInput { moveTo(Offset(farCorner.x, -height.toFloat())) }
+        composeRule.mainClock.advanceTimeBy(240)
+        val above = paintedBounds()
+        assertTrue(above.top + above.bottom < pressed.top + pressed.bottom)
+        assertEquals(layout, target.fetchSemanticsNode().boundsInRoot)
+
+        target.performTouchInput { moveTo(center) }
+        composeRule.mainClock.advanceTimeBy(240)
+        assertTrue(paintedBounds().width > rest.width)
+        target.performTouchInput { up() }
+        composeRule.mainClock.advanceTimeBy(1500)
+        assertEquals(rest, paintedBounds())
+        composeRule.runOnIdle { assertEquals(0, clicks) }
+    }
+
+    @Test
+    fun pointerCancellationAfterLeavingButton_returnsToRestWithoutClick() {
+        var clicks = 0
+        showPaintTarget { clicks++ }
+        val target = composeRule.onNodeWithTag("target")
+        val farCorner = farCornerFrom("target")
+        val rest = paintedBounds()
+        target.performTouchInput { down(center) }
+        composeRule.mainClock.advanceTimeBy(200)
+        target.performTouchInput { moveTo(farCorner) }
+        composeRule.mainClock.advanceTimeBy(240)
+        assertTrue(paintedBounds().width > rest.width)
+        target.performTouchInput { cancel() }
+        composeRule.mainClock.advanceTimeBy(1500)
+        assertEquals(rest, paintedBounds())
+        composeRule.runOnIdle { assertEquals(0, clicks) }
+    }
+
+    @Test
     fun disablingDuringPress_clearsTransformAndDoesNotClick() {
         val enabled = mutableStateOf(true)
         var clicks = 0
@@ -105,6 +160,8 @@ class ElasticPressTest {
         val rest = paintedBounds()
         composeRule.onNodeWithTag("target").performTouchInput { down(center) }
         composeRule.mainClock.advanceTimeBy(200)
+        composeRule.onNodeWithTag("target").performTouchInput { moveBy(Offset(width * 1.2f, 0f)) }
+        composeRule.mainClock.advanceTimeBy(240)
         assertTrue(paintedBounds().width > rest.width)
         composeRule.runOnIdle { enabled.value = false }
         composeRule.mainClock.advanceTimeByFrame()
@@ -137,6 +194,79 @@ class ElasticPressTest {
         composeRule.onNodeWithTag("list").performTouchInput { swipeUp() }
         composeRule.runOnIdle {
             assertTrue(scrollPosition() > 0)
+            assertEquals(0, clicks)
+        }
+    }
+
+    @Test
+    fun scrollTakingOverHeldPress_stopsVisualDragUntilPointerUp() {
+        var clicks = 0
+        var scrollPosition = { 0 }
+        composeRule.mainClock.autoAdvance = false
+        composeRule.setContent {
+            AloginTheme {
+                val scroll = rememberScrollState()
+                scrollPosition = { scroll.value }
+                Column(Modifier.size(240.dp).testTag("canvas").verticalScroll(scroll)) {
+                    Box(Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) {
+                        PaintTarget { clicks++ }
+                    }
+                    Spacer(Modifier.height(600.dp))
+                }
+            }
+        }
+        val target = composeRule.onNodeWithTag("target")
+        val rest = paintedBounds()
+        target.performTouchInput { down(center) }
+        composeRule.mainClock.advanceTimeBy(300)
+        assertTrue(paintedBounds().width > rest.width)
+        target.performTouchInput { moveBy(Offset(0f, -height * 0.4f)) }
+        composeRule.mainClock.advanceTimeBy(1500)
+        assertEquals(rest.width, paintedBounds().width)
+        composeRule.runOnIdle { assertTrue(scrollPosition() > 0) }
+        target.performTouchInput { moveBy(Offset(0f, height * 0.1f)) }
+        composeRule.mainClock.advanceTimeBy(240)
+        assertEquals(rest.width, paintedBounds().width)
+        target.performTouchInput { up() }
+        composeRule.runOnIdle { assertEquals(0, clicks) }
+    }
+
+    @Test
+    fun immediateHorizontalDragInScrollableList_startsWithoutWaitingForClickPress() {
+        var clicks = 0
+        var scrollPosition = { 0 }
+        composeRule.mainClock.autoAdvance = false
+        composeRule.setContent {
+            AloginTheme {
+                val scroll = rememberScrollState()
+                scrollPosition = { scroll.value }
+                Box(Modifier.fillMaxSize()) {
+                    Column(Modifier.size(240.dp).testTag("canvas").verticalScroll(scroll)) {
+                        Box(Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) {
+                            PaintTarget { clicks++ }
+                        }
+                        Spacer(Modifier.height(600.dp))
+                    }
+                }
+            }
+        }
+        val target = composeRule.onNodeWithTag("target")
+        val farCorner = farCornerFrom("target")
+        val rest = paintedBounds()
+        target.performTouchInput {
+            down(center)
+            advanceEventTime(16)
+            moveTo(Offset(farCorner.x, center.y))
+        }
+        composeRule.mainClock.advanceTimeBy(300)
+        val dragged = paintedBounds()
+        assertTrue(dragged.width > rest.width)
+        assertTrue(dragged.left + dragged.right > rest.left + rest.right)
+        target.performTouchInput { up() }
+        composeRule.mainClock.advanceTimeBy(1500)
+        assertEquals(rest, paintedBounds())
+        composeRule.runOnIdle {
+            assertEquals(0, scrollPosition())
             assertEquals(0, clicks)
         }
     }
@@ -231,12 +361,58 @@ class ElasticPressTest {
         }
     }
 
+    @Test
+    fun iconButtonGroup_draggingAcrossButtonsAndScreen_keepsCapsuleMovingWithoutClick() {
+        var clicks = 0
+        composeRule.mainClock.autoAdvance = false
+        composeRule.setContent {
+            AloginTheme {
+                Box(Modifier.fillMaxSize()) {
+                    Box(Modifier.size(240.dp).testTag("canvas"), contentAlignment = Alignment.Center) {
+                        ElasticIconButtonGroup(containerColor = Color.Red) {
+                            ElasticIconButton(
+                                onClick = { clicks++ },
+                                modifier = Modifier.size(44.dp).testTag("settings")
+                            ) { Text("S") }
+                            ElasticIconButton(
+                                onClick = { clicks++ },
+                                modifier = Modifier.size(44.dp).testTag("account")
+                            ) { Text("A") }
+                        }
+                    }
+                }
+            }
+        }
+        val settings = composeRule.onNodeWithTag("settings")
+        val farCorner = farCornerFrom("settings")
+        val rest = paintedBounds()
+        settings.performTouchInput { down(center) }
+        composeRule.mainClock.advanceTimeBy(200)
+        settings.performTouchInput { moveTo(Offset(width * 1.5f, center.y)) }
+        composeRule.mainClock.advanceTimeBy(240)
+        assertTrue(paintedBounds().width > rest.width)
+        settings.performTouchInput { moveTo(farCorner) }
+        composeRule.mainClock.advanceTimeBy(240)
+        val dragged = paintedBounds()
+        assertTrue(dragged.width > rest.width)
+        assertTrue(dragged.top + dragged.bottom > rest.top + rest.bottom)
+        settings.performTouchInput { up() }
+        composeRule.mainClock.advanceTimeBy(1500)
+        assertEquals(rest, paintedBounds())
+        composeRule.runOnIdle { assertEquals(0, clicks) }
+        composeRule.onNodeWithTag("account").performTouchInput { down(center); up() }
+        composeRule.mainClock.advanceTimeBy(1500)
+        composeRule.runOnIdle { assertEquals(1, clicks) }
+    }
+
     private fun showPaintTarget(onClick: () -> Unit) {
         composeRule.mainClock.autoAdvance = false
         composeRule.setContent {
             AloginTheme {
-                Box(Modifier.size(240.dp).testTag("canvas"), contentAlignment = Alignment.Center) {
-                    PaintTarget(onClick = onClick)
+                Box(Modifier.fillMaxSize()) {
+                    Box(Modifier.size(240.dp).testTag("canvas"), contentAlignment = Alignment.Center) {
+                        PaintTarget(onClick = onClick)
+                    }
                 }
             }
         }
@@ -254,6 +430,12 @@ class ElasticPressTest {
                 disabledContainerColor = Color.Red
             )
         ) {}
+    }
+
+    private fun farCornerFrom(tag: String): Offset {
+        val screen = composeRule.onRoot().fetchSemanticsNode().boundsInRoot
+        val target = composeRule.onNodeWithTag(tag).fetchSemanticsNode().boundsInRoot
+        return Offset(screen.right - target.left - 1f, screen.bottom - target.top - 1f)
     }
 
     private fun paintedBounds(): IntRect {

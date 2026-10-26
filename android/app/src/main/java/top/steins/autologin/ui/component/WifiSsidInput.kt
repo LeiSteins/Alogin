@@ -39,7 +39,6 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import top.steins.autologin.R
 import top.steins.autologin.ui.theme.AppControlShape
-import top.steins.autologin.ui.theme.LocalAloginDarkTheme
 
 @Composable
 fun WifiSsidInput(
@@ -50,11 +49,7 @@ fun WifiSsidInput(
 ) {
     var focused by remember { mutableStateOf(false) }
     val colors = MaterialTheme.colorScheme
-    val containerColor = if (LocalAloginDarkTheme.current) {
-        colors.surfaceContainerHigh
-    } else {
-        colors.surfaceContainer
-    }
+    val containerColor = colors.surfaceContainerHigh
     val label = stringResource(R.string.wifi_add_ssid_label)
     val outline by animateColorAsState(
         targetValue = if (focused) colors.primary else colors.outlineVariant.copy(alpha = 0.4f),

@@ -92,6 +92,8 @@ private class ElasticPressNode(
     private var pulling: Job? = null
     private var press: PressInteraction.Press? = null
     private var pointer: PointerId? = null
+    private var pointerPressActive = false
+    private var pointerCancelled = false
     private var origin = Offset.Zero
     private var displacement = Offset.Zero
     private var pullLimit = 0f
@@ -104,6 +106,8 @@ private class ElasticPressNode(
         pulling?.cancel()
         press = null
         pointer = null
+        pointerPressActive = false
+        pointerCancelled = false
         displacement = Offset.Zero
         focused = false
         lift = AnimationState(0f)
@@ -114,14 +118,19 @@ private class ElasticPressNode(
             interactions.interactions.collect { interaction ->
                 when (interaction) {
                     is PressInteraction.Press -> {
-                        if (!animatePress) return@collect
+                        if (!animatePress || (pointer != null && pointerCancelled)) return@collect
                         press = interaction
-                        swelling?.cancel()
-                        swelling = launch { lift.animateTo(1f, PressSpring) }
-                        followPointer()
+                        if (pointer == null) swell()
                     }
-                    is PressInteraction.Release -> if (interaction.press === press) release(completeSwell = true)
-                    is PressInteraction.Cancel -> if (interaction.press === press) release(completeSwell = false)
+                    is PressInteraction.Release -> if (interaction.press === press) {
+                        press = null
+                        if (!pointerPressActive) release(completeSwell = true)
+                    }
+                    is PressInteraction.Cancel -> if (interaction.press === press) {
+                        press = null
+                        // Leaving a click target cancels its action, but the finger still drives the paint.
+                        if (!pointerPressActive) release(completeSwell = false)
+                    }
                     is FocusInteraction.Focus -> focused = true
                     is FocusInteraction.Unfocus -> focused = false
                 }
@@ -129,8 +138,14 @@ private class ElasticPressNode(
         }
     }
 
+    private fun swell() {
+        swelling?.cancel()
+        swelling = coroutineScope.launch { lift.animateTo(1f, PressSpring) }
+    }
+
     private fun release(completeSwell: Boolean) {
         press = null
+        pointerPressActive = false
         displacement = Offset.Zero
         swelling?.cancel()
         pulling?.cancel()
@@ -147,21 +162,38 @@ private class ElasticPressNode(
     }
 
     override fun onPointerEvent(pointerEvent: PointerEvent, pass: PointerEventPass, bounds: IntSize) {
-        if (!enabled || !animatePress || pass != PointerEventPass.Initial) return
+        if (!enabled || !animatePress) return
+        if (pass == PointerEventPass.Final) {
+            val change = pointerEvent.changes.firstOrNull { it.id == pointer } ?: return
+            if (
+                change.pressed && change.previousPressed && change.isConsumed &&
+                change.position != change.previousPosition
+            ) {
+                // A scroll or another gesture owning movement ends the visual press too.
+                pointerCancelled = true
+                if (pointerPressActive || press != null) release(completeSwell = false)
+            }
+            return
+        }
+        if (pass != PointerEventPass.Initial) return
         if (pointer == null) {
             val down = pointerEvent.changes.firstOrNull { it.pressed && !it.previousPressed } ?: return
             pointer = down.id
+            pointerCancelled = false
             origin = down.position
             displacement = Offset.Zero
             pullLimit = min(bounds.width, bounds.height) * 7f / 32f
+            pointerPressActive = true
+            swell()
         }
         val change = pointerEvent.changes.firstOrNull { it.id == pointer } ?: return
         if (!change.pressed) {
             pointer = null
+            if (pointerPressActive) release(completeSwell = true)
             return
         }
         displacement = change.position - origin
-        if (press != null) followPointer()
+        if (pointerPressActive) followPointer()
         // Observe only; clickable and scrollable retain ownership of the gesture.
     }
 
@@ -177,7 +209,8 @@ private class ElasticPressNode(
 
     override fun onCancelPointerInput() {
         pointer = null
-        if (press != null) release(completeSwell = false)
+        pointerCancelled = true
+        if (pointerPressActive || press != null) release(completeSwell = false)
     }
 
     override fun ContentDrawScope.draw() {
