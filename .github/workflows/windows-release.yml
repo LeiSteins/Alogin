@@ -1,0 +1,186 @@
+name: Windows release
+
+on:
+  push:
+    tags:
+      - 'windows-v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Validate and package Windows x64
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Validate release metadata and scripts
+        run: |
+          python -m unittest discover -s windows/scripts -p 'test_*.py'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python windows/scripts/release_manifest.py validate --tag $env:GITHUB_REF_NAME
+      - name: Set up Rust
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          rustup default stable
+      - name: Check formatting
+        run: ./windows/scripts/cargo.ps1 fmt --check
+      - name: Check code
+        run: ./windows/scripts/cargo.ps1 clippy --locked --all-targets '--' -D warnings
+      - name: Run tests
+        run: ./windows/scripts/cargo.ps1 test --locked
+      - name: Build release
+        run: ./windows/scripts/cargo.ps1 build --locked --release
+      - name: Package release and third-party notices
+        run: |
+          ./windows/scripts/cargo.ps1 metadata --locked --format-version 1 --filter-platform x86_64-pc-windows-msvc | Set-Content -Encoding utf8 "$env:RUNNER_TEMP/cargo-metadata.json"
+          python windows/scripts/release_manifest.py package --tag $env:GITHUB_REF_NAME --exe windows/target/release/alogin-windows.exe --metadata "$env:RUNNER_TEMP/cargo-metadata.json" --output-dir "$env:RUNNER_TEMP/release"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: ${{ runner.temp }}/release/
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-release-ui-previews
+          path: windows/target/ui-previews/*.png
+          if-no-files-found: error
+
+  github-release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-release
+          path: release
+      - name: Verify release files
+        run: python3 windows/scripts/release_manifest.py verify --release-dir release
+      - name: Create and publish release with complete assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#windows-v}"
+          # A published release is immutable for this workflow. Reruns may only
+          # continue if every already-published asset matches byte for byte.
+          if gh release view "$GITHUB_REF_NAME" --json isDraft --jq '.isDraft' > "$RUNNER_TEMP/is-draft"; then
+            if [[ "$(cat "$RUNNER_TEMP/is-draft")" == "false" ]]; then
+              gh release download "$GITHUB_REF_NAME" --dir "$RUNNER_TEMP/published"
+              for file in release/*.zip release/*.sha256 release/latest.json; do
+                cmp "$file" "$RUNNER_TEMP/published/$(basename "$file")"
+              done
+              exit 0
+            fi
+          else
+            gh release create "$GITHUB_REF_NAME" --verify-tag --draft --latest=false \
+              --title "Alogin Windows v$version" --notes-file release/release-notes.md
+          fi
+          gh release upload "$GITHUB_REF_NAME" release/*.zip release/*.sha256 release/latest.json --clobber
+          gh release edit "$GITHUB_REF_NAME" --draft=false --latest=false
+
+  deploy-server:
+    name: Deploy independent Windows download channel
+    needs: github-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    concurrency:
+      group: production-windows-deploy
+      cancel-in-progress: false
+    env:
+      DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+      DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+      DEPLOY_PORT: ${{ vars.DEPLOY_PORT }}
+      DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+      DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+      DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-release
+          path: release
+      - name: Verify release files
+        run: python3 windows/scripts/release_manifest.py verify --release-dir release
+      - name: Prepare deployment SSH
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$DEPLOY_HOST"
+          test -n "$DEPLOY_PATH"
+          test -n "$DEPLOY_USER"
+          test -n "$DEPLOY_KNOWN_HOSTS"
+          test -n "$DEPLOY_SSH_PRIVATE_KEY"
+          deploy_port="${DEPLOY_PORT:-22}"
+          [[ "$DEPLOY_HOST" =~ ^[A-Za-z0-9.-]+$ ]]
+          [[ "$DEPLOY_USER" =~ ^[A-Za-z_][A-Za-z0-9_-]*$ ]]
+          [[ "$DEPLOY_PATH" =~ ^/[A-Za-z0-9._/-]+$ ]]
+          [[ "$DEPLOY_PATH" != "/" && "$DEPLOY_PATH" != *".."* ]]
+          [[ "$deploy_port" =~ ^[0-9]+$ ]]
+          (( deploy_port >= 1 && deploy_port <= 65535 ))
+          deploy_ssh_dir="$RUNNER_TEMP/deploy-ssh"
+          install -d -m 700 "$deploy_ssh_dir"
+          printf '%s\n' "$DEPLOY_SSH_PRIVATE_KEY" > "$deploy_ssh_dir/id_ed25519"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$deploy_ssh_dir/known_hosts"
+          chmod 600 "$deploy_ssh_dir/id_ed25519" "$deploy_ssh_dir/known_hosts"
+          {
+            echo "DEPLOY_PORT=$deploy_port"
+            echo "DEPLOY_SSH_DIR=$deploy_ssh_dir"
+          } >> "$GITHUB_ENV"
+      - name: Upload package, verify remotely, then promote manifest atomically
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote_target="$DEPLOY_USER@$DEPLOY_HOST"
+          remote_dir="${DEPLOY_PATH%/}/windows"
+          ssh_options=(-i "$DEPLOY_SSH_DIR/id_ed25519" -p "$DEPLOY_PORT"
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes
+            -o "UserKnownHostsFile=$DEPLOY_SSH_DIR/known_hosts")
+          ssh "${ssh_options[@]}" "$remote_target" \
+            "test -d '${DEPLOY_PATH%/}' && mkdir -p '$remote_dir' && test -w '$remote_dir'"
+          ssh "${ssh_options[@]}" "$remote_target" \
+            "if test -f '$remote_dir/latest.json'; then cat '$remote_dir/latest.json'; fi" \
+            > "$RUNNER_TEMP/current-latest.json"
+          python3 windows/scripts/release_manifest.py validate-promotion \
+            --incoming release/latest.json --current "$RUNNER_TEMP/current-latest.json"
+          rsync -az --chmod=F644 \
+            -e "ssh -i $DEPLOY_SSH_DIR/id_ed25519 -p $DEPLOY_PORT -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$DEPLOY_SSH_DIR/known_hosts" \
+            release/*.zip release/*.sha256 "$remote_target:$remote_dir/"
+          archive="$(python3 -c 'import json; print(json.load(open("release/latest.json"))["fileName"])')"
+          ssh "${ssh_options[@]}" "$remote_target" "cd '$remote_dir' && sha256sum -c '$archive.sha256'"
+          staging=".latest-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
+          rsync -az --chmod=F644 \
+            -e "ssh -i $DEPLOY_SSH_DIR/id_ed25519 -p $DEPLOY_PORT -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$DEPLOY_SSH_DIR/known_hosts" \
+            release/latest.json "$remote_target:$remote_dir/$staging"
+          ssh "${ssh_options[@]}" "$remote_target" "mv -f '$remote_dir/$staging' '$remote_dir/latest.json'"
+      - name: Verify public manifest and package
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --retry 3 -H 'Cache-Control: no-cache' \
+            "https://aloginupdate.steins.top/windows/latest.json?run=$GITHUB_RUN_ID" -o "$RUNNER_TEMP/public-latest.json"
+          cmp release/latest.json "$RUNNER_TEMP/public-latest.json"
+          archive="$(python3 -c 'import json; print(json.load(open("release/latest.json"))["fileName"])')"
+          curl --fail --retry 3 "https://aloginupdate.steins.top/windows/$archive" -o "$RUNNER_TEMP/$archive"
+          cp "release/$archive.sha256" "$RUNNER_TEMP/"
+          (cd "$RUNNER_TEMP" && sha256sum -c "$archive.sha256")

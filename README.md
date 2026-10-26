@@ -4,11 +4,11 @@
 
 <h1 align="center">Alogin</h1>
 
-一款 Android 网络认证助手，用于在已配置的目标 Wi-Fi 上完成认证，并查看网络与账号状态。
+一款支持 Android 和 Windows 的校园网认证助手，用于完成认证，并查看网络与账号状态。
 
 Android 客户端及其 Gradle 工程、发布脚本和版本说明位于 `android/`，使用 Android Studio 时打开该目录。
 
-Windows 原生客户端正在开发，采用 Rust + Slint，首版支持托盘、多账号加密保存和校园网认证。构建与功能范围见 [Windows 客户端说明](windows/README.md)。
+Windows 原生客户端采用 Rust + Slint，支持 Windows 10/11 x64，提供托盘、多账号加密保存、校园网认证与登录维持。下载、构建与功能范围见 [Windows 客户端说明](windows/README.md)。
 
 官网：[https://steins.top/alogin/](https://steins.top/alogin/)
 
@@ -29,6 +29,11 @@ Windows 原生客户端正在开发，采用 Rust + Slint，首版支持托盘�
 ## 下载与安装
 
 前往 [GitHub Releases](https://github.com/LeiSteins/alogin/releases) 下载最新版本的 `alogin-v<版本号>.apk`，然后在 Android 设备上打开 APK 并按提示完成安装。若系统阻止安装，请根据提示允许当前下载来源安装未知应用。
+
+Windows 请下载标题为 **Alogin Windows** 的 Release 中的 `alogin-windows-v<版本号>-x64.zip`，
+或使用[服务器下载 v0.0.1](https://aloginupdate.steins.top/windows/alogin-windows-v0.0.1-x64.zip)。
+解压到固定目录后运行 `alogin-windows.exe`；更新前从托盘“退出”，再覆盖程序文件。
+账号和设置保存在 `%LOCALAPPDATA%\Alogin\`。Windows 与 Android 独立版本，下载时请核对平台。
 
 ## 使用方法
 
@@ -92,6 +97,12 @@ Debug APK 相对仓库根目录的默认输出位置为 `android/app/build/outpu
 发布前在 `android/app/build.gradle.kts` 中同时递增 `versionName` 和 `versionCode`，新增 `android/release-notes/<versionName>.md` 中文版本说明，再推送与 `versionName` 一致的 `v<版本号>` 标签；不要复用已发布的版本。[Release 工作流](.github/workflows/release.yml)会运行测试、构建签名 APK、创建 GitHub Release，并部署更新服务器。
 
 版本说明格式见 [android/release-notes/README.md](android/release-notes/README.md)。
+
+Windows 使用 `windows-v<版本号>` 标签和独立的 [Windows Release 工作流](.github/workflows/windows-release.yml)，
+版本以 `windows/Cargo.toml` 为准，说明位于 `windows/release-notes/`。工作流校验、测试并构建 x64 便携包，
+附带许可证、第三方声明和 SHA-256，先创建 GitHub 草稿、上传完整附件后发布。
+Windows Release 不设为仓库 Latest；服务器复用现有部署配置，下载包与清单位于 `/windows/`，
+先验证包的 SHA-256 再原子更新 Windows 清单，保持 Android 根目录清单独立。Windows 客户端自动更新暂未实现。
 
 ## 技术栈
 

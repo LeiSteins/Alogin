@@ -2,13 +2,17 @@ name: Windows client
 
 on:
   push:
+    branches:
+      - '**'
     paths:
       - 'windows/**'
       - '.github/workflows/windows-client.yml'
+      - '.github/workflows/windows-release.yml'
   pull_request:
     paths:
       - 'windows/**'
       - '.github/workflows/windows-client.yml'
+      - '.github/workflows/windows-release.yml'
   workflow_dispatch:
 
 permissions:
@@ -17,13 +21,18 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 60
     defaults:
       run:
         working-directory: windows
         shell: pwsh
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Test release scripts
+        run: python -m unittest discover -s scripts -p 'test_*.py'
       - name: Set up Rust
         run: |
           rustup toolchain install stable --profile minimal --component rustfmt --component clippy
