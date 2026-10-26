@@ -39,6 +39,7 @@ const OPEN_MESSAGE: u32 = WM_APP + 5;
 const CLOSE_MESSAGE: u32 = WM_APP + 6;
 const THEME_MESSAGE: u32 = WM_APP + 8;
 const ERROR_MESSAGE: u32 = WM_APP + 9;
+const TRAY_OPEN_MESSAGE: u32 = WM_APP + 10;
 const DEBOUNCE_TIMER: usize = 1;
 const NETWORK_REFRESH_DEBOUNCE_MS: u32 = 250;
 const ID_LOGIN: usize = 101;
@@ -58,6 +59,8 @@ const ID_RESUME_MAINTENANCE: usize = 114;
 const ID_STARTUP: usize = 115;
 const ID_SHOW: usize = 201;
 const ID_EXIT: usize = 202;
+const ID_TRAY_MAINTENANCE: usize = 203;
+const ID_TRAY_STARTUP: usize = 204;
 static TASKBAR_CREATED: AtomicU32 = AtomicU32::new(0);
 
 struct Mutex(HANDLE);
@@ -91,6 +94,7 @@ struct App {
     pending_error: Option<String>,
     pending_preferences: Option<PendingPreferences>,
     tray: bool,
+    active_menu: Option<Rc<theme::MenuTheme>>,
 }
 pub fn run() -> Result<(), String> {
     let background = std::env::args().any(|arg| arg == "--background");
@@ -152,6 +156,7 @@ pub fn run() -> Result<(), String> {
         pending_error: None,
         pending_preferences: None,
         tray: false,
+        active_menu: None,
     }));
     let host = unsafe {
         CreateWindowExW(
@@ -450,9 +455,21 @@ impl App {
     }
     fn report_error(&mut self, error: String) {
         self.pending_error = Some(error);
+        if self.active_menu.is_some() {
+            // A modal error must not dismiss the menu during a tray operation.
+            // Present it after the user closes the menu.
+            return;
+        }
+        if self.window.is_none() {
+            // Tray commands can fail while there is no visible error surface.
+            post(self.host, OPEN_MESSAGE, 0);
+        }
         post(self.host, ERROR_MESSAGE, 0);
     }
     fn render(&self, sync_accounts: bool, sync_preferences: bool) {
+        if let Some(menu) = &self.active_menu {
+            menu.update_rows(tray_rows(self));
+        }
         let Some(window) = &self.window else { return };
         window.set_startup_enabled(self.view.startup.as_ref().copied().unwrap_or(false));
         window.set_startup_error(
@@ -578,6 +595,11 @@ impl App {
     }
     fn command(&mut self, id: usize) {
         if id == ID_EXIT {
+            if self.active_menu.is_some() {
+                unsafe {
+                    EndMenu();
+                }
+            }
             let _ = slint::quit_event_loop();
             return;
         }
@@ -585,6 +607,18 @@ impl App {
             return;
         }
         match id {
+            ID_TRAY_MAINTENANCE => {
+                let mut candidate = self.view.preferences.clone();
+                candidate.auto_login = !candidate.auto_login;
+                let selected = self.window.as_ref().and_then(selected_target);
+                self.save_preferences(candidate, selected, false);
+            }
+            ID_TRAY_STARTUP => {
+                // An unreadable registry value is not an unchecked switch.
+                if let Ok(enabled) = self.view.startup {
+                    self.submit(Command::SetStartup(!enabled));
+                }
+            }
             ID_STARTUP => {
                 if let Some(window) = &self.window {
                     self.submit(Command::SetStartup(window.get_startup_enabled()));
@@ -620,7 +654,7 @@ impl App {
                 }
             }
             ID_HOME_ACTION => self.submit(Command::HomeAction),
-            ID_LOGIN => self.submit(Command::Login),
+            ID_LOGIN if self.view.online != Online::Yes => self.submit(Command::Login),
             ID_REFRESH => self.submit(Command::Refresh),
             ID_LOGOUT_DEVICE => {
                 if let Some(window) = &self.window {
@@ -1007,15 +1041,12 @@ unsafe extern "system" fn host_proc(
         }),
         TRAY_MESSAGE => match lparam as u32 {
             WM_LBUTTONUP | WM_LBUTTONDBLCLK => post(window, OPEN_MESSAGE, 0),
-            WM_RBUTTONUP | WM_CONTEXTMENU => enqueue(|app| {
-                let (host, disabled) = {
-                    let app = app.borrow();
-                    (app.host, app.busy || app.view.fatal || !app.initialized)
-                };
-                tray_menu(host, disabled);
-            }),
+            WM_RBUTTONUP | WM_CONTEXTMENU => post(window, TRAY_OPEN_MESSAGE, 0),
             _ => (),
         },
+        // Enter the native menu loop outside a Slint/Winit callback. Winit can
+        // then deliver worker results while the menu is still tracking input.
+        TRAY_OPEN_MESSAGE => show_tray_menu(),
         WM_POWERBROADCAST if wparam == 0x12 => {
             unsafe {
                 SetTimer(window, DEBOUNCE_TIMER, 1500, None);
@@ -1036,47 +1067,70 @@ unsafe extern "system" fn host_proc(
     0
 }
 // TrackPopupMenu runs a nested message loop: never hold an App borrow across it.
-fn tray_menu(host: HWND, disabled: bool) {
-    let menu = unsafe { CreatePopupMenu() };
-    if menu.is_null() {
+fn tray_rows(app: &App) -> Vec<theme::MenuRow> {
+    use theme::MenuRow;
+    let enabled = !app.busy && !app.view.fatal && app.initialized;
+    let network = &app.view.network;
+    let (label, value) = match network.kind {
+        NetworkKind::Wifi => (
+            strings::TRAY_WIFI,
+            network
+                .ssid
+                .as_deref()
+                .filter(|s| !s.is_empty())
+                .unwrap_or(strings::SSID_UNAVAILABLE),
+        ),
+        NetworkKind::Ethernet => (strings::TRAY_NETWORK, strings::ETHERNET),
+        NetworkKind::Unknown => (strings::TRAY_NETWORK, strings::DISCONNECTED),
+    };
+    vec![
+        MenuRow::header(label, value),
+        MenuRow::separator(),
+        MenuRow::action(ID_SHOW, strings::SHOW, true),
+        MenuRow::action(
+            ID_LOGIN,
+            if app.view.online == Online::Yes {
+                strings::TRAY_LOGGED_IN
+            } else {
+                strings::LOGIN
+            },
+            enabled && app.view.online != Online::Yes,
+        ),
+        MenuRow::action(ID_REFRESH, strings::REFRESH, enabled),
+        MenuRow::separator(),
+        MenuRow::toggle(
+            ID_TRAY_MAINTENANCE,
+            strings::MAINTENANCE_PAGE,
+            enabled,
+            app.view.preferences.auto_login,
+        ),
+        match app.view.startup {
+            Ok(checked) => MenuRow::toggle(ID_TRAY_STARTUP, strings::STARTUP, enabled, checked),
+            Err(_) => MenuRow::action(ID_TRAY_STARTUP, strings::TRAY_STARTUP_UNKNOWN, false),
+        },
+        MenuRow::separator(),
+        MenuRow::action(ID_EXIT, strings::EXIT, true),
+    ]
+}
+
+fn show_tray_menu() {
+    let Some(app) = APP.with(|slot| slot.borrow().upgrade()) else {
         return;
-    }
-    // Keep the menu background brush alive until DestroyMenu below.
-    let menu_theme = theme::MenuTheme::new(menu);
-    let dark = menu_theme.dark();
-    for (id, label) in [
-        (ID_SHOW, strings::SHOW),
-        (ID_LOGIN, strings::LOGIN),
-        (ID_REFRESH, strings::REFRESH),
-        (ID_EXIT, strings::EXIT),
-    ] {
-        let mut flags = if (id == ID_LOGIN || id == ID_REFRESH) && disabled {
-            MF_STRING | MF_GRAYED
-        } else {
-            MF_STRING
-        };
-        if dark {
-            flags |= MF_OWNERDRAW;
+    };
+    let (host, appearance, rows) = {
+        let Ok(app) = app.try_borrow() else { return };
+        if app.active_menu.is_some() {
+            return;
         }
-        unsafe {
-            let mut text = wide(label);
-            AppendMenuW(
-                menu,
-                flags,
-                id,
-                if dark { ptr::null() } else { text.as_ptr() },
-            );
-            if dark {
-                let info = MENUITEMINFOW {
-                    cbSize: std::mem::size_of::<MENUITEMINFOW>() as u32,
-                    fMask: MIIM_STRING,
-                    dwTypeData: text.as_mut_ptr(),
-                    ..Default::default()
-                };
-                SetMenuItemInfoW(menu, id as u32, 0, &info);
-            }
-        }
-    }
+        (app.host, app.view.preferences.appearance, tray_rows(&app))
+    };
+    let Some(menu_theme) = theme::MenuTheme::new(appearance, rows).map(Rc::new) else {
+        return;
+    };
+    let Some(_filter) = theme::MenuFilter::install(host, menu_theme.handle()) else {
+        return;
+    };
+    app.borrow_mut().active_menu = Some(menu_theme.clone());
     let mut point = POINT::default();
     unsafe {
         GetCursorPos(&mut point);
@@ -1084,7 +1138,7 @@ fn tray_menu(host: HWND, disabled: bool) {
     }
     let id = unsafe {
         TrackPopupMenu(
-            menu,
+            menu_theme.handle(),
             TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON,
             point.x,
             point.y,
@@ -1093,14 +1147,20 @@ fn tray_menu(host: HWND, disabled: bool) {
             ptr::null(),
         )
     };
+    app.borrow_mut().active_menu = None;
     unsafe {
-        DestroyMenu(menu);
         PostMessageW(host, WM_NULL, 0, 0);
     }
     if id != 0 {
         unsafe {
             PostMessageW(host, UI_MESSAGE, id as usize, 0);
         }
+    }
+    if id as usize != ID_EXIT && app.borrow().pending_error.is_some() {
+        if app.borrow().window.is_none() {
+            post(host, OPEN_MESSAGE, 0);
+        }
+        post(host, ERROR_MESSAGE, 0);
     }
 }
 

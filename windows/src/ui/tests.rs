@@ -25,6 +25,7 @@ fn fixture() -> (App, mpsc::Receiver<Command>, mpsc::Sender<View>) {
         pending_error: None,
         pending_preferences: None,
         tray: false,
+        active_menu: None,
     };
     app.render(true, true);
     (app, commands, results)
@@ -513,6 +514,130 @@ fn auto_login_toggle_saves_once_and_rolls_back_when_persistence_fails() {
     assert!(app.view.preferences.auto_login);
     assert_eq!(toggles.get(), 2);
     assert!(commands.try_recv().is_err());
+}
+
+#[test]
+fn tray_switches_use_confirmed_state_without_a_window_and_preserve_drafts() {
+    headless();
+    let (mut app, commands, results) = fixture();
+    let window = app.window.as_ref().unwrap();
+    window.set_username("draft-account".into());
+    window.set_password("draft-password".into());
+    window.set_target_name("draft-wifi".into());
+    // A pending UI value must not override the confirmed tray state.
+    window.set_auto_login(true);
+    app.command(ID_TRAY_MAINTENANCE);
+    assert!(app.busy);
+    assert!(!app.view.preferences.auto_login);
+    app.command(ID_TRAY_STARTUP);
+    let candidate = preference_reply(&mut app, &commands, &results, false);
+    assert!(candidate.auto_login);
+    let window = app.window.as_ref().unwrap();
+    assert!(window.get_auto_login());
+    assert_eq!(window.get_username(), "draft-account");
+    assert_eq!(window.get_password(), "draft-password");
+    assert_eq!(window.get_target_name(), "draft-wifi");
+    assert!(commands.try_recv().is_err());
+
+    app.close_window();
+    app.command(ID_TRAY_MAINTENANCE);
+    assert!(!preference_reply(&mut app, &commands, &results, true).auto_login);
+    assert!(app.view.preferences.auto_login);
+    assert_eq!(app.pending_error.as_deref(), Some(strings::STORAGE_FAILED));
+    app.command(ID_TRAY_MAINTENANCE);
+    preference_reply(&mut app, &commands, &results, false);
+    assert!(!app.view.preferences.auto_login);
+
+    for (failed, confirmed) in [(true, false), (false, true), (false, false)] {
+        app.command(ID_TRAY_STARTUP);
+        let Command::SetStartup(requested) = commands.try_recv().unwrap() else {
+            panic!("expected startup command")
+        };
+        assert_ne!(requested, app.view.startup.as_ref().copied().unwrap());
+        assert!(app.busy);
+        let mut view = app.view.clone();
+        view.failed = failed;
+        view.startup = Ok(confirmed);
+        results.send(view).unwrap();
+        app.result();
+        assert_eq!(app.view.startup, Ok(confirmed));
+        assert!(!app.view.preferences.auto_login);
+    }
+    app.view.startup = Err(strings::STARTUP_READ_FAILED.into());
+    app.command(ID_TRAY_STARTUP);
+    assert!(commands.try_recv().is_err());
+    app.open_window().unwrap();
+    assert!(!app.window.as_ref().unwrap().get_auto_login());
+}
+
+#[test]
+fn tray_snapshot_distinguishes_networks_unknown_startup_and_busy_states() {
+    headless();
+    let (mut app, _, _) = fixture();
+    for (kind, ssid, label, value) in [
+        (
+            NetworkKind::Wifi,
+            Some("校园 & Wi-Fi"),
+            strings::TRAY_WIFI,
+            "校园 & Wi-Fi",
+        ),
+        (
+            NetworkKind::Wifi,
+            None,
+            strings::TRAY_WIFI,
+            strings::SSID_UNAVAILABLE,
+        ),
+        (
+            NetworkKind::Ethernet,
+            Some("stale-ssid"),
+            strings::TRAY_NETWORK,
+            strings::ETHERNET,
+        ),
+        (
+            NetworkKind::Unknown,
+            None,
+            strings::TRAY_NETWORK,
+            strings::DISCONNECTED,
+        ),
+    ] {
+        app.view.network.kind = kind;
+        app.view.network.ssid = ssid.map(str::to_owned);
+        let rows = tray_rows(&app);
+        assert_eq!(rows[0].label, label);
+        assert_eq!(rows[0].detail.as_deref(), Some(value));
+        assert!(!rows[0].enabled);
+    }
+    app.view.preferences.auto_login = true;
+    app.view.startup = Ok(true);
+    let rows = tray_rows(&app);
+    for id in [ID_TRAY_MAINTENANCE, ID_TRAY_STARTUP] {
+        let row = rows.iter().find(|row| row.id == id).unwrap();
+        assert_eq!(row.checked, Some(true));
+        assert!(row.enabled);
+    }
+    app.busy = true;
+    for row in tray_rows(&app).iter().filter(|row| row.id != 0) {
+        assert_eq!(row.enabled, [ID_SHOW, ID_EXIT].contains(&row.id));
+    }
+    app.view.startup = Err(strings::STARTUP_READ_FAILED.into());
+    let rows = tray_rows(&app);
+    let startup = rows.iter().find(|row| row.id == ID_TRAY_STARTUP).unwrap();
+    assert_eq!(startup.label, strings::TRAY_STARTUP_UNKNOWN);
+    assert_eq!(startup.checked, None);
+    assert!(!startup.enabled);
+    app.busy = false;
+    app.view.online = Online::Yes;
+    let rows = tray_rows(&app);
+    let login = rows.iter().find(|row| row.id == ID_LOGIN).unwrap();
+    assert_eq!(login.label, strings::TRAY_LOGGED_IN);
+    assert!(!login.enabled);
+    app.command(ID_LOGIN);
+    assert!(!app.busy);
+    app.view.online = Online::No;
+    let rows = tray_rows(&app);
+    let login = rows.iter().find(|row| row.id == ID_LOGIN).unwrap();
+    assert_eq!(login.label, strings::LOGIN);
+    assert!(login.enabled);
 }
 
 #[test]
@@ -1496,6 +1621,109 @@ fn assert_native_chrome(window: &MainWindow) {
     }
 }
 
+// Exercise the installed thread hook with synthetic menu input, without moving
+// the desktop cursor or sending input to another application.
+fn native_menu_message(app: &App, id: usize, mouse: bool) -> MSG {
+    let theme = app
+        .active_menu
+        .as_ref()
+        .expect("tray menu must remain open");
+    let menu = theme.handle();
+    let index = (0..unsafe { GetMenuItemCount(menu) })
+        .find(|index| unsafe { GetMenuItemID(menu, *index) } as usize == id)
+        .unwrap();
+    let mut rect = RECT::default();
+    assert_ne!(
+        unsafe { GetMenuItemRect(ptr::null_mut(), menu, index as u32, &mut rect) },
+        0
+    );
+    let point = POINT {
+        x: (rect.left + rect.right) / 2,
+        y: (rect.top + rect.bottom) / 2,
+    };
+    if !mouse {
+        for index in 0..unsafe { GetMenuItemCount(menu) } {
+            unsafe {
+                HiliteMenuItem(app.host, menu, index as u32, MF_BYPOSITION | MF_UNHILITE);
+            }
+        }
+        unsafe {
+            HiliteMenuItem(app.host, menu, id as u32, MF_BYCOMMAND | MF_HILITE);
+        }
+    }
+    MSG {
+        hwnd: theme.popup_window(),
+        message: if mouse { WM_LBUTTONUP } else { WM_KEYDOWN },
+        wParam: if mouse { 0 } else { 0x0d },
+        pt: point,
+        ..Default::default()
+    }
+}
+
+fn native_keep_menu_click(app: &App, id: usize, mouse: bool) {
+    let message = native_menu_message(app, id, mouse);
+    assert_ne!(unsafe { CallMsgFilterW(&message, MSGF_MENU as i32) }, 0);
+}
+
+fn assert_native_tray_has_no_outline(popup: HWND) {
+    use windows_sys::Win32::{
+        Graphics::Gdi::*, Storage::Xps::PrintWindow, UI::HiDpi::GetDpiForWindow,
+    };
+    unsafe {
+        let mut rect = RECT::default();
+        assert_ne!(GetWindowRect(popup, &mut rect), 0);
+        let (width, height) = (rect.right - rect.left, rect.bottom - rect.top);
+        let screen = GetWindowDC(popup);
+        let dc = CreateCompatibleDC(screen);
+        let bitmap = CreateCompatibleBitmap(screen, width, height);
+        assert!(!dc.is_null() && !bitmap.is_null());
+        let previous = SelectObject(dc, bitmap);
+        let captured = PrintWindow(popup, dc, 0);
+        let background = GetPixel(dc, width / 2, scale(3, GetDpiForWindow(popup)));
+        let edges = [
+            (width / 2, 0),
+            (width / 2, height - 1),
+            (0, height / 2),
+            (width - 1, height / 2),
+        ]
+        .map(|(x, y)| GetPixel(dc, x, y));
+        SelectObject(dc, previous);
+        DeleteObject(bitmap);
+        DeleteDC(dc);
+        ReleaseDC(popup, screen);
+        assert_ne!(captured, 0);
+        assert_ne!(background, CLR_INVALID);
+        assert_eq!(
+            edges, [background; 4],
+            "popup frame pixels must match the menu background"
+        );
+    }
+}
+
+// Physical network notifications may arrive during this desktop test. The
+// synthetic worker does not reply to them; they must not reorder manual checks.
+fn native_command(commands: &mpsc::Receiver<Command>) -> Option<Command> {
+    commands
+        .try_iter()
+        .find(|command| !matches!(command, Command::NetworkChanged))
+}
+
+thread_local! {
+    static NATIVE_TEST_STEP: RefCell<Option<Box<dyn FnMut()>>> = RefCell::new(None);
+}
+unsafe extern "system" fn native_test_tick(_: HWND, _: u32, _: usize, _: u32) {
+    // Slint's deadline timer advances on Winit NewEvents, which a native modal
+    // menu does not emit. Drive this test with a native timer and real proxy
+    // messages, just like worker/network results arriving during menu tracking.
+    let _ = slint::invoke_from_event_loop(|| {
+        NATIVE_TEST_STEP.with(|slot| {
+            if let Some(step) = slot.borrow_mut().as_mut() {
+                step();
+            }
+        });
+    });
+}
+
 // Run separately because Winit owns a process-wide native event loop. This
 // uses a dedicated host and synthetic worker, without reading local credentials.
 #[test]
@@ -1548,14 +1776,10 @@ fn native_host_keeps_running_hidden_and_recreates_the_slint_window() {
     let stage = Rc::new(std::cell::Cell::new(0));
     let final_stage = stage.clone();
     let old_window = Rc::new(std::cell::Cell::new(ptr::null_mut()));
-    let timer = slint::Timer::default();
+    let tracked_menu = std::cell::Cell::new(ptr::null_mut());
     let test_app = app.clone();
-    timer.start(
-        slint::TimerMode::Repeated,
-        // Window creation and the first software frame run in separate event
-        // loop turns. Allow layout of all retained pages before pixel checks.
-        Duration::from_millis(500),
-        move || {
+    NATIVE_TEST_STEP.with(|slot| {
+        *slot.borrow_mut() = Some(Box::new(move || {
             let mut app = test_app.borrow_mut();
             match stage.get() {
                 0 => {
@@ -1615,7 +1839,10 @@ fn native_host_keeps_running_hidden_and_recreates_the_slint_window() {
                     window.invoke_home_action();
                 }
                 6 => {
-                    assert!(matches!(commands.try_recv().unwrap(), Command::HomeAction));
+                    assert!(matches!(
+                        native_command(&commands).expect("expected manual command"),
+                        Command::HomeAction
+                    ));
                     assert!(app.busy);
                     post(app.host, CLOSE_MESSAGE, 0);
                 }
@@ -1659,16 +1886,186 @@ fn native_host_keeps_running_hidden_and_recreates_the_slint_window() {
                     let window = app.window.as_ref().unwrap();
                     assert_native_background(window);
                     assert_native_chrome(window);
+                    app.close_window();
+                    app.busy = false;
+                    app.view.online = Online::No;
+                    app.view.preferences.auto_login = false;
+                    app.view.startup = Ok(false);
+                    post(app.host, TRAY_OPEN_MESSAGE, 0);
+                }
+                27 => {
+                    tracked_menu.set(app.active_menu.as_ref().unwrap().handle());
+                    // Validate the actual popup geometry, not just an offscreen row.
+                    use windows_sys::Win32::{Graphics::Gdi::*, UI::HiDpi::GetDpiForWindow};
+                    let popup = app.active_menu.as_ref().unwrap().popup_window();
+                    assert!(!popup.is_null());
+                    assert_native_tray_has_no_outline(popup);
+                    let mut rect = RECT::default();
+                    unsafe {
+                        assert_ne!(GetWindowRect(popup, &mut rect), 0);
+                        assert!(rect.right - rect.left <= scale(240, GetDpiForWindow(popup)));
+                        let region = CreateRectRgn(0, 0, 0, 0);
+                        assert_eq!(GetWindowRgn(popup, region), COMPLEXREGION);
+                        assert_eq!(PtInRegion(region, 0, 0), 0);
+                        assert_ne!(PtInRegion(region, (rect.right - rect.left) / 2, 1), 0);
+                        let corner = MSG {
+                            hwnd: popup,
+                            message: WM_LBUTTONUP,
+                            pt: POINT {
+                                x: rect.right - 1,
+                                y: rect.bottom - 1,
+                            },
+                            ..Default::default()
+                        };
+                        assert_eq!(
+                            CallMsgFilterW(&corner, MSGF_MENU as i32),
+                            0,
+                            "a clipped corner must not activate Exit"
+                        );
+                        DeleteObject(region);
+                    }
+                    native_keep_menu_click(&app, ID_TRAY_MAINTENANCE, true);
+                }
+                28 => {
+                    assert!(
+                        app.busy,
+                        "menu command must run before the native menu closes"
+                    );
+                    let Command::SavePreferences(preferences) =
+                        native_command(&commands).expect("expected manual command")
+                    else {
+                        panic!("expected maintenance save")
+                    };
+                    assert!(preferences.auto_login);
+                    let mut view = app.view.clone();
+                    view.preferences = preferences;
+                    results.send(view).unwrap();
+                    post(app.host, RESULT_MESSAGE, 0);
+                }
+                29 => {
+                    assert!(
+                        !app.busy,
+                        "worker results must run inside the native menu loop"
+                    );
+                    assert_eq!(
+                        app.active_menu.as_ref().unwrap().handle(),
+                        tracked_menu.get()
+                    );
+                    assert!(app.view.preferences.auto_login);
+                    assert_ne!(
+                        unsafe {
+                            GetMenuState(
+                                tracked_menu.get(),
+                                ID_TRAY_MAINTENANCE as u32,
+                                MF_BYCOMMAND,
+                            )
+                        } & MF_CHECKED,
+                        0
+                    );
+                    native_keep_menu_click(&app, ID_REFRESH, false);
+                }
+                30 => {
+                    assert!(matches!(
+                        native_command(&commands).expect("expected manual command"),
+                        Command::Refresh
+                    ));
+                    let mut view = app.view.clone();
+                    view.online = Online::Yes;
+                    results.send(view).unwrap();
+                    post(app.host, RESULT_MESSAGE, 0);
+                }
+                31 => {
+                    assert!(!app.busy);
+                    assert_eq!(
+                        app.active_menu.as_ref().unwrap().handle(),
+                        tracked_menu.get()
+                    );
+                    let mut text = [0u16; 32];
+                    let length = unsafe {
+                        GetMenuStringW(
+                            tracked_menu.get(),
+                            ID_LOGIN as u32,
+                            text.as_mut_ptr(),
+                            text.len() as i32,
+                            MF_BYCOMMAND,
+                        )
+                    };
+                    assert_eq!(
+                        String::from_utf16_lossy(&text[..length as usize]),
+                        strings::TRAY_LOGGED_IN
+                    );
+                    native_keep_menu_click(&app, ID_LOGIN, true);
+                    assert!(native_command(&commands).is_none());
+                    native_keep_menu_click(&app, ID_TRAY_STARTUP, false);
+                }
+                32 => {
+                    assert!(matches!(
+                        native_command(&commands).expect("expected manual command"),
+                        Command::SetStartup(true)
+                    ));
+                    let mut view = app.view.clone();
+                    view.failed = true;
+                    view.message = strings::STARTUP_WRITE_FAILED.into();
+                    results.send(view).unwrap();
+                    post(app.host, RESULT_MESSAGE, 0);
+                }
+                33 => {
+                    assert!(!app.busy);
+                    assert!(
+                        app.window.is_none(),
+                        "failure must not dismiss the menu to show a modal"
+                    );
+                    assert_eq!(
+                        app.pending_error.as_deref(),
+                        Some(strings::STARTUP_WRITE_FAILED)
+                    );
+                    assert_eq!(
+                        app.active_menu.as_ref().unwrap().handle(),
+                        tracked_menu.get()
+                    );
+                    assert_eq!(
+                        unsafe {
+                            GetMenuState(tracked_menu.get(), ID_TRAY_STARTUP as u32, MF_BYCOMMAND)
+                        } & MF_CHECKED,
+                        0
+                    );
+                    app.pending_error = None; // Suppress the synthetic error dialog at test teardown.
+                    let mut escape = native_menu_message(&app, ID_SHOW, false);
+                    escape.wParam = 0x1b;
+                    assert_eq!(unsafe { CallMsgFilterW(&escape, MSGF_MENU as i32) }, 0);
+                    native_keep_menu_click(&app, ID_SHOW, false);
+                }
+                34 => {
+                    assert!(app.active_menu.is_none());
+                    assert_eq!(unsafe { IsMenu(tracked_menu.get()) }, 0);
+                    assert!(
+                        app.window.is_some(),
+                        "Open Alogin must dismiss the menu and open the window"
+                    );
                     post(app.host, UI_MESSAGE, ID_EXIT);
                 }
                 _ => panic!("native exit was not dispatched"),
             }
             stage.set(stage.get() + 1);
-        },
-    );
+        }))
+    });
+    let timer = unsafe { SetTimer(ptr::null_mut(), 0, 500, Some(native_test_tick)) };
+    assert_ne!(timer, 0);
+    let (finished, deadline) = mpsc::channel::<()>();
+    let test_host = host as usize;
+    let watchdog = std::thread::spawn(move || {
+        if deadline.recv_timeout(Duration::from_secs(35)).is_err() {
+            post(test_host as HWND, WM_CANCELMODE, 0);
+        }
+    });
     slint::run_event_loop_until_quit().unwrap();
-    timer.stop();
-    assert_eq!(final_stage.get(), 27);
+    finished.send(()).unwrap();
+    watchdog.join().unwrap();
+    unsafe {
+        KillTimer(ptr::null_mut(), timer);
+    }
+    NATIVE_TEST_STEP.with(|slot| slot.borrow_mut().take());
+    assert_eq!(final_stage.get(), 35);
     APP.with(|slot| *slot.borrow_mut() = std::rc::Weak::new());
     let mut app = app.borrow_mut();
     app.events.take();
