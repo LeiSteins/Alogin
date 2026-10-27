@@ -55,7 +55,6 @@ pub const APPEARANCE_LIGHT: &str = "浅色";
 pub const APPEARANCE_DARK: &str = "深色";
 pub const ABOUT_DESCRIPTION: &str =
     "一款 Windows 网络认证助手，用于在已配置的目标网络上完成认证，并查看网络与账号状态。";
-pub const APP_NAME_LABEL: &str = "应用名称";
 pub const VERSION_LABEL: &str = "版本";
 pub const IDENTIFIER_LABEL: &str = "应用标识";
 pub const IDENTIFIER: &str = "top.steins.autologin.windows";

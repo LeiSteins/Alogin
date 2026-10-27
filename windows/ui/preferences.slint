@@ -14,7 +14,6 @@ export global PreferencesLabels {
     in property <string> startup-summary;
     in property <string> app;
     in property <string> description;
-    in property <string> app-name;
     in property <string> version-label;
     in property <string> version;
     in property <string> identifier-label;
@@ -119,15 +118,15 @@ component InfoRow inherits Rectangle {
     in property <string> title;
     in property <string> value;
     in property <bool> separator: true;
-    height: max(56px, content.min-height + 24px);
+    height: max(40px, content.min-height + 16px);
     accessible-role: text;
     accessible-label: root.title;
     accessible-value: root.value;
     content := HorizontalLayout {
         x: 16px;
-        y: 12px;
+        y: 8px;
         width: parent.width - 32px;
-        height: parent.height - 24px;
+        height: parent.height - 16px;
         spacing: 16px;
         Text { text: root.title; color: AppTheme.muted; wrap: word-wrap; }
         Text { text: root.value; color: AppTheme.text; horizontal-alignment: right; wrap: word-wrap; }
@@ -252,7 +251,6 @@ export component AboutPage inherits VerticalLayout {
                 wrap: word-wrap;
             }
             OptionCard {
-                InfoRow { title: PreferencesLabels.app-name; value: PreferencesLabels.app; }
                 InfoRow { title: PreferencesLabels.version-label; value: PreferencesLabels.version; }
                 InfoRow { title: PreferencesLabels.identifier-label; value: PreferencesLabels.identifier; }
                 InfoRow { title: PreferencesLabels.license-label; value: PreferencesLabels.license; separator: false; }

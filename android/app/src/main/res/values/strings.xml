@@ -60,7 +60,6 @@
     <!-- 关于应用 -->
     <string name="about_title">关于应用</string>
     <string name="about_description">一款 Android 网络认证助手，用于在已配置的目标 Wi-Fi 上完成认证，并查看网络与账号状态。</string>
-    <string name="about_app_name_label">应用名称</string>
     <string name="about_version_label">版本</string>
     <string name="about_version_value">%1$s（%2$d）</string>
     <string name="about_http_log_enabled">HTTP 日志已开启</string>

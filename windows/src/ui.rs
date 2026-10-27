@@ -890,7 +890,6 @@ fn set_labels(window: &MainWindow) {
     preferences.set_startup_summary(strings::STARTUP_SUMMARY.into());
     preferences.set_app(strings::APP.into());
     preferences.set_description(strings::ABOUT_DESCRIPTION.into());
-    preferences.set_app_name(strings::APP_NAME_LABEL.into());
     preferences.set_version_label(strings::VERSION_LABEL.into());
     preferences.set_version(env!("CARGO_PKG_VERSION").into());
     preferences.set_identifier_label(strings::IDENTIFIER_LABEL.into());

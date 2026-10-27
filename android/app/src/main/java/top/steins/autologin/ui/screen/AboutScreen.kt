@@ -130,10 +130,6 @@ fun AboutScreen(
                         elevation = appCardElevation()
                     ) {
                         AboutInfoRow(
-                            label = stringResource(R.string.about_app_name_label),
-                            value = stringResource(R.string.app_name)
-                        )
-                        AboutInfoRow(
                             label = stringResource(R.string.about_version_label),
                             value = stringResource(
                                 R.string.about_version_value,
