@@ -4,6 +4,7 @@ import androidx.compose.ui.unit.dp
 
 val ScreenHorizontalPadding = 16.dp
 val ScreenContentTopPadding = 12.dp
+val SheetContentTopPadding = 20.dp
 val TopBarHeight = 72.dp
 val CardHorizontalPadding = 20.dp
 val CardVerticalPadding = 18.dp

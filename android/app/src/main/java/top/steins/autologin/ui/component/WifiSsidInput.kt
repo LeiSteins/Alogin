@@ -49,7 +49,7 @@ fun WifiSsidInput(
 ) {
     var focused by remember { mutableStateOf(false) }
     val colors = MaterialTheme.colorScheme
-    val containerColor = colors.surfaceContainerHigh
+    val containerColor = colors.surfaceContainer
     val label = stringResource(R.string.wifi_add_ssid_label)
     val outline by animateColorAsState(
         targetValue = if (focused) colors.primary else colors.outlineVariant.copy(alpha = 0.4f),

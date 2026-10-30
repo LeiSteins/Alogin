@@ -2,6 +2,8 @@ package top.steins.autologin.ui.screen
 
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.Modifier
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -36,9 +38,9 @@ class WifiConfigScreenTest {
                     onRemoveTargetWifi = {},
                     onShowToast = {},
                     onNavigateBack = {},
-                    scanContent = { ssids, onSelectWifi ->
+                    scanContent = { ssids, onSelectWifi, padding ->
                         configured = ssids
-                        TextButton(onClick = { onSelectWifi("Campus-B") }) {
+                        TextButton(onClick = { onSelectWifi("Campus-B") }, modifier = Modifier.padding(padding)) {
                             Text("Campus-B")
                         }
                     }
@@ -68,7 +70,7 @@ class WifiConfigScreenTest {
                         onRemoveTargetWifi = {},
                         onShowToast = {},
                         onNavigateBack = {},
-                        scanContent = { _, _ -> }
+                        scanContent = { _, _, _ -> }
                     )
                 }
             }
@@ -102,7 +104,7 @@ class WifiConfigScreenTest {
                     },
                     onShowToast = {},
                     onNavigateBack = {},
-                    scanContent = { _, _ -> }
+                    scanContent = { _, _, _ -> }
                 )
             }
         }

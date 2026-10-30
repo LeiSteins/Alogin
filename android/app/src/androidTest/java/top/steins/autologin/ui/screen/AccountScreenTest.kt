@@ -20,6 +20,32 @@ class AccountScreenTest {
     @get:Rule val compose = createComposeRule()
 
     @Test
+    fun closingEditedCredentialsKeepsDraftOnCancelAndDiscardsOnlyAfterConfirmation() {
+        compose.setContent {
+            AloginTheme(darkTheme = false) {
+                AccountScreen("alice", listOf(SavedAccount("alice", "old")),
+                    onSaveCredentials = { _, _ -> CredentialSaveResult.SAVED },
+                    onSelectAccount = { CredentialSaveResult.SAVED },
+                    onRemoveAccount = { CredentialSaveResult.SAVED },
+                    onShowToast = {}, onNavigateBack = {})
+            }
+        }
+        compose.onNodeWithContentDescription("编辑账号 alice").performClick()
+        compose.onNodeWithContentDescription("密码").performTextReplacement("draft")
+        compose.onNodeWithContentDescription("关闭面板").performClick()
+        compose.onNodeWithText("保存修改？").assertIsDisplayed()
+        compose.onNodeWithText("取消").performClick()
+        compose.onNodeWithContentDescription("密码").assert(
+            SemanticsMatcher.expectValue(SemanticsProperties.InputText, AnnotatedString("draft")))
+        compose.onNodeWithContentDescription("关闭面板").performClick()
+        compose.onNodeWithText("不保存").performClick()
+        compose.onNodeWithContentDescription("密码").assertDoesNotExist()
+        compose.onNodeWithContentDescription("编辑账号 alice").performClick()
+        compose.onNodeWithContentDescription("密码").assert(
+            SemanticsMatcher.expectValue(SemanticsProperties.InputText, AnnotatedString("old")))
+    }
+
+    @Test
     fun asynchronousSave_disablesRepeatedSubmissionAndKeepsEditorOnStorageFailure() {
         var gate = CompletableDeferred<CredentialSaveResult>()
         var saveCount = 0
@@ -70,6 +96,7 @@ class AccountScreenTest {
         capture("account-empty")
         compose.onNodeWithText("添加账号").performClick()
         compose.onNodeWithText("删除账号").assertDoesNotExist()
+        compose.onNodeWithText("保存").assertDoesNotExist()
         capture("account-add")
         compose.onNodeWithText("保存并使用").performScrollTo().performClick()
         compose.onNodeWithText("请填写用户名和密码").assertIsDisplayed()
@@ -147,16 +174,22 @@ class AccountScreenTest {
         compose.runOnIdle { assertEquals("bob", selected) }
         compose.onNodeWithContentDescription("删除账号 bob").assertDoesNotExist()
         compose.onNodeWithContentDescription("编辑账号 bob").performClick()
+        compose.onNodeWithText("保存").assertDoesNotExist()
+        compose.onNodeWithText("删除账号").assertDoesNotExist()
+        val deleteBounds = compose.onNodeWithContentDescription("删除账号 bob").fetchSemanticsNode().boundsInRoot
+        val closeBounds = compose.onNodeWithContentDescription("关闭面板").fetchSemanticsNode().boundsInRoot
+        assertEquals(closeBounds.center.y, deleteBounds.center.y, 1f)
+        assertTrue(deleteBounds.center.x > closeBounds.center.x)
         compose.onNodeWithContentDescription("密码").performTextReplacement("updated")
         capture("account-edit-delete")
-        compose.onNodeWithContentDescription("删除账号 bob").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("删除账号 bob").performClick()
         compose.runOnIdle { assertEquals("", deleted) }
         compose.onNodeWithText("取消").performClick()
         compose.runOnIdle { assertEquals("", deleted) }
         compose.onNodeWithContentDescription("密码").assert(
             SemanticsMatcher.expectValue(SemanticsProperties.InputText, AnnotatedString("updated"))
         )
-        compose.onNodeWithContentDescription("删除账号 bob").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("删除账号 bob").performClick()
         compose.onNodeWithText("删除", useUnmergedTree = true).performClick()
         compose.runOnIdle { assertEquals("bob", deleted) }
         compose.onNodeWithContentDescription("密码").assertDoesNotExist()

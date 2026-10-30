@@ -2,6 +2,7 @@ package top.steins.autologin.ui.route
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -18,7 +19,8 @@ import top.steins.autologin.ui.screen.WifiScanSheetContent
 internal fun WifiScanRoute(
     stateHolder: WifiScanStateHolder,
     configuredSsids: Set<String>,
-    onSelectWifi: (String) -> Unit
+    onSelectWifi: (String) -> Unit,
+    contentPadding: PaddingValues
 ) {
     val context = LocalContext.current
     val state by stateHolder.state.collectAsStateWithLifecycle()
@@ -49,6 +51,7 @@ internal fun WifiScanRoute(
         isScanning = state.isScanning,
         scanOutcome = state.outcome,
         onRefresh = ::refresh,
-        onSelectWifi = onSelectWifi
+        onSelectWifi = onSelectWifi,
+        contentPadding = contentPadding
     )
 }

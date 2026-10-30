@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -199,7 +200,13 @@ fun SeamlessLoginScreen(
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(value = macInput, onValueChange = { macInput = it; invalidMac = false },
                     label = { Text(stringResource(R.string.seamless_mac_label)) }, singleLine = true,
-                    isError = invalidMac, shape = AppControlShape)
+                    isError = invalidMac, shape = AppControlShape,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                        disabledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                        errorContainerColor = MaterialTheme.colorScheme.surfaceContainer
+                    ))
                 Text(stringResource(if (invalidMac) R.string.seamless_invalid_mac else R.string.seamless_mac_hint))
             }
         },

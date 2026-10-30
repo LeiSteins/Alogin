@@ -8,8 +8,8 @@ import androidx.compose.ui.unit.sp
 
 val NavigationTitleTextStyle = TextStyle(
     fontFamily = FontFamily.Default,
-    fontSize = 17.sp,
-    lineHeight = 22.sp,
+    fontSize = 18.sp,
+    lineHeight = 24.sp,
     fontWeight = FontWeight.SemiBold,
     letterSpacing = 0.sp
 )

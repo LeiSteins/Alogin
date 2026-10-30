@@ -6,6 +6,12 @@
     <string name="action_add">添加</string>
     <string name="action_delete">删除</string>
     <string name="action_refresh">刷新</string>
+    <string name="sheet_close">关闭面板</string>
+    <string name="sheet_save">保存</string>
+    <string name="sheet_unsaved_title">保存修改？</string>
+    <string name="sheet_unsaved_message">当前修改尚未保存，是否保存后退出？</string>
+    <string name="sheet_discard">不保存</string>
+    <string name="log_detail_title">日志详情</string>
     <string name="loading">加载中…</string>
     <string name="error_unknown">未知错误</string>
     <string name="value_placeholder">--</string>

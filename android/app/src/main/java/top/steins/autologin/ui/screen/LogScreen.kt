@@ -7,13 +7,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -30,12 +27,12 @@ import top.steins.autologin.domain.model.HttpLogEntryType
 import top.steins.autologin.ui.component.ElasticIconButton
 import top.steins.autologin.ui.component.ElasticTextButton
 import top.steins.autologin.ui.component.NavigationTopBar
+import top.steins.autologin.ui.component.AppSheet
 import top.steins.autologin.ui.theme.ScreenContentTopPadding
 import top.steins.autologin.ui.theme.ScreenHorizontalPadding
 
 // ==================== HTTP 日志页 ====================
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LogScreen(
     entries: List<HttpLogEntry>,
@@ -51,7 +48,6 @@ fun LogScreen(
     }
     var selectedEntry by remember { mutableStateOf<HttpLogEntry?>(null) }
     var showDisableConfirmation by remember { mutableStateOf(false) }
-    val sheetState = rememberModalBottomSheetState()
 
     Scaffold(
         topBar = {
@@ -119,11 +115,11 @@ fun LogScreen(
 
     // 详情底部弹窗
     selectedEntry?.let { entry ->
-        ModalBottomSheet(
-            onDismissRequest = { selectedEntry = null },
-            sheetState = sheetState
-        ) {
-            LogEntryDetail(entry = entry)
+        AppSheet(
+            title = stringResource(R.string.log_detail_title),
+            onDismissRequest = { selectedEntry = null }
+        ) { contentPadding ->
+            LogEntryDetail(entry = entry, contentPadding = contentPadding)
         }
     }
 

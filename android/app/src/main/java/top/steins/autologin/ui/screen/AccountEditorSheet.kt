@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -17,13 +16,11 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -47,7 +44,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.password
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -62,8 +58,10 @@ import top.steins.autologin.ui.component.ElasticIconButton
 import top.steins.autologin.ui.component.ElasticTextButton
 import top.steins.autologin.ui.component.PasswordRevealState
 import top.steins.autologin.ui.component.PasswordRevealTransformation
+import top.steins.autologin.ui.component.AppSheet
+import top.steins.autologin.ui.component.rememberAppSheetState
+import top.steins.autologin.ui.component.sheetScrollable
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun AccountEditorSheet(
     account: SavedAccount?,
@@ -79,10 +77,9 @@ internal fun AccountEditorSheet(
     var attempted by remember { mutableStateOf(false) }
     var isClosing by remember { mutableStateOf(false) }
     var isSaving by remember { mutableStateOf(false) }
-    val sheetState = rememberModalBottomSheetState(
-        skipPartiallyExpanded = true,
-        confirmValueChange = { !isSaving || isClosing }
-    )
+    val sheetState = rememberAppSheetState()
+    val scrollState = rememberScrollState()
+    var showUnsavedChanges by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val passwordReveal = remember(scope) { PasswordRevealState(scope) }
     val passwordFocus = remember { FocusRequester() }
@@ -104,7 +101,7 @@ internal fun AccountEditorSheet(
                     if (onSave(username.trim(), password)) {
                         isClosing = true
                         sheetState.hide()
-                        if (!sheetState.isVisible) onDismiss()
+                        onDismiss()
                     }
                 } finally {
                     isSaving = false
@@ -114,21 +111,49 @@ internal fun AccountEditorSheet(
         }
     }
 
-    ModalBottomSheet(
+    AppSheet(
+        title = stringResource(if (account == null) R.string.account_add else R.string.account_edit),
         onDismissRequest = { if (!isSaving) onDismiss() },
-        sheetState = sheetState
-    ) {
+        state = sheetState,
+        dismissEnabled = !isSaving && !isClosing,
+        confirmDismiss = {
+            val changed = username != account?.username.orEmpty() || password != account?.password.orEmpty()
+            if (changed) {
+                passwordVisible = false
+                passwordReveal.hide()
+                focusManager.clearFocus()
+                showUnsavedChanges = true
+            }
+            !changed
+        },
+        actions = {
+            if (account != null) {
+                ElasticIconButton(
+                    onClick = {
+                        focusManager.clearFocus()
+                        onDelete()
+                    },
+                    modifier = Modifier.padding(vertical = 2.dp).size(44.dp),
+                    enabled = !isClosing && !isSaving,
+                    colors = IconButtonDefaults.iconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Icon(
+                        painterResource(R.drawable.account_trash),
+                        contentDescription = stringResource(R.string.account_delete_named, account.username)
+                    )
+                }
+            }
+        }
+    ) { contentPadding ->
         Column(
-            Modifier.fillMaxWidth().imePadding().verticalScroll(rememberScrollState())
-                .padding(start = 24.dp, end = 24.dp, bottom = 28.dp),
+            Modifier.fillMaxWidth().sheetScrollable { scrollState.canScrollBackward }.verticalScroll(scrollState)
+                .padding(contentPadding).padding(bottom = 8.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    stringResource(if (account == null) R.string.account_add else R.string.account_edit),
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold
-                )
                 Text(
                     stringResource(if (account == null) R.string.account_form_hint else R.string.account_edit_hint),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -212,22 +237,31 @@ internal fun AccountEditorSheet(
             ) {
                 Text(stringResource(R.string.account_save_and_use), style = MaterialTheme.typography.titleSmall)
             }
-            if (account != null) {
-                val deleteDescription = stringResource(R.string.account_delete_named, account.username)
-                ElasticTextButton(
-                    onClick = {
-                        focusManager.clearFocus()
-                        onDelete()
-                    },
-                    enabled = !isClosing && !isSaving,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                        .semantics { contentDescription = deleteDescription },
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                ) {
-                    Text(stringResource(R.string.account_delete), style = MaterialTheme.typography.titleSmall)
+        }
+    }
+    if (showUnsavedChanges) {
+        AlertDialog(
+            onDismissRequest = { showUnsavedChanges = false },
+            title = { Text(stringResource(R.string.sheet_unsaved_title)) },
+            text = { Text(stringResource(R.string.sheet_unsaved_message)) },
+            confirmButton = {
+                ElasticTextButton(onClick = { showUnsavedChanges = false; save() }) {
+                    Text(stringResource(R.string.sheet_save))
+                }
+            },
+            dismissButton = {
+                Row {
+                    ElasticTextButton(onClick = { showUnsavedChanges = false }) {
+                        Text(stringResource(R.string.cancel))
+                    }
+                    ElasticTextButton(onClick = {
+                        showUnsavedChanges = false
+                        isClosing = true
+                        scope.launch { sheetState.hide(); onDismiss() }
+                    }) { Text(stringResource(R.string.sheet_discard), color = MaterialTheme.colorScheme.error) }
                 }
             }
-        }
+        )
     }
 }
 
@@ -282,7 +316,7 @@ private fun AccountInput(
             decorationBox = { innerTextField ->
                 Row(
                     modifier = Modifier.fillMaxWidth()
-                        .background(colors.surfaceContainerHigh, AppControlShape)
+                        .background(colors.surfaceContainer, AppControlShape)
                         .border(if (focused || isError) 1.5.dp else 1.dp, outline, AppControlShape)
                         .heightIn(min = 60.dp).padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
                     verticalAlignment = Alignment.CenterVertically

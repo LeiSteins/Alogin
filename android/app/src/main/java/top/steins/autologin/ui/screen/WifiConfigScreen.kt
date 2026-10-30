@@ -14,28 +14,21 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -61,6 +54,8 @@ import top.steins.autologin.ui.component.listRowSeparator
 import top.steins.autologin.ui.component.ElasticButton
 import top.steins.autologin.ui.component.ElasticIconButton
 import top.steins.autologin.ui.component.NavigationTopBar
+import top.steins.autologin.ui.component.AppSheet
+import top.steins.autologin.ui.component.rememberAppSheetState
 import top.steins.autologin.ui.component.WifiSsidInput
 import top.steins.autologin.ui.theme.AppListCardShape
 import top.steins.autologin.ui.theme.AppControlShape
@@ -71,7 +66,6 @@ import top.steins.autologin.ui.theme.ScreenContentTopPadding
 import top.steins.autologin.ui.theme.ScreenHorizontalPadding
 import top.steins.autologin.ui.theme.appCardElevation
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WifiConfigScreen(
     targetSsids: List<String>,
@@ -79,14 +73,13 @@ fun WifiConfigScreen(
     onRemoveTargetWifi: (String) -> Unit,
     onShowToast: (String) -> Unit,
     onNavigateBack: () -> Unit,
-    scanContent: @Composable (Set<String>, (String) -> Unit) -> Unit
+    scanContent: @Composable (Set<String>, (String) -> Unit, PaddingValues) -> Unit
 ) {
     var newSsid by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
     val resources = LocalResources.current
     val focusManager = LocalFocusManager.current
     var showScanSheet by remember { mutableStateOf(false) }
-    val scanSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
     // 已有及显示过的行再次进入视口时，直接显示，避免重复播放新增动画。
     val displayedSsids = remember { targetSsids.toMutableSet() }
     val wifiItemContainerColor = MaterialTheme.colorScheme.surfaceContainer
@@ -227,23 +220,28 @@ fun WifiConfigScreen(
 
         // 扫描结果 BottomSheet
         if (showScanSheet) {
-            ModalBottomSheet(
+            val scanSheetState = rememberAppSheetState()
+            var isSelecting by remember { mutableStateOf(false) }
+            AppSheet(
+                title = stringResource(R.string.wifi_scan_title),
                 onDismissRequest = { showScanSheet = false },
-                sheetState = scanSheetState,
-                containerColor = MaterialTheme.colorScheme.background,
-                contentWindowInsets = {
-                    WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)
-                }
-            ) {
+                state = scanSheetState,
+                dismissEnabled = !isSelecting
+            ) { contentPadding ->
                 scanContent(
                     targetSsids.toSet(),
                     { ssid ->
-                        onAddTargetWifi(ssid)
-                        showScanSheet = false
-                        scope.launch {
-                            onShowToast(resources.getString(R.string.wifi_added, ssid))
+                        if (!isSelecting) {
+                            isSelecting = true
+                            onAddTargetWifi(ssid)
+                            scope.launch {
+                                scanSheetState.hide()
+                                showScanSheet = false
+                                onShowToast(resources.getString(R.string.wifi_added, ssid))
+                            }
                         }
-                    }
+                    },
+                    contentPadding
                 )
             }
         }

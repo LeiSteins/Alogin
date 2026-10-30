@@ -6,6 +6,7 @@ import android.content.Context
 import android.os.Build
 import android.widget.Toast
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -36,23 +37,30 @@ import top.steins.autologin.R
 import top.steins.autologin.domain.model.HttpLogEntry
 import top.steins.autologin.domain.model.HttpLogEntryType
 import top.steins.autologin.ui.component.ElasticIconButton
+import top.steins.autologin.ui.component.sheetScrollable
 import top.steins.autologin.ui.theme.ScreenHorizontalPadding
 
 @Composable
-internal fun LogEntryDetail(entry: HttpLogEntry) {
+internal fun LogEntryDetail(
+    entry: HttpLogEntry,
+    contentPadding: PaddingValues = PaddingValues(horizontal = ScreenHorizontalPadding)
+) {
     if (entry.type == HttpLogEntryType.ACCOUNT_INFO_REFRESH) {
-        AccountInfoRefreshLogEntryDetail(entry)
+        AccountInfoRefreshLogEntryDetail(entry, contentPadding)
         return
     }
 
     val timeFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()) }
     val context = LocalContext.current
+    val scrollState = rememberScrollState()
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = ScreenHorizontalPadding, vertical = 8.dp)
+            .sheetScrollable { scrollState.canScrollBackward }
+            .verticalScroll(scrollState)
+            .padding(contentPadding)
+            .padding(bottom = 8.dp)
     ) {
         // 标题行
         Row(
@@ -235,14 +243,20 @@ private fun copyResponseBodyToClipboard(context: Context, responseBody: String) 
 }
 
 @Composable
-internal fun AccountInfoRefreshLogEntryDetail(entry: HttpLogEntry) {
+internal fun AccountInfoRefreshLogEntryDetail(
+    entry: HttpLogEntry,
+    contentPadding: PaddingValues = PaddingValues(horizontal = ScreenHorizontalPadding)
+) {
     val timeFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()) }
+    val scrollState = rememberScrollState()
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = ScreenHorizontalPadding, vertical = 8.dp)
+            .sheetScrollable { scrollState.canScrollBackward }
+            .verticalScroll(scrollState)
+            .padding(contentPadding)
+            .padding(bottom = 8.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),

@@ -47,19 +47,7 @@ fun NavigationTopBar(
             .padding(start = ScreenHorizontalPadding, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        ElasticIconButton(
-            onClick = onNavigateBack,
-            modifier = Modifier.padding(vertical = 2.dp).size(44.dp),
-            colors = IconButtonDefaults.iconButtonColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainer
-            )
-        ) {
-            Icon(
-                painter = painterResource(R.drawable.arrow_back),
-                contentDescription = stringResource(R.string.action_back),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
+        NavigationBackButton(onClick = onNavigateBack)
         Text(
             text = title,
             modifier = Modifier
@@ -78,5 +66,25 @@ fun NavigationTopBar(
                 content = actions
             )
         }
+    }
+}
+
+@Composable
+internal fun NavigationBackButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    contentDescription: String = stringResource(R.string.action_back)
+) {
+    ElasticIconButton(
+        onClick = onClick,
+        modifier = modifier.padding(vertical = 2.dp).size(44.dp),
+        enabled = enabled,
+        colors = IconButtonDefaults.iconButtonColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+            contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    ) {
+        Icon(painterResource(R.drawable.arrow_back), contentDescription = contentDescription)
     }
 }

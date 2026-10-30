@@ -210,8 +210,8 @@ fun WifiConfigRoute(
         onRemoveTargetWifi = stateHolder::removeTargetWifi,
         onShowToast = toastState::show,
         onNavigateBack = onNavigateBack,
-        scanContent = { configuredSsids, onSelectWifi ->
-            WifiScanRoute(scan, configuredSsids, onSelectWifi)
+        scanContent = { configuredSsids, onSelectWifi, contentPadding ->
+            WifiScanRoute(scan, configuredSsids, onSelectWifi, contentPadding)
         }
     )
 }

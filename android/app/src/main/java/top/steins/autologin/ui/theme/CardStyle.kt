@@ -21,9 +21,10 @@ import androidx.graphics.shapes.toPath
 val AppInfoCardShape: Shape = SmoothCardShape(34.dp)
 val AppListCardShape: Shape = SmoothCardShape(24.dp)
 val AppControlShape: Shape = AppListCardShape
+val AppSheetShape: Shape = SmoothCardShape(28.dp, topOnly = true)
 val AppCardContentPadding = PaddingValues(horizontal = CardHorizontalPadding, vertical = CardVerticalPadding)
 
-private class SmoothCardShape(private val cornerRadius: Dp) : Shape {
+private class SmoothCardShape(private val cornerRadius: Dp, private val topOnly: Boolean = false) : Shape {
     override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline {
         if (size.minDimension <= 0f) return Outline.Rectangle(Rect(Offset.Zero, size))
         val radius = with(density) { cornerRadius.toPx() }.coerceAtMost(size.minDimension / 2f)
@@ -31,7 +32,11 @@ private class SmoothCardShape(private val cornerRadius: Dp) : Shape {
             vertices = floatArrayOf(0f, 0f, size.width, 0f, size.width, size.height, 0f, size.height),
             centerX = size.width / 2f,
             centerY = size.height / 2f,
-            rounding = CornerRounding(radius = radius, smoothing = 0.6f)
+            rounding = CornerRounding(radius = radius, smoothing = 0.6f),
+            perVertexRounding = if (topOnly) listOf(
+                CornerRounding(radius, 0.6f), CornerRounding(radius, 0.6f),
+                CornerRounding.Unrounded, CornerRounding.Unrounded
+            ) else null
         )
         return Outline.Generic(polygon.toPath().asComposePath())
     }
