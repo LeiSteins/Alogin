@@ -4,6 +4,7 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,11 +19,13 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -30,6 +33,7 @@ import androidx.compose.ui.unit.sp
 import top.steins.autologin.R
 import top.steins.autologin.ui.component.AppearEasing
 import top.steins.autologin.ui.component.ScaleFadeBox
+import top.steins.autologin.ui.component.elasticPress
 import top.steins.autologin.ui.theme.AppCardContentPadding
 import top.steins.autologin.ui.theme.AppInfoCardShape
 import top.steins.autologin.ui.theme.AppControlShape
@@ -63,6 +67,7 @@ internal fun FloatingActionBox(
     modifier: Modifier = Modifier
 ) {
     val shape = AppControlShape
+    val interactions = remember { MutableInteractionSource() }
     // 保持加载中的按钮使用不透明主色，避免禁用态的半透明色叠在不同内容上时呈现出色块。
     val containerColor = if (enabled || isLoading) {
         MaterialTheme.colorScheme.primary
@@ -78,10 +83,17 @@ internal fun FloatingActionBox(
     Box(
         modifier = modifier
             .height(56.dp)
+            .elasticPress(interactions, enabled, shape)
             .shadow(elevation = 8.dp, shape = shape)
             .clip(shape)
             .background(containerColor)
-            .clickable(enabled = enabled, onClick = onClick)
+            .clickable(
+                interactionSource = interactions,
+                indication = null,
+                enabled = enabled,
+                role = Role.Button,
+                onClick = onClick
+            )
             .padding(horizontal = 20.dp),
         contentAlignment = Alignment.Center
     ) {

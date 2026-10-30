@@ -12,6 +12,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
@@ -43,6 +44,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
+import top.steins.autologin.ui.screen.FloatingActionBox
 import top.steins.autologin.ui.theme.AloginTheme
 
 @OptIn(ExperimentalTestApi::class)
@@ -403,6 +405,86 @@ class ElasticPressTest {
         composeRule.onNodeWithTag("account").performTouchInput { down(center); up() }
         composeRule.mainClock.advanceTimeBy(1500)
         composeRule.runOnIdle { assertEquals(1, clicks) }
+    }
+
+    @Test
+    fun homeRefreshButton_tapSwellsAndDragReturnsToRestWithoutMovingClickTarget() {
+        var clicks = 0
+        showFloatingActionTarget { clicks++ }
+        val target = composeRule.onNodeWithTag("target")
+        val layout = target.fetchSemanticsNode().boundsInRoot
+        val rest = paintedBounds()
+
+        target.performTouchInput { down(center); advanceEventTime(16); up() }
+        composeRule.mainClock.advanceTimeBy(128)
+        assertTrue(paintedBounds().width > rest.width)
+        composeRule.mainClock.advanceTimeBy(1500)
+        assertEquals(rest, paintedBounds())
+        composeRule.runOnIdle { assertEquals(1, clicks) }
+
+        target.performTouchInput { down(center) }
+        composeRule.mainClock.advanceTimeBy(200)
+        val pressed = paintedBounds()
+        target.performTouchInput { moveBy(Offset(width * 0.25f, 0f)) }
+        composeRule.mainClock.advanceTimeBy(240)
+        val dragged = paintedBounds()
+        assertTrue(dragged.left + dragged.right > pressed.left + pressed.right)
+        assertEquals(layout, target.fetchSemanticsNode().boundsInRoot)
+        target.performTouchInput { up() }
+        composeRule.mainClock.advanceTimeBy(1500)
+        assertEquals(rest, paintedBounds())
+        composeRule.runOnIdle { assertEquals(2, clicks) }
+
+        val farCorner = farCornerFrom("target")
+        target.performTouchInput { down(center) }
+        target.performTouchInput { moveTo(farCorner) }
+        composeRule.mainClock.advanceTimeBy(240)
+        assertTrue(paintedBounds().width > rest.width)
+        target.performTouchInput { up() }
+        composeRule.mainClock.advanceTimeBy(1500)
+        assertEquals(rest, paintedBounds())
+        composeRule.runOnIdle { assertEquals(2, clicks) }
+    }
+
+    @Test
+    fun homeRefreshButton_loadingDuringDrag_clearsTransformAndPreventsClick() {
+        var clicks = 0
+        val loading = mutableStateOf(false)
+        showFloatingActionTarget(isLoading = { loading.value }) { clicks++ }
+        val target = composeRule.onNodeWithTag("target")
+        val rest = paintedBounds()
+        target.performTouchInput { down(center) }
+        composeRule.mainClock.advanceTimeBy(200)
+        target.performTouchInput { moveBy(Offset(width * 0.25f, 0f)) }
+        composeRule.mainClock.advanceTimeBy(240)
+        assertTrue(paintedBounds().width > rest.width)
+        composeRule.runOnIdle { loading.value = true }
+        composeRule.mainClock.advanceTimeByFrame()
+        assertEquals(rest, paintedBounds())
+        target.performTouchInput { up() }
+        composeRule.mainClock.advanceTimeBy(1000)
+        composeRule.runOnIdle { assertEquals(0, clicks) }
+    }
+
+    private fun showFloatingActionTarget(isLoading: () -> Boolean = { false }, onClick: () -> Unit) {
+        composeRule.mainClock.autoAdvance = false
+        composeRule.setContent {
+            AloginTheme {
+                MaterialTheme(colorScheme = MaterialTheme.colorScheme.copy(primary = Color.Red)) {
+                    Box(Modifier.fillMaxSize()) {
+                        Box(Modifier.size(240.dp).testTag("canvas"), contentAlignment = Alignment.Center) {
+                            FloatingActionBox(
+                                label = "刷新",
+                                isLoading = isLoading(),
+                                enabled = !isLoading(),
+                                onClick = onClick,
+                                modifier = Modifier.size(140.dp, 56.dp).testTag("target")
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private fun showPaintTarget(onClick: () -> Unit) {
