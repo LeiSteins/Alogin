@@ -21,11 +21,15 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.input.pointer.PointerEvent
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.node.DrawModifierNode
+import androidx.compose.ui.node.LayoutModifierNode
+import androidx.compose.ui.layout.MeasureScope
+import androidx.compose.ui.layout.Measurable
+import androidx.compose.ui.layout.MeasureResult
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.node.ModifierNodeElement
 import androidx.compose.ui.node.PointerInputModifierNode
 import androidx.compose.ui.platform.InspectorInfo
@@ -83,7 +87,7 @@ private class ElasticPressNode(
     var shape: Shape,
     var focusColor: Color,
     var animatePress: Boolean
-) : Modifier.Node(), DrawModifierNode, PointerInputModifierNode {
+) : Modifier.Node(), DrawModifierNode, LayoutModifierNode, PointerInputModifierNode {
     private var lift = AnimationState(0f)
     private val pull = Animatable(Offset.Zero, Offset.VectorConverter)
     private var focused by mutableStateOf(false)
@@ -213,24 +217,27 @@ private class ElasticPressNode(
         if (pointerPressActive || press != null) release(completeSwell = false)
     }
 
-    override fun ContentDrawScope.draw() {
-        if (size.minDimension <= 0f) return
-        val growth = min(0.25f, 16.dp.toPx() / size.maxDimension)
-        val swell = if (enabled) 1f + lift.value * growth else 1f
-        val offset = if (enabled) pull.value else Offset.Zero
-        // Draw transforms keep layout, hit targets, and popup anchors at rest.
-        withTransform({
-            translate(offset.x, offset.y)
-            scale(
-                swell * (1f + abs(offset.x) / size.width * 0.5f),
-                swell * (1f + abs(offset.y) / size.height * 0.5f),
-                center
-            )
-        }) {
-            this@draw.drawContent()
-            if (enabled && focused) {
-                drawOutline(shape.createOutline(size, layoutDirection, this), focusColor, style = Stroke(2.dp.toPx()))
+    override fun MeasureScope.measure(measurable: Measurable, constraints: Constraints): MeasureResult {
+        val placeable = measurable.measure(constraints)
+        val width = placeable.width.toFloat()
+        val height = placeable.height.toFloat()
+        val growth = if (width > 0f && height > 0f) min(0.25f, 16.dp.toPx() / maxOf(width, height)) else 0f
+        return layout(placeable.width, placeable.height) {
+            placeable.placeWithLayer(0, 0) {
+                val offset = if (enabled) pull.value else Offset.Zero
+                val swell = if (enabled) 1f + lift.value * growth else 1f
+                scaleX = swell * (1f + if (width > 0f) abs(offset.x) / width * 0.5f else 0f)
+                scaleY = swell * (1f + if (height > 0f) abs(offset.y) / height * 0.5f else 0f)
+                translationX = offset.x
+                translationY = offset.y
             }
+        }
+    }
+
+    override fun ContentDrawScope.draw() {
+        drawContent()
+        if (enabled && focused && size.minDimension > 0f) {
+            drawOutline(shape.createOutline(size, layoutDirection, this), focusColor, style = Stroke(2.dp.toPx()))
         }
     }
 }

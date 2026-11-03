@@ -1,12 +1,12 @@
 package top.steins.autologin.ui.theme
 
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CardElevation
-import androidx.compose.runtime.Composable
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asComposePath
@@ -17,6 +17,8 @@ import androidx.compose.ui.unit.dp
 import androidx.graphics.shapes.CornerRounding
 import androidx.graphics.shapes.RoundedPolygon
 import androidx.graphics.shapes.toPath
+
+val AppShadowElevation = 2.dp
 
 val AppInfoCardShape: Shape = SmoothCardShape(34.dp)
 val AppListCardShape: Shape = SmoothCardShape(24.dp)
@@ -42,14 +44,14 @@ private class SmoothCardShape(private val cornerRadius: Dp, private val topOnly:
     }
 }
 
-@Composable
-fun appCardElevation(): CardElevation {
-    val isDark = LocalAloginDarkTheme.current
-    return CardDefaults.cardElevation(
-        defaultElevation = if (isDark) 2.dp else 0.dp,
-        pressedElevation = if (isDark) 2.dp else 0.dp,
-        focusedElevation = if (isDark) 2.dp else 0.dp,
-        hoveredElevation = if (isDark) 2.dp else 0.dp,
-        draggedElevation = if (isDark) 3.dp else 0.dp
-    )
-}
+fun Modifier.appShadow(
+    shape: Shape,
+    enabled: Boolean = true,
+    alpha: Float = 0.5f
+): Modifier = shadow(
+    elevation = if (enabled) AppShadowElevation else 0.dp,
+    shape = shape,
+    clip = false,
+    ambientColor = Color.Black.copy(alpha = alpha),
+    spotColor = Color.Black.copy(alpha = alpha)
+)

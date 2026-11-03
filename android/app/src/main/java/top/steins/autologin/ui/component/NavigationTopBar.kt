@@ -102,6 +102,7 @@ internal fun NavigationIconButton(
         onClick = onClick,
         modifier = modifier.padding(vertical = 2.dp).size(44.dp),
         enabled = enabled,
+        shadow = true,
         colors = IconButtonDefaults.iconButtonColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainer,
             contentColor = MaterialTheme.colorScheme.onSurfaceVariant

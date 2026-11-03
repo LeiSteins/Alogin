@@ -17,7 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Card
+import top.steins.autologin.ui.component.AppCard as Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -49,7 +49,6 @@ import top.steins.autologin.ui.theme.ListRowMinHeight
 import top.steins.autologin.ui.theme.ListRowVerticalPadding
 import top.steins.autologin.ui.theme.ScreenContentTopPadding
 import top.steins.autologin.ui.theme.ScreenHorizontalPadding
-import top.steins.autologin.ui.theme.appCardElevation
 
 private const val PROJECT_URL = "https://steins.top/alogin/"
 private const val SOURCE_CODE_URL = "https://github.com/LeiSteins/Alogin"
@@ -127,8 +126,7 @@ fun AboutScreen(
                         modifier = Modifier.fillMaxWidth(),
                         shape = AppListCardShape,
                         colors = cardColors,
-                        elevation = appCardElevation()
-                    ) {
+                                    ) {
                         AboutInfoRow(
                             label = stringResource(R.string.about_version_label),
                             value = stringResource(
@@ -159,8 +157,7 @@ fun AboutScreen(
                         modifier = Modifier.fillMaxWidth(),
                         shape = AppListCardShape,
                         colors = cardColors,
-                        elevation = appCardElevation()
-                    ) {
+                                    ) {
                         AboutLinkRow(
                             title = stringResource(R.string.about_project_homepage),
                             summary = stringResource(R.string.about_project_homepage_summary),

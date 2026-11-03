@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import top.steins.autologin.R
 import top.steins.autologin.ui.theme.AppControlShape
+import top.steins.autologin.ui.theme.appShadow
 import top.steins.autologin.domain.model.SavedAccount
 import top.steins.autologin.ui.component.ElasticButton
 import top.steins.autologin.ui.component.ElasticIconButton
@@ -135,6 +136,7 @@ internal fun AccountEditorSheet(
                     },
                     modifier = Modifier.padding(vertical = 2.dp).size(44.dp),
                     enabled = !isClosing && !isSaving,
+                    shadow = true,
                     colors = IconButtonDefaults.iconButtonColors(
                         containerColor = MaterialTheme.colorScheme.surfaceContainer,
                         contentColor = MaterialTheme.colorScheme.error
@@ -316,6 +318,7 @@ private fun AccountInput(
             decorationBox = { innerTextField ->
                 Row(
                     modifier = Modifier.fillMaxWidth()
+                        .appShadow(AppControlShape)
                         .background(colors.surfaceContainer, AppControlShape)
                         .border(if (focused || isError) 1.5.dp else 1.dp, outline, AppControlShape)
                         .heightIn(min = 60.dp).padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),

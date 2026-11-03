@@ -39,6 +39,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import top.steins.autologin.R
 import top.steins.autologin.ui.theme.AppControlShape
+import top.steins.autologin.ui.theme.appShadow
 
 @Composable
 fun WifiSsidInput(
@@ -85,6 +86,7 @@ fun WifiSsidInput(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .appShadow(AppControlShape)
                         .background(containerColor, AppControlShape)
                         .border(if (focused) 1.5.dp else 1.dp, outline, AppControlShape)
                         .heightIn(min = 60.dp)

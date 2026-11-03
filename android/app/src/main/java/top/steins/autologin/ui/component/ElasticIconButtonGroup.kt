@@ -16,6 +16,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import top.steins.autologin.ui.theme.appShadow
 
 internal val LocalIconButtonGroupInteractions = staticCompositionLocalOf<MutableInteractionSource?> { null }
 
@@ -34,6 +35,7 @@ fun ElasticIconButtonGroup(
         Row(
             modifier = modifier
                 .elasticPress(interactions, enabled = true, shape = CircleShape)
+                .appShadow(CircleShape)
                 .background(containerColor, CircleShape),
             verticalAlignment = Alignment.CenterVertically,
             content = content

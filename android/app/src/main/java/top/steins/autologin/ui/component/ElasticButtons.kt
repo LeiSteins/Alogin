@@ -24,6 +24,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Shape
 import top.steins.autologin.ui.theme.AppControlShape
+import top.steins.autologin.ui.theme.appShadow
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -39,7 +40,7 @@ fun ElasticButton(
     CompositionLocalProvider(LocalRippleConfiguration provides null) {
         Button(
             onClick = onClick,
-            modifier = modifier.elasticPress(interactions, enabled, shape),
+            modifier = modifier.elasticPress(interactions, enabled, shape).appShadow(shape, enabled),
             enabled = enabled,
             shape = shape,
             colors = colors,
@@ -88,7 +89,7 @@ fun ElasticOutlinedButton(
     CompositionLocalProvider(LocalRippleConfiguration provides null) {
         OutlinedButton(
             onClick = onClick,
-            modifier = modifier.elasticPress(interactions, enabled, shape),
+            modifier = modifier.elasticPress(interactions, enabled, shape).appShadow(shape, enabled),
             enabled = enabled,
             shape = shape,
             colors = colors,
@@ -107,6 +108,7 @@ fun ElasticIconButton(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     colors: IconButtonColors = IconButtonDefaults.iconButtonColors(),
+    shadow: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val interactions = remember { MutableInteractionSource() }
@@ -127,7 +129,7 @@ fun ElasticIconButton(
                 enabled,
                 CircleShape,
                 animatePress = groupInteractions == null
-            ),
+            ).then(if (shadow) Modifier.appShadow(CircleShape, enabled, alpha = 0.25f) else Modifier),
             enabled = enabled,
             colors = colors,
             interactionSource = interactions,

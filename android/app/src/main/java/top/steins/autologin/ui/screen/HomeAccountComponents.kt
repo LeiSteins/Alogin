@@ -15,7 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Card
+import top.steins.autologin.ui.component.AppCard as Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -37,7 +37,6 @@ import top.steins.autologin.ui.component.ElasticTextButton
 import top.steins.autologin.ui.format.formatCompactTrafficMegabytes
 import top.steins.autologin.ui.theme.AppCardContentPadding
 import top.steins.autologin.ui.theme.AppInfoCardShape
-import top.steins.autologin.ui.theme.appCardElevation
 
 @Composable
 internal fun AccountInfoCard(
@@ -66,7 +65,6 @@ internal fun AccountInfoCard(
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainer
         ),
-        elevation = appCardElevation(),
     ) {
         Column(modifier = Modifier.padding(AppCardContentPadding)) {
             Text(

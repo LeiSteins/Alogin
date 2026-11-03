@@ -18,7 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Card
+import top.steins.autologin.ui.component.AppCard as Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -46,7 +46,6 @@ import top.steins.autologin.ui.theme.CardHorizontalPadding
 import top.steins.autologin.ui.theme.CardVerticalPadding
 import top.steins.autologin.ui.theme.ListRowVerticalPadding
 import top.steins.autologin.ui.theme.ListRowMinHeight
-import top.steins.autologin.ui.theme.appCardElevation
 
 internal data class DeviceListEntry(
     val id: String,
@@ -94,7 +93,6 @@ internal fun DeviceListCardContent(
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainer
         ),
-        elevation = appCardElevation(),
     ) {
         Column(
             modifier = Modifier

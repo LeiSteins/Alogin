@@ -13,7 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.Card
+import top.steins.autologin.ui.component.AppCard as Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -23,7 +23,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -37,7 +36,7 @@ import top.steins.autologin.ui.component.elasticPress
 import top.steins.autologin.ui.theme.AppCardContentPadding
 import top.steins.autologin.ui.theme.AppInfoCardShape
 import top.steins.autologin.ui.theme.AppControlShape
-import top.steins.autologin.ui.theme.appCardElevation
+import top.steins.autologin.ui.theme.appShadow
 
 @Composable
 internal fun StaggeredCard(
@@ -84,7 +83,7 @@ internal fun FloatingActionBox(
         modifier = modifier
             .height(56.dp)
             .elasticPress(interactions, enabled, shape)
-            .shadow(elevation = 8.dp, shape = shape)
+            .appShadow(shape, enabled || isLoading)
             .clip(shape)
             .background(containerColor)
             .clickable(
@@ -148,6 +147,7 @@ internal fun NetworkInfoCard(wifiName: String, ipAddress: String, errorMessage: 
     Card(
         modifier = Modifier
             .fillMaxWidth()
+            .appShadow(AppInfoCardShape)
             .animateContentSize(
                 animationSpec = tween(
                     durationMillis = CardAnimationDurationMillis,
@@ -155,10 +155,10 @@ internal fun NetworkInfoCard(wifiName: String, ipAddress: String, errorMessage: 
                 )
             ),
         shape = AppInfoCardShape,
+        shadow = false,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainer
         ),
-        elevation = appCardElevation(),
     ) {
         Column(
             modifier = Modifier.padding(AppCardContentPadding),

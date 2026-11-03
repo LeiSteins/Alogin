@@ -9,7 +9,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Card
+import top.steins.autologin.ui.component.AppCard as Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -31,7 +31,6 @@ import top.steins.autologin.domain.model.HttpLogEntry
 import top.steins.autologin.domain.model.HttpLogEntryType
 import top.steins.autologin.ui.theme.AppCardContentPadding
 import top.steins.autologin.ui.theme.AppInfoCardShape
-import top.steins.autologin.ui.theme.appCardElevation
 
 @Composable
 internal fun LogEntryCard(entry: HttpLogEntry, onClick: () -> Unit) {
@@ -48,7 +47,6 @@ internal fun LogEntryCard(entry: HttpLogEntry, onClick: () -> Unit) {
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainer
         ),
-        elevation = appCardElevation(),
     ) {
         Column(
             modifier = Modifier
@@ -186,7 +184,6 @@ internal fun AccountInfoRefreshLogEntryCard(entry: HttpLogEntry, onClick: () -> 
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainer
         ),
-        elevation = appCardElevation(),
     ) {
         Column(
             modifier = Modifier

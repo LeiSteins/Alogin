@@ -42,8 +42,9 @@ import top.steins.autologin.ui.component.NavigationIconButton
 import top.steins.autologin.ui.component.RefreshIconButton
 import top.steins.autologin.ui.component.SettingsOptionCard
 import top.steins.autologin.ui.component.sheetScrollable
-import top.steins.autologin.ui.theme.AppCardContentPadding
+import top.steins.autologin.ui.theme.CardHorizontalPadding
 import top.steins.autologin.ui.theme.AppControlShape
+import top.steins.autologin.ui.theme.appShadow
 import top.steins.autologin.ui.theme.AppInfoCardShape
 
 @Composable
@@ -119,7 +120,8 @@ fun SeamlessLoginScreen(
         ) {
             item(key = "seamless-status") {
                 SettingsOptionCard(shape = AppInfoCardShape) {
-                    Column(Modifier.padding(AppCardContentPadding), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(Modifier.padding(horizontal = CardHorizontalPadding, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text(stringResource(R.string.seamless_title), style = MaterialTheme.typography.titleMedium)
@@ -194,6 +196,7 @@ fun SeamlessLoginScreen(
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(stringResource(R.string.seamless_limit_hint), style = MaterialTheme.typography.bodyMedium)
                 OutlinedTextField(value = macInput, onValueChange = { macInput = it; invalidMac = false },
+                    modifier = Modifier.appShadow(AppControlShape),
                     label = { Text(stringResource(R.string.seamless_mac_label)) }, singleLine = true,
                     isError = invalidMac, shape = AppControlShape,
                     colors = OutlinedTextFieldDefaults.colors(
