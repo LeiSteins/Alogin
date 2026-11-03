@@ -30,6 +30,22 @@ class SeamlessLoginScreenTest {
     ))
 
     @Test
+    fun sheet_closeDismissesAndSubmittingPreventsClosing() {
+        var dismissed = false
+        val screenState = mutableStateOf(state().copy(isSubmitting = true))
+        compose.setContent {
+            AloginTheme(darkTheme = false) {
+                SeamlessLoginScreen(screenState.value, {}, {}, { dismissed = true })
+            }
+        }
+        compose.onNodeWithTag("app-sheet").assertExists()
+        compose.onNodeWithContentDescription("关闭面板").assertIsNotEnabled()
+        compose.runOnIdle { screenState.value = state() }
+        compose.onNodeWithContentDescription("关闭面板").performClick()
+        compose.waitUntil { dismissed }
+    }
+
+    @Test
     fun deviceList_placesOnlineStatusBesideMacAndMarksOnlyOnlineLocalDevice() {
         val screenState = mutableStateOf(state())
         compose.setContent {
@@ -79,12 +95,12 @@ class SeamlessLoginScreenTest {
             }
         }
         compose.onNodeWithText("已绑定 3 / 3 台").assertExists()
-        compose.onNodeWithText("添加设备").assertIsEnabled().performClick()
+        compose.onNodeWithContentDescription("添加设备").assertIsEnabled().performClick()
         compose.onNodeWithText("MAC 地址").performTextInput("aa:bb:cc:11:22:33")
         compose.onNodeWithText("绑定设备").performClick()
         compose.onNodeWithText("替换已有设备？").assertIsDisplayed()
         compose.runOnIdle { assertNull(submitted) }
-        capture("seamless-replacement-confirm", dialog = true)
+        capture("seamless-replacement-confirm")
         compose.onNodeWithText("确认").performClick()
         compose.runOnIdle {
             assertEquals(SeamlessAction.Bind("AABBCC112233", allowReplacement = true), submitted)
@@ -110,7 +126,7 @@ class SeamlessLoginScreenTest {
         compose.setContent {
             AloginTheme(darkTheme = true) { SeamlessLoginScreen(state().copy(isSubmitting = true), {}, {}, {}) }
         }
-        compose.onNodeWithText("添加设备").assertIsNotEnabled()
+        compose.onNodeWithContentDescription("添加设备").assertIsNotEnabled()
         compose.onNodeWithContentDescription("刷新").assertIsNotEnabled()
         compose.onNode(isToggleable()).assertIsNotEnabled()
         capture("seamless-management-dark")
@@ -125,7 +141,7 @@ class SeamlessLoginScreenTest {
                 )), {}, {}, {})
             }
         }
-        compose.onNodeWithText("已关闭").assertIsDisplayed()
+        compose.onNodeWithText("已关闭").assertDoesNotExist()
         compose.onNode(isToggleable()).assertIsOff().assertIsEnabled()
         compose.onNodeWithText("无法读取绑定设备列表，请刷新重试。").assertDoesNotExist()
         capture("seamless-disabled-without-devices")
@@ -140,7 +156,7 @@ class SeamlessLoginScreenTest {
                 )), {}, {}, {})
             }
         }
-        compose.onNodeWithText("添加设备").assertDoesNotExist()
+        compose.onNodeWithContentDescription("添加设备").assertIsNotEnabled()
         compose.onNodeWithText("已绑定 0 / 3 台").assertDoesNotExist()
         compose.onNodeWithText("列表查询失败").assertIsDisplayed()
     }
@@ -153,7 +169,7 @@ class SeamlessLoginScreenTest {
         }
         compose.onNode(isToggleable()).assertIsDisplayed().assertIsNotEnabled()
         compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.ProgressBarRangeInfo)).assertDoesNotExist()
-        compose.onNodeWithText("添加设备").assertDoesNotExist()
+        compose.onNodeWithContentDescription("添加设备").assertIsNotEnabled()
         capture("seamless-initial-query")
 
         compose.runOnIdle { screenState.value = state(1) }
@@ -176,12 +192,12 @@ class SeamlessLoginScreenTest {
             compose.onNodeWithText("00:11:22:33:44:01").assertExists()
             compose.onNode(isToggleable()).assertIsDisplayed().assertIsEnabled()
             compose.onNode(isToggleable()).assertIsOn()
-            compose.onNodeWithText("已开启").assertIsDisplayed()
+            compose.onNodeWithText("已开启").assertDoesNotExist()
             compose.onNodeWithText("正在查询无感知登录状态…").assertDoesNotExist()
 
             compose.mainClock.advanceTimeBy(1_000)
             compose.onNodeWithText("00:11:22:33:44:01").assertIsDisplayed()
-            compose.onNodeWithText("添加设备").assertIsDisplayed().assertIsEnabled()
+            compose.onNodeWithContentDescription("添加设备").assertIsDisplayed().assertIsEnabled()
             compose.onNode(isToggleable()).assertIsDisplayed()
 
             val nextInfo = state(1).info!!
@@ -192,7 +208,7 @@ class SeamlessLoginScreenTest {
             compose.mainClock.advanceTimeBy(1_000)
             compose.onNodeWithText("00:11:22:33:44:09").assertIsDisplayed()
             compose.onNodeWithText("00:11:22:33:44:01").assertDoesNotExist()
-            compose.onNodeWithText("已关闭").assertIsDisplayed()
+            compose.onNodeWithText("已关闭").assertDoesNotExist()
             compose.onNode(isToggleable()).assertIsOff().assertIsEnabled()
         } finally {
             compose.mainClock.autoAdvance = true
@@ -207,17 +223,17 @@ class SeamlessLoginScreenTest {
                 SeamlessLoginScreen(state(1).copy(isLoading = true), {}, { submitted = it }, {})
             }
         }
-        compose.onNodeWithText("已开启").assertIsDisplayed()
+        compose.onNodeWithText("已开启").assertDoesNotExist()
         compose.onNode(isToggleable()).assertIsOn().assertIsEnabled()
         compose.onNodeWithText("已绑定 1 / 3 台").assertIsDisplayed()
         compose.onNodeWithText("00:11:22:33:44:01").assertIsDisplayed()
-        compose.onNodeWithText("添加设备").assertIsEnabled()
+        compose.onNodeWithContentDescription("添加设备").assertIsEnabled()
         capture("seamless-cached-refresh")
 
         compose.onNode(isToggleable()).performClick()
         compose.onNodeWithText("确认").assertIsNotEnabled()
         compose.onNodeWithText("取消").performClick()
-        compose.onNodeWithText("添加设备").performClick()
+        compose.onNodeWithContentDescription("添加设备").performClick()
         compose.onNodeWithText("MAC 地址").performTextInput("aa:bb:cc:11:22:33")
         compose.onNodeWithText("绑定设备").assertIsNotEnabled()
         compose.runOnIdle { assertNull(submitted) }
@@ -244,14 +260,14 @@ class SeamlessLoginScreenTest {
         }
     }
 
-    private fun capture(name: String, dialog: Boolean = false) {
+    private fun capture(name: String) {
         compose.waitForIdle()
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val outputDirectory = InstrumentationRegistry.getArguments().getString("additionalTestOutputDir")
             ?.let { File(it).apply { mkdirs() } }
             ?: instrumentation.targetContext.getExternalFilesDir(null)
         File(outputDirectory, "$name.png").outputStream().use {
-            val node = if (dialog) compose.onAllNodes(isDialog()).onLast() else compose.onRoot()
+            val node = compose.onAllNodes(isDialog()).onLast()
             node.captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, it)
         }
     }

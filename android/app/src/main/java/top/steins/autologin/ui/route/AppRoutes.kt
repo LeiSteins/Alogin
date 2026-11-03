@@ -37,11 +37,11 @@ fun HomeRoute(
     stateHolder: CampusSessionCoordinator,
     toastState: CapsuleToastState,
     onNavigateToAccount: () -> Unit,
-    onNavigateToSettings: () -> Unit,
-    onNavigateToSeamless: () -> Unit
+    onNavigateToSettings: () -> Unit
 ) {
     val uiState by stateHolder.uiState.collectAsStateWithLifecycle()
     val targetSsids by stateHolder.targetSsids.collectAsStateWithLifecycle()
+    var showSeamless by rememberSaveable { mutableStateOf(false) }
 
     HomeScreen(
         wifiName = uiState.wifiName,
@@ -65,8 +65,11 @@ fun HomeRoute(
         onNavigateToAccount = onNavigateToAccount,
         onNavigateToSettings = onNavigateToSettings,
         seamlessStatus = uiState.seamlessStatus,
-        onNavigateToSeamless = onNavigateToSeamless
+        onNavigateToSeamless = { showSeamless = true }
     )
+    if (showSeamless) {
+        SeamlessLoginRoute(stateHolder.seamless) { showSeamless = false }
+    }
 }
 
 @Composable

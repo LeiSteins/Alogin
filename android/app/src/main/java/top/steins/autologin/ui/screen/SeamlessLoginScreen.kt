@@ -2,17 +2,15 @@ package top.steins.autologin.ui.screen
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -37,26 +35,22 @@ import top.steins.autologin.domain.model.SeamlessStatus
 import top.steins.autologin.domain.rule.canonicalMac
 import top.steins.autologin.ui.component.DeviceListCardContent
 import top.steins.autologin.ui.component.DeviceListEntry
-import top.steins.autologin.ui.component.ElasticButton
 import top.steins.autologin.ui.component.ElasticSwitch
 import top.steins.autologin.ui.component.ElasticTextButton
-import top.steins.autologin.ui.component.NavigationTopBar
+import top.steins.autologin.ui.component.AppSheet
+import top.steins.autologin.ui.component.NavigationIconButton
 import top.steins.autologin.ui.component.RefreshIconButton
 import top.steins.autologin.ui.component.SettingsOptionCard
+import top.steins.autologin.ui.component.sheetScrollable
 import top.steins.autologin.ui.theme.AppCardContentPadding
 import top.steins.autologin.ui.theme.AppControlShape
 import top.steins.autologin.ui.theme.AppInfoCardShape
-import top.steins.autologin.ui.theme.ScreenContentTopPadding
-import top.steins.autologin.ui.theme.ScreenHorizontalPadding
 
 @Composable
-private fun seamlessStatusText(state: SeamlessUiState): String = when {
+private fun seamlessStatusText(state: SeamlessUiState): String? = when {
     state.info == null && (state.isLoading || state.error.isBlank()) -> stringResource(R.string.seamless_loading)
-    else -> stringResource(when (state.info?.status) {
-        SeamlessStatus.Enabled -> R.string.seamless_enabled
-        SeamlessStatus.Disabled -> R.string.seamless_disabled
-        else -> R.string.seamless_unknown
-    })
+    state.info?.status == SeamlessStatus.Enabled || state.info?.status == SeamlessStatus.Disabled -> null
+    else -> stringResource(R.string.seamless_unknown)
 }
 
 @Composable
@@ -97,36 +91,41 @@ fun SeamlessLoginScreen(
     val lowerInfo = if (lowerCardsVisible) info else retainedInfo
 
 
-    Scaffold(topBar = {
-        NavigationTopBar(stringResource(R.string.seamless_title), onNavigateBack) {
+    val listState = rememberLazyListState()
+    AppSheet(
+        title = stringResource(R.string.seamless_title),
+        onDismissRequest = onNavigateBack,
+        dismissEnabled = !state.isSubmitting,
+        actions = {
+            NavigationIconButton(
+                onClick = { macInput = ""; invalidMac = false; showEditor = true },
+                icon = R.drawable.plus,
+                contentDescription = stringResource(R.string.seamless_add),
+                modifier = Modifier.padding(end = 4.dp),
+                enabled = state.canPrepareAction && list != null
+            )
             RefreshIconButton(
                 onClick = onRefresh,
-                modifier = Modifier.padding(end = 12.dp),
                 enabled = !state.isLoading && !state.isSubmitting,
                 contentDescription = stringResource(R.string.seamless_refresh)
             )
         }
-    }) { padding ->
+    ) { contentPadding ->
         LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(
-                start = ScreenHorizontalPadding,
-                end = ScreenHorizontalPadding,
-                top = ScreenContentTopPadding,
-                bottom = 12.dp
-            ),
+            state = listState,
+            modifier = Modifier.fillMaxWidth().sheetScrollable { listState.canScrollBackward },
+            contentPadding = contentPadding,
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item(key = "seamless-status") {
                 SettingsOptionCard(shape = AppInfoCardShape) {
                     Column(Modifier.padding(AppCardContentPadding), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(stringResource(R.string.seamless_account,
-                            info?.username ?: stringResource(R.string.value_placeholder)),
-                            style = MaterialTheme.typography.bodyMedium)
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text(stringResource(R.string.seamless_title), style = MaterialTheme.typography.titleMedium)
-                                Text(seamlessStatusText(state), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                seamlessStatusText(state)?.let {
+                                    Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
                             }
                             ElasticSwitch(
                                 modifier = Modifier.semantics { contentDescription = switchLabel },
@@ -149,16 +148,6 @@ fun SeamlessLoginScreen(
                 item(key = "seamless-devices") {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         StaggeredCard(visible = lowerCardsVisible, initiallyVisible = showLowerCardsImmediately, index = 0) {
-                            SettingsOptionCard(shape = AppInfoCardShape) {
-                                Column(Modifier.padding(AppCardContentPadding), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text(stringResource(R.string.seamless_limit_hint), style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    ElasticButton(onClick = { macInput = ""; invalidMac = false; showEditor = true },
-                                        enabled = state.canPrepareAction && lowerCardsVisible) { Text(stringResource(R.string.seamless_add)) }
-                                }
-                            }
-                        }
-                        StaggeredCard(visible = lowerCardsVisible, initiallyVisible = showLowerCardsImmediately, index = 1) {
                             DeviceListCardContent(
                                 // 倒序展示记录，让新设备在上、满额时被替换的最早记录在下。
                                 devices = lowerInfo.deviceList.devices.asReversed().map { device ->
@@ -203,6 +192,7 @@ fun SeamlessLoginScreen(
         title = { Text(stringResource(R.string.seamless_add)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(stringResource(R.string.seamless_limit_hint), style = MaterialTheme.typography.bodyMedium)
                 OutlinedTextField(value = macInput, onValueChange = { macInput = it; invalidMac = false },
                     label = { Text(stringResource(R.string.seamless_mac_label)) }, singleLine = true,
                     isError = invalidMac, shape = AppControlShape,

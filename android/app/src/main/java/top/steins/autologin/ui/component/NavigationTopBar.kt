@@ -91,7 +91,7 @@ internal fun RefreshIconButton(
 }
 
 @Composable
-private fun NavigationIconButton(
+internal fun NavigationIconButton(
     onClick: () -> Unit,
     @DrawableRes icon: Int,
     contentDescription: String,

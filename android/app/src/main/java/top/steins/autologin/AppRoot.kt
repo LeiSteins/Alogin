@@ -29,7 +29,6 @@ import top.steins.autologin.ui.route.HomeRoute
 import top.steins.autologin.ui.route.LocationPermissionEffect
 import top.steins.autologin.ui.route.LogRoute
 import top.steins.autologin.ui.route.LoginMessageEffect
-import top.steins.autologin.ui.route.SeamlessLoginRoute
 import top.steins.autologin.ui.route.SettingsRoute
 import top.steins.autologin.ui.route.SoftwareSettingsRoute
 import top.steins.autologin.ui.route.UpdateMessageEffect
@@ -108,8 +107,7 @@ fun AppRoot(viewModel: AppViewModel) {
                     stateHolder = viewModel.session,
                     toastState = toastState,
                     onNavigateToAccount = { navigateTo(AppDestination.Account) },
-                    onNavigateToSettings = { navigateTo(AppDestination.Settings) },
-                    onNavigateToSeamless = { navigateTo(AppDestination.SeamlessLogin) }
+                    onNavigateToSettings = { navigateTo(AppDestination.Settings) }
                 )
             }
 
@@ -119,10 +117,6 @@ fun AppRoot(viewModel: AppViewModel) {
                     toastState = toastState,
                     onNavigateBack = onNavigateBack
                 )
-            }
-
-            appComposable(AppDestination.SeamlessLogin, navController) { onNavigateBack ->
-                SeamlessLoginRoute(viewModel.seamless, onNavigateBack)
             }
 
             appComposable(AppDestination.Settings, navController) { onNavigateBack ->
