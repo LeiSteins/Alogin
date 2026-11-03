@@ -27,6 +27,7 @@ import top.steins.autologin.domain.rule.SemanticVersion
 /** 独立管理更新检查、节流和下载消息，避免这些状态挤入网络认证协调器。 */
 class UpdateStateHolder(
     private val scope: CoroutineScope,
+    private val enabled: Boolean,
     private val strings: AppStrings,
     private val checkStore: UpdateCheckStore,
     private val updates: UpdateGateway,
@@ -55,6 +56,7 @@ class UpdateStateHolder(
     val installation: StateFlow<UpdateInfo?> = _installation.asStateFlow()
 
     fun setForeground(value: Boolean) {
+        if (!enabled) return
         if (foreground == value) return
         foreground = value
         observationJob?.cancel()
@@ -109,16 +111,20 @@ class UpdateStateHolder(
         _messages.tryEmit(strings.get(resource))
     }
 
-    suspend fun validatedDownload(update: UpdateInfo): java.io.File? = downloadMutex.withLock {
-        updates.validatedDownload(update).also { file ->
-            if (file == null) {
-                publishTransfer(UpdateTransfer(update, UpdateDownloadState.Failed(UpdateDownloadFailure.INVALID_APK)))
-                message(R.string.update_invalid_apk)
+    suspend fun validatedDownload(update: UpdateInfo): java.io.File? {
+        if (!enabled) return null
+        return downloadMutex.withLock {
+            updates.validatedDownload(update).also { file ->
+                if (file == null) {
+                    publishTransfer(UpdateTransfer(update, UpdateDownloadState.Failed(UpdateDownloadFailure.INVALID_APK)))
+                    message(R.string.update_invalid_apk)
+                }
             }
         }
     }
 
     fun resumeInstallation(versionCode: Int) {
+        if (!enabled) return
         scope.launch {
             downloadMutex.withLock {
                 val transfer = updates.refreshDownload() ?: return@withLock
@@ -131,6 +137,7 @@ class UpdateStateHolder(
     }
 
     fun check(manual: Boolean) {
+        if (!enabled) return
         if (hasDownload()) return
         checkJob?.cancel()
         checkJob = scope.launch {
@@ -139,6 +146,7 @@ class UpdateStateHolder(
     }
 
     fun scheduleAutomaticCheck() {
+        if (!enabled) return
         if (hasDownload()) return
         checkJob?.cancel()
         checkJob = scope.launch {
@@ -167,6 +175,7 @@ class UpdateStateHolder(
     }
 
     fun downloadAvailable() {
+        if (!enabled) return
         val available = _state.value as? UpdateState.Available ?: return
         if (downloadJob?.isActive == true || available.download is UpdateDownloadState.Downloading) return
         if (available.download == UpdateDownloadState.Ready) {

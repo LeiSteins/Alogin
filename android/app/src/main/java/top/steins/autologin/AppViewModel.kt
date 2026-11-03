@@ -34,12 +34,14 @@ class AppViewModel(
     logStore: HttpLogStore,
     hasLocationPermission: () -> Boolean,
     currentTimeMillis: () -> Long = System::currentTimeMillis,
+    updatesEnabled: Boolean = !BuildConfig.DEBUG,
     scanWifi: suspend () -> WifiScanOutcome
 ) : ViewModel() {
     val accounts = AccountStateHolder(accountStore)
     val logs = HttpLogStateHolder(logPreferences, logStore)
     val update = UpdateStateHolder(
         scope = viewModelScope,
+        enabled = updatesEnabled,
         strings = strings,
         checkStore = updateCheckStore,
         updates = updates,

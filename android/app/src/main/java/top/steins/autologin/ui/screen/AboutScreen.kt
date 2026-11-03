@@ -179,7 +179,10 @@ fun AboutScreen(
                         AboutLinkRow(
                             title = stringResource(R.string.check_for_updates),
                             showSeparator = false,
-                            summary = when (updateState) {
+                            enabled = !BuildConfig.DEBUG,
+                            summary = if (BuildConfig.DEBUG) {
+                                stringResource(R.string.update_disabled_debug)
+                            } else when (updateState) {
                                 UpdateState.Idle -> stringResource(
                                     R.string.update_idle,
                                     BuildConfig.VERSION_NAME
@@ -249,14 +252,15 @@ private fun AboutLinkRow(
     summary: String,
     onClick: () -> Unit,
     showSeparator: Boolean = true,
-    isLoading: Boolean = false
+    isLoading: Boolean = false,
+    enabled: Boolean = true
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = ListRowMinHeight)
             .listRowSeparator(visible = showSeparator)
-            .clickable(enabled = !isLoading, onClick = onClick)
+            .clickable(enabled = enabled && !isLoading, onClick = onClick)
             .padding(horizontal = ListRowHorizontalPadding, vertical = ListRowVerticalPadding),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
@@ -272,7 +276,7 @@ private fun AboutLinkRow(
         Spacer(Modifier.width(ListRowIconSpacing))
         if (isLoading) {
             CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-        } else {
+        } else if (enabled) {
             ListItemChevron()
         }
     }

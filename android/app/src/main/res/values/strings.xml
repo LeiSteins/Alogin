@@ -89,6 +89,7 @@
 
     <!-- 更新检查 -->
     <string name="check_for_updates">检查更新</string>
+    <string name="update_disabled_debug">调试版不支持应用内更新</string>
     <string name="update_idle">当前版本 %1$s，点击检查</string>
     <string name="update_checking">正在检查更新…</string>
     <string name="update_up_to_date">当前版本 %1$s，已是最新</string>

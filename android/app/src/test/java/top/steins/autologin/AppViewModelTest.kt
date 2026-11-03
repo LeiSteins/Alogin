@@ -97,7 +97,8 @@ class AppViewModelTest {
 
     private fun createViewModel(
         hasLocationPermission: () -> Boolean = { true },
-        currentTimeMillis: () -> Long = { 1_000_000L }
+        currentTimeMillis: () -> Long = { 1_000_000L },
+        updatesEnabled: Boolean = true
     ): AppViewModel = AppViewModel(
         strings = AppStrings { resId, _ -> "msg:$resId" },
         accountStore = settings,
@@ -111,8 +112,29 @@ class AppViewModelTest {
         logStore = logStore,
         hasLocationPermission = hasLocationPermission,
         currentTimeMillis = currentTimeMillis,
+        updatesEnabled = updatesEnabled,
         scanWifi = { WifiScanOutcome.NoResults }
     )
+
+    @Test
+    fun disabledUpdates_doNotCheckRestoreDownloadOrInstall() = runTest {
+        updates.transfer = UpdateTransfer(availableUpdate(), UpdateDownloadState.Ready)
+        val viewModel = createViewModel(updatesEnabled = false)
+
+        viewModel.update.setForeground(true)
+        viewModel.update.check(manual = true)
+        viewModel.update.scheduleAutomaticCheck()
+        viewModel.update.resumeInstallation(990)
+        viewModel.update.downloadAvailable()
+        assertNull(viewModel.update.validatedDownload(availableUpdate()))
+        advanceUntilIdle()
+
+        assertEquals(0, updates.fetchCount)
+        assertEquals(0, updates.refreshCount)
+        assertEquals(0, updates.downloadCount)
+        assertEquals(UpdateState.Idle, viewModel.update.state.value)
+        assertNull(viewModel.update.installation.value)
+    }
 
     private fun availableUpdate() = UpdateInfo(
         version = "99.0.0", versionCode = 990,

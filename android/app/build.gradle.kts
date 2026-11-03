@@ -46,6 +46,7 @@ android {
 
     buildTypes {
         debug {
+            applicationIdSuffix = ".debug"
             val cfg = signingConfigs.getByName("release")
             if (cfg.storeFile?.exists() == true) signingConfig = cfg
         }

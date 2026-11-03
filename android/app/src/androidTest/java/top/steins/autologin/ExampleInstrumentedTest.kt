@@ -19,6 +19,9 @@ class ExampleInstrumentedTest {
     fun useAppContext() {
         // Context of the app under test.
         val appContext = InstrumentationRegistry.getInstrumentation().targetContext
-        assertEquals("top.steins.autologin", appContext.packageName)
+        assertEquals(BuildConfig.APPLICATION_ID, appContext.packageName)
+        if (BuildConfig.DEBUG) {
+            assertEquals("top.steins.autologin.debug", appContext.packageName)
+        }
     }
 }
