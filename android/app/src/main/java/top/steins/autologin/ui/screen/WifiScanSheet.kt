@@ -33,7 +33,7 @@ import androidx.compose.ui.unit.dp
 import top.steins.autologin.R
 import top.steins.autologin.ui.component.listRowSeparator
 import top.steins.autologin.domain.model.WifiScanOutcome
-import top.steins.autologin.ui.component.ElasticTextButton
+import top.steins.autologin.ui.component.RefreshIconButton
 import top.steins.autologin.ui.component.SheetActions
 import top.steins.autologin.ui.component.sheetScrollable
 import top.steins.autologin.ui.theme.AppListCardShape
@@ -120,9 +120,7 @@ internal fun WifiScanSheetContent(
     val listState = rememberLazyListState()
     val layoutDirection = LocalLayoutDirection.current
     SheetActions {
-        ElasticTextButton(onClick = onRefresh, enabled = !isScanning) {
-            Text(stringResource(R.string.action_refresh))
-        }
+        RefreshIconButton(onClick = onRefresh, enabled = !isScanning)
     }
     Column(
         modifier = Modifier.fillMaxWidth().fillMaxHeight()

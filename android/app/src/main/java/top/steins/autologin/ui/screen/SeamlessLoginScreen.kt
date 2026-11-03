@@ -41,6 +41,7 @@ import top.steins.autologin.ui.component.ElasticButton
 import top.steins.autologin.ui.component.ElasticSwitch
 import top.steins.autologin.ui.component.ElasticTextButton
 import top.steins.autologin.ui.component.NavigationTopBar
+import top.steins.autologin.ui.component.RefreshIconButton
 import top.steins.autologin.ui.component.SettingsOptionCard
 import top.steins.autologin.ui.theme.AppCardContentPadding
 import top.steins.autologin.ui.theme.AppControlShape
@@ -98,9 +99,12 @@ fun SeamlessLoginScreen(
 
     Scaffold(topBar = {
         NavigationTopBar(stringResource(R.string.seamless_title), onNavigateBack) {
-            ElasticTextButton(onClick = onRefresh, enabled = !state.isLoading && !state.isSubmitting) {
-                Text(stringResource(R.string.seamless_refresh))
-            }
+            RefreshIconButton(
+                onClick = onRefresh,
+                modifier = Modifier.padding(end = 12.dp),
+                enabled = !state.isLoading && !state.isSubmitting,
+                contentDescription = stringResource(R.string.seamless_refresh)
+            )
         }
     }) { padding ->
         LazyColumn(
@@ -180,6 +184,7 @@ fun SeamlessLoginScreen(
                                 title = stringResource(R.string.seamless_count, lowerInfo.deviceList.total, SEAMLESS_DEVICE_LIMIT),
                                 emptyText = stringResource(R.string.seamless_empty),
                                 animationDurationMillis = CardAnimationDurationMillis,
+                                removeDeviceIcon = R.drawable.link_2_off,
                                 enabled = state.canPrepareAction && lowerCardsVisible,
                                 onRemoveDevice = { pendingAction = SeamlessAction.Unbind(it.macAddress) }
                             )

@@ -111,7 +111,7 @@ class SeamlessLoginScreenTest {
             AloginTheme(darkTheme = true) { SeamlessLoginScreen(state().copy(isSubmitting = true), {}, {}, {}) }
         }
         compose.onNodeWithText("添加设备").assertIsNotEnabled()
-        compose.onNodeWithText("刷新").assertIsNotEnabled()
+        compose.onNodeWithContentDescription("刷新").assertIsNotEnabled()
         compose.onNode(isToggleable()).assertIsNotEnabled()
         capture("seamless-management-dark")
     }

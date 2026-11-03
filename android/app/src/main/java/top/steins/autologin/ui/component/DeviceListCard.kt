@@ -1,5 +1,6 @@
 package top.steins.autologin.ui.component
 
+import androidx.annotation.DrawableRes
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.tween
@@ -64,6 +65,7 @@ internal fun DeviceListCardContent(
     emptyText: String,
     animationDurationMillis: Int,
     enabled: Boolean,
+    @DrawableRes removeDeviceIcon: Int,
     showEmptyState: Boolean = true,
     shape: Shape = AppListCardShape,
     onRemoveDevice: (DeviceListEntry) -> Unit
@@ -117,6 +119,7 @@ internal fun DeviceListCardContent(
                         initiallyVisible = isInitialComposition,
                         isCurrentDevice = device.isCurrentDevice,
                         enabled = enabled && visible,
+                        removeDeviceIcon = removeDeviceIcon,
                         showSeparator = device.id != renderedDevices.lastOrNull()?.id,
                         onRemoveDevice = { onRemoveDevice(device) },
                         onHidden = {
@@ -154,6 +157,7 @@ private fun AnimatedDeviceRow(
     initiallyVisible: Boolean,
     isCurrentDevice: Boolean,
     enabled: Boolean,
+    @DrawableRes removeDeviceIcon: Int,
     showSeparator: Boolean,
     onRemoveDevice: () -> Unit,
     onHidden: () -> Unit
@@ -231,7 +235,7 @@ private fun AnimatedDeviceRow(
                 modifier = Modifier.size(48.dp)
             ) {
                 Icon(
-                    painter = painterResource(R.drawable.delete),
+                    painter = painterResource(removeDeviceIcon),
                     contentDescription = device.removeDeviceDescription,
                     modifier = Modifier.size(24.dp),
                     tint = MaterialTheme.colorScheme.error

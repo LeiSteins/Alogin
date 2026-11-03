@@ -46,6 +46,7 @@ internal fun DeviceListCard(
         emptyText = stringResource(R.string.home_no_devices),
         animationDurationMillis = CardAnimationDurationMillis,
         enabled = enabled,
+        removeDeviceIcon = R.drawable.globe_off,
         showEmptyState = showEmptyState,
         shape = AppInfoCardShape,
         onRemoveDevice = { entry -> devices.find { it.sessionId == entry.id }?.let(onLogoutDevice) }

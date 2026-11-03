@@ -1,5 +1,6 @@
 package top.steins.autologin.ui.component
 
+import androidx.annotation.DrawableRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
@@ -76,6 +77,27 @@ internal fun NavigationBackButton(
     enabled: Boolean = true,
     contentDescription: String = stringResource(R.string.action_back)
 ) {
+    NavigationIconButton(onClick, R.drawable.arrow_back, contentDescription, modifier, enabled)
+}
+
+@Composable
+internal fun RefreshIconButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    contentDescription: String = stringResource(R.string.action_refresh)
+) {
+    NavigationIconButton(onClick, R.drawable.refresh_cw, contentDescription, modifier, enabled)
+}
+
+@Composable
+private fun NavigationIconButton(
+    onClick: () -> Unit,
+    @DrawableRes icon: Int,
+    contentDescription: String,
+    modifier: Modifier,
+    enabled: Boolean
+) {
     ElasticIconButton(
         onClick = onClick,
         modifier = modifier.padding(vertical = 2.dp).size(44.dp),
@@ -85,6 +107,6 @@ internal fun NavigationBackButton(
             contentColor = MaterialTheme.colorScheme.onSurfaceVariant
         )
     ) {
-        Icon(painterResource(R.drawable.arrow_back), contentDescription = contentDescription)
+        Icon(painterResource(icon), contentDescription = contentDescription)
     }
 }
