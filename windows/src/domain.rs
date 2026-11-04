@@ -191,6 +191,8 @@ pub struct Preferences {
     pub target_ssids: Vec<String>,
     pub auto_login: bool,
     #[serde(default)]
+    pub http_log_enabled: bool,
+    #[serde(default)]
     pub appearance: Appearance,
     #[serde(default)]
     pub maintenance: MaintenancePreferences,
@@ -201,6 +203,7 @@ impl Default for Preferences {
         Self {
             target_ssids: vec!["bjut_wifi".into()],
             auto_login: false,
+            http_log_enabled: false,
             appearance: Appearance::System,
             maintenance: MaintenancePreferences::default(),
         }

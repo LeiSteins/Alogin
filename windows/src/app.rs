@@ -116,6 +116,7 @@ impl Worker {
                         return;
                     }
                 };
+                crate::http_log::set_enabled(settings.preferences.http_log_enabled);
                 let mut session = Session {
                     startup: crate::platform::startup::enabled(),
                     store,
@@ -131,7 +132,10 @@ impl Worker {
                     revision: crate::platform::network::revision(),
                     network_refresh_pending: true,
                 };
-                let initial = session.handle(Command::NetworkChanged);
+                let initial = {
+                    let _operation = crate::http_log::Operation::begin();
+                    session.handle(Command::NetworkChanged)
+                };
                 publish(session.view(initial));
                 session.run(&receiver, publish);
             })
@@ -222,6 +226,7 @@ impl<S: Services> Session<S> {
             let command = match received {
                 Ok(command) => command,
                 Err(RecvTimeoutError::Timeout) => {
+                    let _operation = crate::http_log::Operation::begin();
                     let result = self.maintain();
                     let mut view = self.view(result);
                     view.background = true;
@@ -233,10 +238,16 @@ impl<S: Services> Session<S> {
             if matches!(command, Command::Shutdown) {
                 break;
             }
+            let _operation = crate::http_log::Operation::begin();
             let notification = matches!(command, Command::NetworkChanged);
             if notification {
                 self.adopt_network();
                 if !self.network_refresh_pending {
+                    crate::http_log::record(
+                        crate::http_log::generation(),
+                        crate::http_log::Category::Refresh,
+                        "网络未变化，跳过刷新".into(),
+                    );
                     continue;
                 }
             }
@@ -308,6 +319,9 @@ impl<S: Services> Session<S> {
                 if !preferences.maintenance.valid() {
                     return Err(strings::INVALID_MAINTENANCE.into());
                 }
+                let log_changed =
+                    preferences.http_log_enabled != self.settings.preferences.http_log_enabled;
+                let log_enabled = preferences.http_log_enabled;
                 let rearm = preferences.auto_login != self.settings.preferences.auto_login;
                 let reschedule = preferences.maintenance != self.settings.preferences.maintenance
                     || preferences.target_ssids != self.settings.preferences.target_ssids;
@@ -315,6 +329,9 @@ impl<S: Services> Session<S> {
                     settings.preferences = preferences;
                     Ok(())
                 })?;
+                if log_changed {
+                    crate::http_log::set_enabled(log_enabled);
+                }
                 if rearm {
                     self.maintenance.restart(Instant::now());
                     self.maintenance_detail.clear();
@@ -389,6 +406,17 @@ impl<S: Services> Session<S> {
         let revision = self.services.revision();
         let current = self.services.snapshot();
         let changed = current != self.network;
+        let log_generation = crate::http_log::generation();
+        crate::http_log::record(
+            log_generation,
+            crate::http_log::Category::Network,
+            if changed {
+                "网络快照变化"
+            } else {
+                "网络快照未变化"
+            }
+            .to_owned(),
+        );
         if changed {
             self.maintenance.network_changed(Instant::now());
             self.maintenance_detail.clear();
@@ -408,6 +436,11 @@ impl<S: Services> Session<S> {
     }
 
     fn maintain(&mut self) -> Result<String, String> {
+        crate::http_log::record(
+            crate::http_log::generation(),
+            crate::http_log::Category::Refresh,
+            "登录维持：周期检测".into(),
+        );
         let changed = self.adopt_network();
         // Always leave a future deadline, including error and network-change exits.
         self.maintenance.wake(Instant::now());
@@ -460,6 +493,16 @@ impl<S: Services> Session<S> {
     }
 
     fn login(&mut self, expected: Option<Network>, automatic: bool) -> Result<String, String> {
+        crate::http_log::record(
+            crate::http_log::generation(),
+            crate::http_log::Category::Refresh,
+            if automatic {
+                "自动登录"
+            } else {
+                "手动登录"
+            }
+            .into(),
+        );
         if !automatic {
             self.maintenance.restart(Instant::now());
         }
@@ -549,6 +592,11 @@ impl<S: Services> Session<S> {
     }
 
     fn refresh(&mut self) -> Result<String, String> {
+        crate::http_log::record(
+            crate::http_log::generation(),
+            crate::http_log::Category::Refresh,
+            "刷新认证状态和账号信息".into(),
+        );
         self.adopt_network();
         self.network_refresh_pending = false;
         self.online = Online::Unknown;

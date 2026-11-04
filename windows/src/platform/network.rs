@@ -244,6 +244,17 @@ fn connected_ssid(interface: u32) -> Option<String> {
 pub const NETWORK_MESSAGE: u32 = windows_sys::Win32::UI::WindowsAndMessaging::WM_APP + 2;
 
 static REVISION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static DROPPED_NOTIFICATIONS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+pub fn take_dropped_notifications() -> u64 {
+    DROPPED_NOTIFICATIONS.swap(0, std::sync::atomic::Ordering::Relaxed)
+}
+
+fn post_notification(window: HWND, kind: usize, code: isize) {
+    if unsafe { PostMessageW(window, NETWORK_MESSAGE, kind, code) } == 0 {
+        DROPPED_NOTIFICATIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+}
 
 pub fn revision() -> u64 {
     REVISION.load(std::sync::atomic::Ordering::SeqCst)
@@ -258,14 +269,31 @@ pub struct NetworkEvents {
     address: HANDLE,
     route: HANDLE,
     wlan: Option<Wlan>,
+    route_status: u32,
+    wlan_status: Option<u32>,
 }
 impl NetworkEvents {
+    pub fn diagnostics(&self) -> String {
+        let route = if self.route_status == 0 {
+            "正常".to_owned()
+        } else {
+            format!("失败 ({})", self.route_status)
+        };
+        let wlan = match self.wlan_status {
+            Some(0) => "正常".to_owned(),
+            Some(code) => format!("失败 ({code})"),
+            None => "不可用".to_owned(),
+        };
+        format!("网络通知订阅：接口正常，地址正常，路由{route}，WLAN {wlan}")
+    }
     pub fn subscribe(window: HWND) -> Result<Self, String> {
         let mut events = Self {
             interface: ptr::null_mut(),
             address: ptr::null_mut(),
             route: ptr::null_mut(),
             wlan: Wlan::open(),
+            route_status: 0,
+            wlan_status: None,
         };
         let context = window.cast();
         let interface_error = unsafe {
@@ -286,20 +314,20 @@ impl NetworkEvents {
                 &mut events.address,
             )
         };
-        unsafe {
+        events.route_status = unsafe {
             NotifyRouteChange2(
                 AF_INET,
                 Some(route_changed),
                 context,
                 false,
                 &mut events.route,
-            );
-        }
+            )
+        };
         if interface_error != 0 || address_error != 0 {
             return Err(crate::strings::SUBSCRIBE_FAILED.into());
         }
         if let Some(wlan) = &events.wlan {
-            unsafe {
+            events.wlan_status = Some(unsafe {
                 WlanRegisterNotification(
                     wlan.0,
                     WLAN_NOTIFICATION_SOURCE_ACM,
@@ -308,8 +336,8 @@ impl NetworkEvents {
                     context,
                     ptr::null(),
                     ptr::null_mut(),
-                );
-            }
+                )
+            });
         }
         Ok(events)
     }
@@ -330,38 +358,32 @@ impl Drop for NetworkEvents {
 unsafe extern "system" fn interface_changed(
     context: *const c_void,
     _: *const MIB_IPINTERFACE_ROW,
-    _: MIB_NOTIFICATION_TYPE,
+    notification: MIB_NOTIFICATION_TYPE,
 ) {
     changed();
-    unsafe {
-        PostMessageW(context.cast_mut(), NETWORK_MESSAGE, 0, 0);
-    }
+    post_notification(context.cast_mut(), 1, notification as isize);
 }
 unsafe extern "system" fn address_changed(
     context: *const c_void,
     _: *const MIB_UNICASTIPADDRESS_ROW,
-    _: MIB_NOTIFICATION_TYPE,
+    notification: MIB_NOTIFICATION_TYPE,
 ) {
     changed();
-    unsafe {
-        PostMessageW(context.cast_mut(), NETWORK_MESSAGE, 0, 0);
-    }
+    post_notification(context.cast_mut(), 2, notification as isize);
 }
 unsafe extern "system" fn route_changed(
     context: *const c_void,
     _: *const MIB_IPFORWARD_ROW2,
-    _: MIB_NOTIFICATION_TYPE,
+    notification: MIB_NOTIFICATION_TYPE,
 ) {
     changed();
-    unsafe {
-        PostMessageW(context.cast_mut(), NETWORK_MESSAGE, 0, 0);
-    }
+    post_notification(context.cast_mut(), 3, notification as isize);
 }
-unsafe extern "system" fn wifi_changed(_: *mut L2_NOTIFICATION_DATA, context: *mut c_void) {
+unsafe extern "system" fn wifi_changed(data: *mut L2_NOTIFICATION_DATA, context: *mut c_void) {
     changed();
-    unsafe {
-        PostMessageW(context.cast(), NETWORK_MESSAGE, 0, 0);
-    }
+    // Copy only the numeric event code; the system owns the callback data.
+    let code = unsafe { data.as_ref() }.map_or(0, |event| event.NotificationCode);
+    post_notification(context.cast(), 4, code as isize);
 }
 
 #[cfg(test)]

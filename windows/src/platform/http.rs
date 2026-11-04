@@ -94,7 +94,47 @@ impl Http {
     }
 
     pub fn get(&self, host: Host, api: bool, path: &str) -> Result<Response, String> {
+        let generation = crate::http_log::generation();
+        if generation.is_none() {
+            return self.get_inner(host, api, path, Instant::now());
+        }
+        static REQUEST_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        let request_id = REQUEST_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let start = Instant::now();
+        let result = self.get_inner(host, api, path, start);
+        let outcome = match &result {
+            Ok(response) => format!(
+                "HTTP {}，响应 {} 字节，{}",
+                response.status,
+                response.body.len(),
+                response_kind(&response.body)
+            ),
+            Err(error) => format!("请求失败：{error}"),
+        };
+        // Query strings and response bodies can contain credentials and identifiers.
+        crate::http_log::record(
+            generation,
+            crate::http_log::Category::Http,
+            format!(
+                "请求 {request_id}：GET {}://{}:{}{} {} ({} ms)",
+                if host.secure() { "https" } else { "http" },
+                host.name(),
+                host.port(api),
+                safe_path(path),
+                outcome,
+                start.elapsed().as_millis()
+            ),
+        );
+        result
+    }
+
+    fn get_inner(
+        &self,
+        host: Host,
+        api: bool,
+        path: &str,
+        start: Instant,
+    ) -> Result<Response, String> {
         let connection = Handle::new(unsafe {
             WinHttpConnect(
                 self.session.0,
@@ -232,6 +272,48 @@ impl Http {
     }
 }
 
+// Only known static endpoint names are displayed. Redirect targets and all
+// query parameters can contain identifiers or credentials.
+fn response_kind(body: &[u8]) -> &'static str {
+    let prefix = body
+        .iter()
+        .copied()
+        .skip_while(u8::is_ascii_whitespace)
+        .take(32)
+        .collect::<Vec<_>>();
+    if prefix.is_empty() {
+        "空响应"
+    } else if prefix.starts_with(b"{") || prefix.starts_with(b"[") {
+        "JSON 格式"
+    } else if prefix.starts_with(b"<") {
+        "HTML 或 XML 格式"
+    } else if prefix
+        .iter()
+        .all(|byte| byte.is_ascii_graphic() || byte.is_ascii_whitespace())
+    {
+        "文本或 JSONP 格式"
+    } else {
+        "其他格式"
+    }
+}
+
+fn safe_path(path: &str) -> &'static str {
+    match path.split('?').next().unwrap_or("") {
+        "/" => "/",
+        "/a79.htm" => "/a79.htm",
+        "/drcom/chkstatus" => "/drcom/chkstatus",
+        "/drcom/login" => "/drcom/login",
+        "/eportal/portal/page/loadConfig" => "/eportal/portal/page/loadConfig",
+        "/eportal/portal/online_list" => "/eportal/portal/online_list",
+        "/eportal/portal/login" => "/eportal/portal/login",
+        "/eportal/portal/self" => "/eportal/portal/self",
+        "/Self/dashboard" => "/Self/dashboard",
+        "/Self/dashboard/getOnlineList" => "/Self/dashboard/getOnlineList",
+        "/Self/dashboard/tooffline" => "/Self/dashboard/tooffline",
+        _ => "/[已隐藏]",
+    }
+}
+
 fn set_option(handle: &Handle, option: u32, value: u32) -> Result<(), String> {
     if unsafe { WinHttpSetOption(handle.0, option, (&value as *const u32).cast(), 4) } == 0 {
         Err(last_error())
@@ -243,4 +325,23 @@ fn set_option(handle: &Handle, option: u32, value: u32) -> Result<(), String> {
 fn last_error() -> String {
     // Never include request paths, response bodies or credentials in diagnostics.
     strings::request_error(unsafe { windows_sys::Win32::Foundation::GetLastError() })
+}
+
+#[cfg(test)]
+mod log_tests {
+    use super::{response_kind, safe_path};
+    #[test]
+    fn request_paths_never_include_query_or_untrusted_redirect_paths() {
+        assert_eq!(safe_path("/drcom/login?upass=secret"), "/drcom/login");
+        assert_eq!(safe_path("/Self/private/secret?token=secret"), "/[已隐藏]");
+        assert_eq!(safe_path("/drcom/login%3Fpassword=secret"), "/[已隐藏]");
+    }
+
+    #[test]
+    fn response_summary_describes_only_format() {
+        assert_eq!(response_kind(b"  {\"password\":\"secret\"}"), "JSON 格式");
+        assert_eq!(response_kind(b"<html>private</html>"), "HTML 或 XML 格式");
+        assert_eq!(response_kind(&[0xff, 0x00]), "其他格式");
+        assert_eq!(response_kind(b""), "空响应");
+    }
 }

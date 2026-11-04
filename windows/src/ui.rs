@@ -57,6 +57,7 @@ const ID_APPEARANCE: usize = 112;
 const ID_MAINTENANCE: usize = 113;
 const ID_RESUME_MAINTENANCE: usize = 114;
 const ID_STARTUP: usize = 115;
+const ID_HTTP_LOG: usize = 116;
 const ID_SHOW: usize = 201;
 const ID_EXIT: usize = 202;
 const ID_TRAY_MAINTENANCE: usize = 203;
@@ -76,6 +77,7 @@ impl Drop for Mutex {
 // Windows dispatch (window creation, painting, message boxes and popup menus).
 thread_local! {
     static APP: RefCell<std::rc::Weak<RefCell<App>>> = const { RefCell::new(std::rc::Weak::new()) };
+    static LOG_NOTIFICATIONS: RefCell<crate::http_log::NotificationBatch> = RefCell::new(crate::http_log::NotificationBatch::default());
 }
 struct PendingPreferences {
     selected: Option<String>,
@@ -269,6 +271,20 @@ impl App {
         window.on_save_maintenance(move || post(host as _, UI_MESSAGE, ID_MAINTENANCE));
         window.on_resume_maintenance(move || post(host as _, UI_MESSAGE, ID_RESUME_MAINTENANCE));
         window.on_save_appearance(move || post(host as _, UI_MESSAGE, ID_APPEARANCE));
+        window.on_toggle_http_log(move || post(host as _, UI_MESSAGE, ID_HTTP_LOG));
+        let weak_log = window.as_weak();
+        window.on_refresh_http_log(move || {
+            if let Some(window) = weak_log.upgrade() {
+                refresh_http_log(&window);
+            }
+        });
+        let weak_log = window.as_weak();
+        window.on_clear_http_log(move || {
+            crate::http_log::clear();
+            if let Some(window) = weak_log.upgrade() {
+                refresh_http_log(&window);
+            }
+        });
         let weak = window.as_weak();
         window.on_open_about_link(move |index| {
             // Only the three compiled-in public project links can be launched.
@@ -471,6 +487,12 @@ impl App {
             menu.update_rows(tray_rows(self));
         }
         let Some(window) = &self.window else { return };
+        window.set_http_log_diagnostics(
+            self.events
+                .as_ref()
+                .map_or_else(String::new, |events| events.diagnostics())
+                .into(),
+        );
         window.set_startup_enabled(self.view.startup.as_ref().copied().unwrap_or(false));
         window.set_startup_error(
             self.view
@@ -582,6 +604,7 @@ impl App {
             set_target_items(window, &self.view.preferences.target_ssids);
             select_target(window, selected.as_deref());
             window.set_auto_login(self.view.preferences.auto_login);
+            window.set_http_log_enabled(self.view.preferences.http_log_enabled);
             let maintenance = &self.view.preferences.maintenance;
             window.set_check_interval(maintenance.check_interval_secs as i32);
             window.set_retry_initial(maintenance.retry_initial_secs as i32);
@@ -607,6 +630,12 @@ impl App {
             return;
         }
         match id {
+            ID_HTTP_LOG => {
+                let mut candidate = self.view.preferences.clone();
+                candidate.http_log_enabled = !candidate.http_log_enabled;
+                let selected = self.window.as_ref().and_then(selected_target);
+                self.save_preferences(candidate, selected, false);
+            }
             ID_TRAY_MAINTENANCE => {
                 let mut candidate = self.view.preferences.clone();
                 candidate.auto_login = !candidate.auto_login;
@@ -777,6 +806,7 @@ impl App {
     fn save_preferences(&mut self, candidate: Preferences, selected: Option<String>, editor: bool) {
         let appearance = candidate.appearance;
         let maintenance = candidate.maintenance;
+        let http_log_enabled = candidate.http_log_enabled;
         if !maintenance.valid() {
             self.render(false, true);
             self.report_error(strings::INVALID_MAINTENANCE.into());
@@ -786,6 +816,7 @@ impl App {
             Ok(mut candidate) => {
                 candidate.appearance = appearance;
                 candidate.maintenance = maintenance;
+                candidate.http_log_enabled = http_log_enabled;
                 candidate
             }
             Err(error) => {
@@ -805,6 +836,66 @@ impl App {
             }
             self.render(false, true);
         }
+    }
+}
+fn refresh_http_log(window: &MainWindow) {
+    let filter = window.get_http_log_filter();
+    let rows = crate::http_log::entries()
+        .into_iter()
+        .filter(|entry| {
+            filter == 0
+                || matches!(
+                    (filter, entry.category),
+                    (1, crate::http_log::Category::Http)
+                        | (2, crate::http_log::Category::Network)
+                        | (3, crate::http_log::Category::Refresh)
+                )
+        })
+        .rev()
+        .map(|entry| {
+            let operation = entry
+                .operation
+                .map_or_else(String::new, |id| format!(" [操作 {id}]"));
+            format!("{}{operation}  {}", log_time(entry.time), entry.message)
+        })
+        .map(slint::SharedString::from)
+        .collect::<Vec<_>>();
+    window.set_http_log_items(ModelRc::new(VecModel::from(rows)));
+    window.set_http_log_text("".into());
+}
+fn log_time(time: std::time::SystemTime) -> String {
+    use windows_sys::Win32::{
+        Foundation::{FILETIME, SYSTEMTIME},
+        Storage::FileSystem::FileTimeToLocalFileTime,
+        System::Time::FileTimeToSystemTime,
+    };
+    let ticks = time
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+        .saturating_add(11_644_473_600)
+        .saturating_mul(10_000_000);
+    let utc = FILETIME {
+        dwLowDateTime: ticks as u32,
+        dwHighDateTime: (ticks >> 32) as u32,
+    };
+    let mut local = FILETIME::default();
+    let mut calendar = SYSTEMTIME::default();
+    if unsafe {
+        FileTimeToLocalFileTime(&utc, &mut local) != 0
+            && FileTimeToSystemTime(&local, &mut calendar) != 0
+    } {
+        format!(
+            "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+            calendar.wYear,
+            calendar.wMonth,
+            calendar.wDay,
+            calendar.wHour,
+            calendar.wMinute,
+            calendar.wSecond
+        )
+    } else {
+        "时间不可用".into()
     }
 }
 fn current_wifi(network: &Network) -> Option<&str> {
@@ -992,10 +1083,26 @@ unsafe extern "system" fn host_proc(
 ) -> LRESULT {
     match message {
         RESULT_MESSAGE => enqueue(|app| app.borrow_mut().result()),
-        NETWORK_MESSAGE => unsafe {
-            SetTimer(window, DEBOUNCE_TIMER, NETWORK_REFRESH_DEBOUNCE_MS, None);
-        },
+        NETWORK_MESSAGE => {
+            LOG_NOTIFICATIONS.with(|batch| {
+                batch
+                    .borrow_mut()
+                    .add(crate::http_log::generation(), wparam, lparam)
+            });
+            unsafe {
+                SetTimer(window, DEBOUNCE_TIMER, NETWORK_REFRESH_DEBOUNCE_MS, None);
+            }
+        }
         WM_TIMER if wparam == DEBOUNCE_TIMER => {
+            LOG_NOTIFICATIONS.with(|batch| batch.borrow_mut().flush());
+            let dropped = crate::platform::network::take_dropped_notifications();
+            if dropped > 0 {
+                crate::http_log::record(
+                    crate::http_log::generation(),
+                    crate::http_log::Category::Network,
+                    format!("网络通知投递失败：{dropped} 次（自上次检查以来）"),
+                );
+            }
             unsafe {
                 KillTimer(window, DEBOUNCE_TIMER);
             }

@@ -226,6 +226,7 @@ export component SettingsPage inherits VerticalLayout {
 
 export component AboutPage inherits VerticalLayout {
     callback open-link(int);
+    callback version-clicked();
     spacing: 16px;
     Text { text: PreferencesLabels.about; color: AppTheme.text; font-size: 22px; font-weight: 700; }
     about-scroll := ScrollView {
@@ -251,7 +252,7 @@ export component AboutPage inherits VerticalLayout {
                 wrap: word-wrap;
             }
             OptionCard {
-                InfoRow { title: PreferencesLabels.version-label; value: PreferencesLabels.version; }
+                OptionRow { title: PreferencesLabels.version-label; summary: PreferencesLabels.version; clicked => { root.version-clicked(); } }
                 InfoRow { title: PreferencesLabels.identifier-label; value: PreferencesLabels.identifier; }
                 InfoRow { title: PreferencesLabels.license-label; value: PreferencesLabels.license; separator: false; }
             }

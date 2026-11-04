@@ -40,6 +40,31 @@ fn headless() {
     .unwrap();
 }
 
+#[test]
+fn log_page_unlocks_after_five_clicks_and_selects_entries() {
+    headless();
+    let (app, _, _) = fixture();
+    let window = app.window.as_ref().unwrap();
+    let toggles = Rc::new(std::cell::Cell::new(0));
+    let count = toggles.clone();
+    window.on_toggle_http_log(move || count.set(count.get() + 1));
+    click(window, strings::ABOUT_PAGE);
+    for _ in 0..4 {
+        click(window, strings::VERSION_LABEL);
+    }
+    assert_eq!(toggles.get(), 0);
+    click(window, strings::VERSION_LABEL);
+    assert_eq!(toggles.get(), 1);
+    window.set_http_log_enabled(true);
+    let entry: slint::SharedString = "测试请求 HTTP 200".into();
+    window.set_http_log_items(ModelRc::new(VecModel::from(vec![entry.clone()])));
+    click(window, "HTTP 日志");
+    click(window, entry.as_str());
+    assert_eq!(window.get_http_log_text(), entry);
+    click(window, "网络通知");
+    assert_eq!(window.get_http_log_filter(), 2);
+}
+
 fn sample_devices() -> Vec<AccountDevice> {
     vec![
         AccountDevice {
@@ -1241,8 +1266,13 @@ fn render_all_pages_in_light_dark_and_high_contrast_at_compact_size() {
         error: None,
         ..Default::default()
     };
+    app.view.preferences.http_log_enabled = true;
     app.render(true, true);
     let window = app.window.as_ref().unwrap();
+    let example: slint::SharedString =
+        "2026-01-01 12:00:00  GET https://wlgn.bjut.edu.cn:443/ HTTP 200 (32 ms)".into();
+    window.set_http_log_items(ModelRc::new(VecModel::from(vec![example.clone()])));
+    window.set_http_log_text(example);
     for (mode, dark, contrast) in [
         ("light", false, false),
         ("dark", true, false),
@@ -1256,6 +1286,7 @@ fn render_all_pages_in_light_dark_and_high_contrast_at_compact_size() {
             ("maintenance", strings::MAINTENANCE_PAGE),
             ("settings", strings::SETTINGS_PAGE),
             ("about", strings::ABOUT_PAGE),
+            ("http-log", "HTTP 日志"),
         ] {
             click(window, label);
             if page == "maintenance" {
@@ -1297,6 +1328,17 @@ fn render_all_pages_in_light_dark_and_high_contrast_at_compact_size() {
                 );
             }
             snapshot_at_size(window, &format!("{mode}-{page}-default"), 860.0, 560.0);
+            if page == "http-log" {
+                let sample = window.get_http_log_items();
+                window.set_http_log_items(ModelRc::default());
+                window.set_http_log_text("".into());
+                snapshot(window, &format!("{mode}-http-log-empty"));
+                window.set_http_log_items(sample);
+                window.set_http_log_text(
+                    "请求失败：连接超时。网络通知订阅失败，请检查网络后重试。".into(),
+                );
+                snapshot(window, &format!("{mode}-http-log-error"));
+            }
             if page == "settings" {
                 window.set_startup_error(strings::STARTUP_READ_FAILED.into());
                 snapshot(window, &format!("{mode}-settings-startup-error"));
