@@ -990,12 +990,6 @@ unsafe extern "system" fn host_proc(
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
-    if (message == WM_DRAWITEM || message == WM_MEASUREITEM)
-        && lparam != 0
-        && let Some(result) = theme::menu_message(message, lparam)
-    {
-        return result;
-    }
     match message {
         RESULT_MESSAGE => enqueue(|app| app.borrow_mut().result()),
         NETWORK_MESSAGE => unsafe {
@@ -1163,6 +1157,7 @@ fn show_tray_menu() {
     }
 }
 
+#[cfg(test)]
 fn scale(value: i32, dpi: u32) -> i32 {
     ((value as i64 * dpi as i64 + 48) / 96) as i32
 }
