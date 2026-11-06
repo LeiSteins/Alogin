@@ -256,6 +256,7 @@ fn post_notification(window: HWND, kind: usize, code: isize) {
     }
 }
 
+/// Diagnostic notification counter; only physical snapshots determine validity.
 pub fn revision() -> u64 {
     REVISION.load(std::sync::atomic::Ordering::SeqCst)
 }

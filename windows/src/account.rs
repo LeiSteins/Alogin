@@ -31,23 +31,19 @@ pub enum LogoutResult {
 
 impl DeviceSession {
     pub fn logout(&self, device: &AccountDevice) -> Result<LogoutResult, String> {
-        // Idle notifications with an unchanged snapshot do not expire this
-        // cookie session. Guard the entire write against new notifications.
-        let revision = crate::platform::network::revision();
+        // Notifications alone do not expire the cookie session or cancel a
+        // write. Recheck the full physical snapshot at each protocol boundary.
         logout_with(&self.http, &self.username, &self.devices, device, &|| {
-            crate::platform::network::revision() == revision
-                && crate::platform::network::snapshot() == self.network
+            crate::platform::network::snapshot() == self.network
         })
     }
 }
 
 pub fn load(network: &Network) -> (AccountInfo, Option<DeviceSession>) {
-    let revision = crate::platform::network::revision();
     match Http::new() {
         Ok(http) => {
             let info = load_with(&http, network, &|| {
-                crate::platform::network::revision() == revision
-                    && crate::platform::network::snapshot() == *network
+                crate::platform::network::snapshot() == *network
             });
             let session =
                 info.username
@@ -645,6 +641,28 @@ mod tests {
             Ok(LogoutResult::Indeterminate)
         );
         assert_eq!(client.1.borrow().len(), 2);
+    }
+
+    #[test]
+    fn snapshot_changes_cancel_logout_before_or_after_submission_without_replaying() {
+        let device = device();
+        for (allowed_checks, expected_requests) in [(0, 0), (1, 1), (2, 1), (3, 2)] {
+            let client = fake(vec![identity(), response(200, r#"{"success":true}"#, "")]);
+            let checks = Cell::new(0);
+            let result = logout_with(
+                &client,
+                "student",
+                std::slice::from_ref(&device),
+                &device,
+                &|| {
+                    let count = checks.get();
+                    checks.set(count + 1);
+                    count < allowed_checks
+                },
+            );
+            assert_eq!(result, Err(strings::NETWORK_CHANGED.into()));
+            assert_eq!(client.1.borrow().len(), expected_requests);
+        }
     }
 
     #[test]

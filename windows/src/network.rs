@@ -31,11 +31,8 @@ impl Campus {
         username: &str,
         password: &str,
         network: &Network,
-        revision: u64,
     ) -> Result<LoginResult, String> {
-        login_with(&self.http, username, password, &|| {
-            crate::platform::network::revision() == revision && snapshot() == *network
-        })
+        login_with(&self.http, username, password, &|| snapshot() == *network)
     }
 
     pub fn status(&self, network: &Network) -> Online {

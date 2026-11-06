@@ -165,7 +165,6 @@ trait Services {
         username: &str,
         password: &str,
         network: &Network,
-        revision: u64,
     ) -> Result<LoginResult, String>;
     fn account(&self, network: &Network) -> (AccountInfo, Option<crate::account::DeviceSession>);
 }
@@ -189,9 +188,8 @@ impl Services for LiveServices {
         username: &str,
         password: &str,
         network: &Network,
-        revision: u64,
     ) -> Result<LoginResult, String> {
-        Campus::new()?.login(username, password, network, revision)
+        Campus::new()?.login(username, password, network)
     }
     fn account(&self, network: &Network) -> (AccountInfo, Option<crate::account::DeviceSession>) {
         crate::account::load(network)
@@ -210,6 +208,7 @@ struct Session<S = LiveServices> {
     maintenance: Maintenance,
     maintenance_detail: String,
     services: S,
+    // Notification revisions are diagnostic context, not session validity.
     revision: u64,
     network_refresh_pending: bool,
 }
@@ -506,28 +505,20 @@ impl<S: Services> Session<S> {
         if !automatic {
             self.maintenance.restart(Instant::now());
         }
-        let expected_revision = self.revision;
         let revision = self.services.revision();
         let network = self.services.snapshot();
         self.online = Online::Unknown;
         self.account_info = AccountInfo::default();
         self.device_session = None;
-        let current_revision = self.services.revision();
         if expected.as_ref().is_some_and(|previous| {
             previous != &network
-                || automatic && revision != expected_revision
                 || automatic && !self.settings.preferences.allows_auto_login(&network)
-        }) || current_revision != revision
-        {
+        }) {
             crate::http_log::network_cancelled(
                 "登录前校验",
                 expected.as_ref().unwrap_or(&self.network) != &network,
-                if automatic {
-                    expected_revision
-                } else {
-                    revision
-                },
-                current_revision,
+                self.revision,
+                revision,
             );
             if !self.adopt_network() {
                 self.invalidate_session();
@@ -551,10 +542,7 @@ impl<S: Services> Session<S> {
                 return Err(error);
             }
         };
-        let result = match self
-            .services
-            .login(username, &password, &self.network, self.revision)
-        {
+        let result = match self.services.login(username, &password, &self.network) {
             Ok(result) => result,
             Err(error) => {
                 self.maintenance
@@ -716,7 +704,7 @@ impl<S: Services> Session<S> {
     fn ensure_current(&mut self, stage: &'static str) -> Result<(), String> {
         let current = self.services.snapshot();
         let revision = self.services.revision();
-        if current != self.network || revision != self.revision {
+        if current != self.network {
             crate::http_log::network_cancelled(
                 stage,
                 current != self.network,
@@ -759,8 +747,12 @@ mod tests {
         account_count: Cell<u32>,
         invalid_password: Cell<bool>,
         transient_failure: Cell<bool>,
-        change_on_status: Cell<bool>,
-        change_on_login: Cell<bool>,
+        notify_on_status: Cell<bool>,
+        notify_on_login: Cell<bool>,
+        notify_on_account: Cell<bool>,
+        next_status_network: RefCell<Option<Network>>,
+        next_login_network: RefCell<Option<Network>>,
+        next_account_network: RefCell<Option<Network>>,
     }
     impl Services for MockServices {
         fn set_startup(&self, _: bool) -> Result<(), String> {
@@ -778,15 +770,21 @@ mod tests {
         }
         fn status(&self, _: &Network) -> Result<Online, String> {
             self.status_count.set(self.status_count.get() + 1);
-            if self.change_on_status.replace(false) {
+            if self.notify_on_status.replace(false) {
                 self.revision.set(self.revision.get() + 1);
+            }
+            if let Some(network) = self.next_status_network.take() {
+                *self.network.borrow_mut() = network;
             }
             Ok(self.online.get())
         }
-        fn login(&self, _: &str, _: &str, _: &Network, _: u64) -> Result<LoginResult, String> {
+        fn login(&self, _: &str, _: &str, _: &Network) -> Result<LoginResult, String> {
             self.login_count.set(self.login_count.get() + 1);
-            if self.change_on_login.replace(false) {
+            if self.notify_on_login.replace(false) {
                 self.revision.set(self.revision.get() + 1);
+            }
+            if let Some(network) = self.next_login_network.take() {
+                *self.network.borrow_mut() = network;
             }
             if self.invalid_password.get() {
                 return Ok(LoginResult::Failure("ldap auth error".into()));
@@ -798,6 +796,12 @@ mod tests {
         }
         fn account(&self, _: &Network) -> (AccountInfo, Option<crate::account::DeviceSession>) {
             self.account_count.set(self.account_count.get() + 1);
+            if self.notify_on_account.replace(false) {
+                self.revision.set(self.revision.get() + 1);
+            }
+            if let Some(network) = self.next_account_network.take() {
+                *self.network.borrow_mut() = network;
+            }
             (
                 AccountInfo {
                     username: Some("test-student".into()),
@@ -881,8 +885,12 @@ mod tests {
                     account_count: Cell::new(0),
                     invalid_password: Cell::new(false),
                     transient_failure: Cell::new(false),
-                    change_on_status: Cell::new(false),
-                    change_on_login: Cell::new(false),
+                    notify_on_status: Cell::new(false),
+                    notify_on_login: Cell::new(false),
+                    notify_on_account: Cell::new(false),
+                    next_status_network: RefCell::new(None),
+                    next_login_network: RefCell::new(None),
+                    next_account_network: RefCell::new(None),
                 },
             },
             directory,
@@ -995,11 +1003,14 @@ mod tests {
     }
 
     #[test]
-    fn notification_during_a_request_discards_the_response_and_refreshes_afterwards() {
+    fn snapshot_change_during_a_request_discards_the_response_and_refreshes_afterwards() {
         let (mut session, _directory) = maintenance_fixture();
         session.settings.preferences.auto_login = false;
         session.services.online.set(Online::Yes);
-        session.services.change_on_status.set(true);
+        session.services.notify_on_status.set(true);
+        let mut changed = session.network.clone();
+        changed.interface += 1;
+        session.services.next_status_network.replace(Some(changed));
         assert_eq!(session.refresh().unwrap_err(), strings::NETWORK_CHANGED);
         assert_eq!(session.online, Online::Unknown);
         assert_eq!(session.services.account_count.get(), 0);
@@ -1150,21 +1161,26 @@ mod tests {
             "登录请求失败后校验",
             "登录前校验",
             "设备下线前校验",
+            "账号与设备读取结果校验",
         ] {
             let (mut session, _directory) = maintenance_fixture();
             let _operation = Operation::begin();
-            let snapshot_changed = stage == "登录前校验";
+            let mut changed = session.network.clone();
+            changed.interface += 1;
             let result = match stage {
                 "刷新认证状态：检测完成" => {
-                    session.services.change_on_status.set(true);
+                    session.services.notify_on_status.set(true);
+                    session.services.next_status_network.replace(Some(changed));
                     session.refresh()
                 }
                 "登录维持：检测完成" => {
-                    session.services.change_on_status.set(true);
+                    session.services.notify_on_status.set(true);
+                    session.services.next_status_network.replace(Some(changed));
                     session.maintain()
                 }
                 "登录结果校验" | "登录请求失败后校验" => {
-                    session.services.change_on_login.set(true);
+                    session.services.notify_on_login.set(true);
+                    session.services.next_login_network.replace(Some(changed));
                     session
                         .services
                         .transient_failure
@@ -1177,7 +1193,14 @@ mod tests {
                 }
                 "设备下线前校验" => {
                     session.services.revision.set(1);
+                    *session.services.network.borrow_mut() = changed;
                     session.ensure_current(stage).map(|()| String::new())
+                }
+                "账号与设备读取结果校验" => {
+                    session.online = Online::Yes;
+                    session.services.notify_on_account.set(true);
+                    session.services.next_account_network.replace(Some(changed));
+                    session.load_account().map(|()| String::new())
                 }
                 _ => unreachable!(),
             };
@@ -1192,10 +1215,10 @@ mod tests {
             assert_eq!(entry.category, Category::Network);
             assert!(entry.operation.is_some());
             assert!(entry.message.contains(stage));
-            assert!(entry.message.contains(if snapshot_changed {
+            assert!(entry.message.contains(if stage == "登录前校验" {
                 "网络快照变化；通知代次 0 → 0"
             } else {
-                "网络快照未变化；通知代次 0 → 1"
+                "网络快照变化；通知代次 0 → 1"
             }));
             for sensitive in [
                 "test-student",
@@ -1206,7 +1229,10 @@ mod tests {
                 assert!(!entry.message.contains(sensitive));
             }
             assert_eq!(session.online, Online::Unknown);
-            assert_eq!(session.services.account_count.get(), 0);
+            assert_eq!(
+                session.services.account_count.get(),
+                u32::from(stage == "账号与设备读取结果校验")
+            );
         }
         // Idle duplicate notifications and successful checks are not cancellations.
         let (mut session, _directory) = maintenance_fixture();
@@ -1223,17 +1249,99 @@ mod tests {
     }
 
     #[test]
-    fn network_revision_changes_discard_offline_probe_and_successful_login_even_with_same_snapshot()
-    {
+    fn notifications_during_probe_login_and_account_load_keep_results_and_skip_followup_refresh() {
+        use crate::http_log::{self, Operation};
+        let _lock = http_log::TEST_LOCK.lock().unwrap();
+        http_log::set_enabled(true);
+        let _operation = Operation::begin();
         let (mut session, _directory) = maintenance_fixture();
-        session.services.change_on_status.set(true);
-        assert_eq!(session.maintain().unwrap_err(), strings::NETWORK_CHANGED);
-        assert_eq!(session.services.login_count.get(), 0);
-        session.services.change_on_login.set(true);
-        assert_eq!(session.maintain().unwrap_err(), strings::NETWORK_CHANGED);
-        assert_eq!(session.online, Online::Unknown);
-        assert!(session.account_info.username.is_none());
-        assert_eq!(session.services.account_count.get(), 0);
+        session.services.notify_on_status.set(true);
+        session.services.notify_on_login.set(true);
+        session.services.notify_on_account.set(true);
+        assert_eq!(session.maintain().unwrap(), strings::AUTHENTICATED);
+        assert_eq!(session.online, Online::Yes);
+        assert_eq!(
+            session.account_info.username.as_deref(),
+            Some("test-student")
+        );
+        assert_eq!(session.services.revision.get(), 3);
+        assert_eq!(session.services.status_count.get(), 1);
+        assert_eq!(session.services.login_count.get(), 1);
+        assert_eq!(session.services.account_count.get(), 1);
+        let deadline = session.maintenance.deadline;
+        let generation = session.device_generation;
+        let (commands, receiver) = mpsc::sync_channel(8);
+        commands.send(Command::NetworkChanged).unwrap();
+        commands.send(Command::Shutdown).unwrap();
+        session.run(&receiver, |_| {
+            panic!("unchanged notification published a view")
+        });
+        assert_eq!(session.maintenance.deadline, deadline);
+        assert_eq!(session.device_generation, generation);
+        assert_eq!(session.services.status_count.get(), 1);
+        assert_eq!(session.services.login_count.get(), 1);
+        assert_eq!(session.services.account_count.get(), 1);
+        assert!(
+            http_log::operation_entries()
+                .iter()
+                .all(|entry| { !entry.message.contains("因网络状态变化取消操作") })
+        );
+        http_log::set_enabled(false);
+    }
+
+    #[test]
+    fn notifications_allow_manual_refresh_and_login_but_do_not_hide_login_failures() {
+        let (mut session, _directory) = maintenance_fixture();
+        session.services.online.set(Online::Yes);
+        session.services.notify_on_status.set(true);
+        session.services.notify_on_account.set(true);
+        assert_eq!(session.refresh().unwrap(), strings::LOGGED_IN);
+        session.services.notify_on_login.set(true);
+        assert_eq!(session.login(None, false).unwrap(), strings::AUTHENTICATED);
+        session.services.notify_on_login.set(true);
+        session.services.transient_failure.set(true);
+        assert_eq!(
+            session.login(None, false).unwrap_err(),
+            strings::REQUEST_TIMEOUT
+        );
+        session.services.transient_failure.set(false);
+        session.services.invalid_password.set(true);
+        session.services.notify_on_login.set(true);
+        assert_eq!(
+            session.login(None, false).unwrap_err(),
+            strings::INVALID_PASSWORD
+        );
+        assert_eq!(
+            session.maintenance.paused,
+            Some(PauseReason::InvalidPassword)
+        );
+    }
+
+    #[test]
+    fn full_snapshot_changes_still_cancel_without_a_notification() {
+        for field in ["interface", "kind", "ssid", "ipv4", "disconnect"] {
+            let (mut session, _directory) = maintenance_fixture();
+            let mut changed = session.network.clone();
+            match field {
+                "interface" => changed.interface += 1,
+                "kind" => changed.kind = NetworkKind::Ethernet,
+                "ssid" => changed.ssid = Some("another-wifi".into()),
+                "ipv4" => changed.ipv4 = "10.1.2.4".into(),
+                "disconnect" => changed = Network::default(),
+                _ => unreachable!(),
+            }
+            session.services.next_login_network.replace(Some(changed));
+            assert_eq!(
+                session.login(None, false).unwrap_err(),
+                strings::NETWORK_CHANGED,
+                "{field}"
+            );
+            assert_eq!(session.online, Online::Unknown);
+            assert!(session.account_info.username.is_none());
+            assert!(session.network_refresh_pending);
+            assert_eq!(session.services.revision.get(), 0);
+            assert_eq!(session.services.account_count.get(), 0);
+        }
     }
 
     #[test]
