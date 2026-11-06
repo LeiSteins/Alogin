@@ -453,7 +453,7 @@ impl<S: Services> Session<S> {
             .services
             .status(&self.network)
             .unwrap_or(Online::Unknown);
-        self.ensure_current()?;
+        self.ensure_current("登录维持：检测完成")?;
         let now = Instant::now();
         self.maintenance
             .observed(observed, now, &self.settings.preferences.maintenance);
@@ -512,12 +512,23 @@ impl<S: Services> Session<S> {
         self.online = Online::Unknown;
         self.account_info = AccountInfo::default();
         self.device_session = None;
+        let current_revision = self.services.revision();
         if expected.as_ref().is_some_and(|previous| {
             previous != &network
                 || automatic && revision != expected_revision
                 || automatic && !self.settings.preferences.allows_auto_login(&network)
-        }) || self.services.revision() != revision
+        }) || current_revision != revision
         {
+            crate::http_log::network_cancelled(
+                "登录前校验",
+                expected.as_ref().unwrap_or(&self.network) != &network,
+                if automatic {
+                    expected_revision
+                } else {
+                    revision
+                },
+                current_revision,
+            );
             if !self.adopt_network() {
                 self.invalidate_session();
             }
@@ -548,11 +559,11 @@ impl<S: Services> Session<S> {
             Err(error) => {
                 self.maintenance
                     .login_failed(Instant::now(), &self.settings.preferences.maintenance);
-                self.ensure_current()?;
+                self.ensure_current("登录请求失败后校验")?;
                 return Err(error);
             }
         };
-        self.ensure_current()?;
+        self.ensure_current("登录结果校验")?;
         if result.invalid_credentials() {
             self.maintenance.pause(PauseReason::InvalidPassword);
             self.maintenance.observed(
@@ -606,7 +617,7 @@ impl<S: Services> Session<S> {
         if usable_ipv4(&self.network.ipv4) {
             self.online = self.services.status(&self.network)?;
         }
-        self.ensure_current()?;
+        self.ensure_current("刷新认证状态：检测完成")?;
         self.load_account()?;
         if self.eligible() {
             self.maintenance.observed(
@@ -642,7 +653,7 @@ impl<S: Services> Session<S> {
     }
 
     fn load_account(&mut self) -> Result<(), String> {
-        self.ensure_current()?;
+        self.ensure_current("账号与设备读取前校验")?;
         self.device_generation = self.device_generation.wrapping_add(1);
         let (info, session) = if self.online == Online::Yes {
             self.services.account(&self.network)
@@ -651,11 +662,11 @@ impl<S: Services> Session<S> {
         };
         self.account_info = info;
         self.device_session = session;
-        self.ensure_current()
+        self.ensure_current("账号与设备读取结果校验")
     }
 
     fn logout_device(&mut self, request: DeviceLogoutRequest) -> Result<String, String> {
-        self.ensure_current()?;
+        self.ensure_current("设备下线前校验")?;
         if !request.matches(
             self.device_generation,
             &self.network,
@@ -679,7 +690,7 @@ impl<S: Services> Session<S> {
             .as_ref()
             .ok_or(strings::DEVICE_STALE)?
             .logout(&request.device);
-        self.ensure_current()?;
+        self.ensure_current("设备下线结果校验")?;
         match result {
             Ok(crate::account::LogoutResult::Failure) => {
                 self.maintenance.paused = previous_pause;
@@ -702,9 +713,16 @@ impl<S: Services> Session<S> {
         }
     }
 
-    fn ensure_current(&mut self) -> Result<(), String> {
+    fn ensure_current(&mut self, stage: &'static str) -> Result<(), String> {
         let current = self.services.snapshot();
-        if current != self.network || self.services.revision() != self.revision {
+        let revision = self.services.revision();
+        if current != self.network || revision != self.revision {
+            crate::http_log::network_cancelled(
+                stage,
+                current != self.network,
+                self.revision,
+                revision,
+            );
             if !self.adopt_network() {
                 self.invalidate_session();
             }
@@ -1118,6 +1136,90 @@ mod tests {
             .unwrap();
         session.maintain().unwrap();
         assert_eq!(session.services.login_count.get(), 3);
+    }
+
+    #[test]
+    fn network_cancellations_log_stage_cause_and_original_operation() {
+        use crate::http_log::{self, Category, Operation};
+        let _lock = http_log::TEST_LOCK.lock().unwrap();
+        http_log::set_enabled(true);
+        for stage in [
+            "刷新认证状态：检测完成",
+            "登录维持：检测完成",
+            "登录结果校验",
+            "登录请求失败后校验",
+            "登录前校验",
+            "设备下线前校验",
+        ] {
+            let (mut session, _directory) = maintenance_fixture();
+            let _operation = Operation::begin();
+            let snapshot_changed = stage == "登录前校验";
+            let result = match stage {
+                "刷新认证状态：检测完成" => {
+                    session.services.change_on_status.set(true);
+                    session.refresh()
+                }
+                "登录维持：检测完成" => {
+                    session.services.change_on_status.set(true);
+                    session.maintain()
+                }
+                "登录结果校验" | "登录请求失败后校验" => {
+                    session.services.change_on_login.set(true);
+                    session
+                        .services
+                        .transient_failure
+                        .set(stage == "登录请求失败后校验");
+                    session.login(None, false)
+                }
+                "登录前校验" => {
+                    session.services.network.borrow_mut().interface += 1;
+                    session.login(Some(session.network.clone()), true)
+                }
+                "设备下线前校验" => {
+                    session.services.revision.set(1);
+                    session.ensure_current(stage).map(|()| String::new())
+                }
+                _ => unreachable!(),
+            };
+            assert_eq!(result.unwrap_err(), strings::NETWORK_CHANGED);
+            let entries = http_log::operation_entries();
+            let cancellations: Vec<_> = entries
+                .iter()
+                .filter(|entry| entry.message.contains("因网络状态变化取消操作"))
+                .collect();
+            assert_eq!(cancellations.len(), 1, "{stage}");
+            let entry = cancellations[0];
+            assert_eq!(entry.category, Category::Network);
+            assert!(entry.operation.is_some());
+            assert!(entry.message.contains(stage));
+            assert!(entry.message.contains(if snapshot_changed {
+                "网络快照变化；通知代次 0 → 0"
+            } else {
+                "网络快照未变化；通知代次 0 → 1"
+            }));
+            for sensitive in [
+                "test-student",
+                "synthetic-test-password",
+                "10.1.2.3",
+                "bjut_wifi",
+            ] {
+                assert!(!entry.message.contains(sensitive));
+            }
+            assert_eq!(session.online, Online::Unknown);
+            assert_eq!(session.services.account_count.get(), 0);
+        }
+        // Idle duplicate notifications and successful checks are not cancellations.
+        let (mut session, _directory) = maintenance_fixture();
+        let _operation = Operation::begin();
+        session.services.revision.set(1);
+        session.network_changed().unwrap();
+        session.ensure_current("账号与设备读取前校验").unwrap();
+        assert!(
+            http_log::operation_entries()
+                .iter()
+                .all(|entry| { !entry.message.contains("因网络状态变化取消操作") })
+        );
+        http_log::set_enabled(false);
     }
 
     #[test]

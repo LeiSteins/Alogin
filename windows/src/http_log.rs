@@ -47,20 +47,65 @@ impl NotificationBatch {
     }
 }
 
-thread_local! { static OPERATION: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) }; }
+#[derive(Clone, Copy)]
+struct OperationContext {
+    id: u64,
+    generation: Option<u64>,
+}
+
+thread_local! { static OPERATION: std::cell::Cell<Option<OperationContext>> = const { std::cell::Cell::new(None) }; }
 static NEXT_OPERATION: AtomicU64 = AtomicU64::new(1);
 
-pub struct Operation(Option<u64>);
+pub struct Operation(Option<OperationContext>);
 impl Operation {
     pub fn begin() -> Self {
         let id = NEXT_OPERATION.fetch_add(1, Ordering::Relaxed);
-        Self(OPERATION.with(|current| current.replace(Some(id))))
+        let context = OperationContext {
+            id,
+            generation: generation(),
+        };
+        Self(OPERATION.with(|current| current.replace(Some(context))))
     }
 }
 impl Drop for Operation {
     fn drop(&mut self) {
         OPERATION.with(|current| current.set(self.0));
     }
+}
+
+pub fn network_cancelled(
+    stage: &'static str,
+    snapshot_changed: bool,
+    previous_revision: u64,
+    current_revision: u64,
+) {
+    // Keep cancellation tied to the original operation, including when the log
+    // was cleared, disabled or enabled while its HTTP request was in flight.
+    let generation = OPERATION.with(|current| current.get().and_then(|op| op.generation));
+    record(
+        generation,
+        Category::Network,
+        format!(
+            "因网络状态变化取消操作：{stage}；网络快照{}；通知代次 {previous_revision} → {current_revision}；停止后续步骤，丢弃本次结果（已发送请求不代表服务端已撤销）",
+            if snapshot_changed {
+                "变化"
+            } else {
+                "未变化"
+            },
+        ),
+    );
+}
+
+#[cfg(test)]
+pub static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+#[cfg(test)]
+pub fn operation_entries() -> Vec<Entry> {
+    let id = OPERATION.with(|current| current.get().map(|op| op.id));
+    entries()
+        .into_iter()
+        .filter(|entry| entry.operation == id)
+        .collect()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -131,7 +176,7 @@ pub fn record(generation: Option<u64>, category: Category, message: String) {
     }
     state.entries.push_back(Entry {
         category,
-        operation: OPERATION.with(std::cell::Cell::get),
+        operation: OPERATION.with(|current| current.get().map(|op| op.id)),
         time: SystemTime::now(),
         message,
     });
@@ -157,6 +202,7 @@ mod tests {
 
     #[test]
     fn clearing_and_disabling_discard_in_flight_entries_and_bound_storage() {
+        let _lock = TEST_LOCK.lock().unwrap();
         set_enabled(true);
         let old = generation();
         clear();
@@ -176,5 +222,27 @@ mod tests {
         set_enabled(false);
         record(current, Category::Http, "stale".into());
         assert!(entries().is_empty());
+    }
+
+    #[test]
+    fn cancellation_logs_do_not_cross_clear_disable_or_enable_boundaries() {
+        let _lock = TEST_LOCK.lock().unwrap();
+        for boundary in ["clear", "disable", "reenable", "enable"] {
+            set_enabled(boundary != "enable");
+            let _operation = Operation::begin();
+            match boundary {
+                "clear" => clear(),
+                "disable" => set_enabled(false),
+                "reenable" => {
+                    set_enabled(false);
+                    set_enabled(true);
+                }
+                "enable" => set_enabled(true),
+                _ => unreachable!(),
+            }
+            network_cancelled("登录结果校验", false, 7, 8);
+            assert!(operation_entries().is_empty(), "{boundary}");
+        }
+        set_enabled(false);
     }
 }
