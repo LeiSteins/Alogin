@@ -399,7 +399,7 @@ export component MainWindow inherits Window {
                         content-height: max(self.visible-height, root.home-card-height);
                         home-cards := Rectangle {
                             private property <bool> stacked: root.show-account && self.width < 620px;
-                            private property <length> card-width: min(600px, max(250px,
+                            private property <length> card-width: min(720px, max(250px,
                                 root.show-account && !self.stacked ? (self.width - 20px) / 2 : self.width));
                             x: 0px;
                             y: 0px;

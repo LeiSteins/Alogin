@@ -1478,9 +1478,10 @@ fn render_all_pages_in_light_dark_and_high_contrast_at_compact_size() {
             if page == "home" {
                 assert_eq!(assert_home_card_layout(window, false), 312.0);
                 for (name, width, stacked, card_width) in [
-                    ("wrap-below-boundary", 835.0, true, 600.0),
+                    ("wrap-below-boundary", 835.0, true, 619.0),
                     ("wrap-at-boundary", 836.0, false, 300.0),
-                    ("maximum-width", 1600.0, false, 600.0),
+                    ("growing-width", 1600.0, false, 682.0),
+                    ("maximum-width", 1800.0, false, 720.0),
                 ] {
                     snapshot_at_size(window, &format!("{mode}-home-{name}"), width, 560.0);
                     assert_eq!(assert_home_card_layout(window, stacked), card_width);
@@ -1556,7 +1557,7 @@ fn assert_home_card_layout(window: &MainWindow, stacked: bool) -> f32 {
     let content = find("MainWindow::home-cards");
 
     let width = network.size().width;
-    assert!((250.0..=600.0).contains(&width));
+    assert!((250.0..=720.0).contains(&width));
     assert_eq!(width, account.size().width);
     let network_origin = network.absolute_position();
     let account_origin = account.absolute_position();
