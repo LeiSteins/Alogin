@@ -12,6 +12,8 @@ export global PreferencesLabels {
     in property <string> auto-login;
     in property <string> startup;
     in property <string> startup-summary;
+    in property <string> http-log;
+    in property <string> http-log-summary;
     in property <string> app;
     in property <string> description;
     in property <string> version-label;
@@ -145,10 +147,13 @@ export component SettingsPage inherits VerticalLayout {
     in-out property <bool> auto-login;
     in-out property <bool> startup-enabled;
     in property <string> startup-error;
+    in property <bool> http-log-enabled;
     in-out property <int> appearance;
     callback save-auto-login();
     callback save-startup();
+    callback toggle-http-log();
     callback save-appearance();
+    changed http-log-enabled => { log-switch.checked = root.http-log-enabled; }
     spacing: 16px;
     Text {
         text: PreferencesLabels.settings;
@@ -220,13 +225,31 @@ export component SettingsPage inherits VerticalLayout {
                     }
                 }
             }
+            OptionCard {
+                VerticalLayout {
+                    padding: 16px;
+                    spacing: 8px;
+                    log-switch := CheckBox {
+                        text: PreferencesLabels.http-log;
+                        switch-style: true;
+                        checked: root.http-log-enabled;
+                        enabled: root.enabled;
+                        toggled => { self.checked = root.http-log-enabled; root.toggle-http-log(); }
+                    }
+                    Text {
+                        text: PreferencesLabels.http-log-summary;
+                        font-size: 12px;
+                        color: AppTheme.muted;
+                        wrap: word-wrap;
+                    }
+                }
+            }
         }
     }
 }
 
 export component AboutPage inherits VerticalLayout {
     callback open-link(int);
-    callback version-clicked();
     spacing: 16px;
     Text { text: PreferencesLabels.about; color: AppTheme.text; font-size: 22px; font-weight: 700; }
     about-scroll := ScrollView {
@@ -252,7 +275,7 @@ export component AboutPage inherits VerticalLayout {
                 wrap: word-wrap;
             }
             OptionCard {
-                OptionRow { title: PreferencesLabels.version-label; summary: PreferencesLabels.version; clicked => { root.version-clicked(); } }
+                InfoRow { title: PreferencesLabels.version-label; value: PreferencesLabels.version; }
                 InfoRow { title: PreferencesLabels.identifier-label; value: PreferencesLabels.identifier; }
                 InfoRow { title: PreferencesLabels.license-label; value: PreferencesLabels.license; separator: false; }
             }

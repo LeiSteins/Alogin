@@ -41,6 +41,8 @@ pub const MINUTES_2: &str = "2 分钟";
 pub const MINUTES_5: &str = "5 分钟";
 pub const MINUTES_10: &str = "10 分钟";
 pub const SETTINGS_PAGE: &str = "设置";
+pub const HTTP_LOG: &str = "HTTP 日志";
+pub const HTTP_LOG_SUMMARY: &str = "记录网络诊断信息，仅保留最近 200 条，关闭或退出后清空。";
 pub const STARTUP: &str = "开机自启";
 pub const STARTUP_SUMMARY: &str =
     "登录 Windows 后自动在托盘运行；需要自动认证时，请同时开启自动登录与掉线重登。";

@@ -41,28 +41,35 @@ fn headless() {
 }
 
 #[test]
-fn log_page_unlocks_after_five_clicks_and_selects_entries() {
+fn log_switch_saves_and_rolls_back_and_log_page_shows_entries() {
     headless();
-    let (app, _, _) = fixture();
+    let (mut app, commands, results) = fixture();
     let window = app.window.as_ref().unwrap();
-    let toggles = Rc::new(std::cell::Cell::new(0));
-    let count = toggles.clone();
-    window.on_toggle_http_log(move || count.set(count.get() + 1));
-    click(window, strings::ABOUT_PAGE);
-    for _ in 0..4 {
-        click(window, strings::VERSION_LABEL);
-    }
-    assert_eq!(toggles.get(), 0);
-    click(window, strings::VERSION_LABEL);
-    assert_eq!(toggles.get(), 1);
-    window.set_http_log_enabled(true);
+    click(window, strings::SETTINGS_PAGE);
+    click(window, strings::HTTP_LOG);
+    assert!(!window.get_http_log_enabled());
+    app.command(ID_HTTP_LOG);
+    assert!(preference_reply(&mut app, &commands, &results, true).http_log_enabled);
+    assert!(!app.window.as_ref().unwrap().get_http_log_enabled());
+    app.command(ID_HTTP_LOG);
+    assert!(preference_reply(&mut app, &commands, &results, false).http_log_enabled);
+    let window = app.window.as_ref().unwrap();
+    assert!(window.get_http_log_enabled());
     let entry: slint::SharedString = "测试请求 HTTP 200".into();
     window.set_http_log_items(ModelRc::new(VecModel::from(vec![entry.clone()])));
-    click(window, "HTTP 日志");
-    click(window, entry.as_str());
-    assert_eq!(window.get_http_log_text(), entry);
+    click(window, strings::HTTP_LOG);
+    assert!(
+        ElementHandle::find_by_accessible_label(window, entry.as_str())
+            .next()
+            .is_some()
+    );
     click(window, "网络通知");
     assert_eq!(window.get_http_log_filter(), 2);
+    app.command(ID_HTTP_LOG);
+    assert!(!preference_reply(&mut app, &commands, &results, false).http_log_enabled);
+    i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(1));
+    let window = app.window.as_ref().unwrap();
+    assert!(!window.get_http_log_enabled());
 }
 
 fn sample_devices() -> Vec<AccountDevice> {
@@ -1272,7 +1279,6 @@ fn render_all_pages_in_light_dark_and_high_contrast_at_compact_size() {
     let example: slint::SharedString =
         "2026-01-01 12:00:00  GET https://wlgn.bjut.edu.cn:443/ HTTP 200 (32 ms)".into();
     window.set_http_log_items(ModelRc::new(VecModel::from(vec![example.clone()])));
-    window.set_http_log_text(example);
     for (mode, dark, contrast) in [
         ("light", false, false),
         ("dark", true, false),
@@ -1331,13 +1337,12 @@ fn render_all_pages_in_light_dark_and_high_contrast_at_compact_size() {
             if page == "http-log" {
                 let sample = window.get_http_log_items();
                 window.set_http_log_items(ModelRc::default());
-                window.set_http_log_text("".into());
                 snapshot(window, &format!("{mode}-http-log-empty"));
-                window.set_http_log_items(sample);
-                window.set_http_log_text(
+                window.set_http_log_items(ModelRc::new(VecModel::from(vec![
                     "请求失败：连接超时。网络通知订阅失败，请检查网络后重试。".into(),
-                );
+                ])));
                 snapshot(window, &format!("{mode}-http-log-error"));
+                window.set_http_log_items(sample);
             }
             if page == "settings" {
                 window.set_startup_error(strings::STARTUP_READ_FAILED.into());

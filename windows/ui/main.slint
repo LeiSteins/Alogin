@@ -153,11 +153,9 @@ export component MainWindow inherits Window {
     private property <length> home-card-height: root.summary-height
         + (root.show-devices ? 20px + device-card-view.height : 0px);
     in property <bool> http-log-enabled;
-    in-out property <string> http-log-text;
     in property <[string]> http-log-items;
     in property <string> http-log-diagnostics;
     in-out property <int> http-log-filter;
-    private property <int> version-clicks;
     private property <int> page;
     private property <bool> compact-navigation;
     callback home-action();
@@ -180,9 +178,8 @@ export component MainWindow inherits Window {
 
     changed target-index => { root.reveal-target(); }
     changed http-log-enabled => {
-        if !root.http-log-enabled && root.page == 6 {
-            root.http-log-text = "";
-            root.page = 4;
+        if !root.http-log-enabled {
+            if root.page == 6 { root.page = 3; }
         }
     }
 
@@ -325,9 +322,11 @@ export component MainWindow inherits Window {
                     auto-login <=> root.auto-login;
                     startup-enabled <=> root.startup-enabled;
                     startup-error: root.startup-error;
+                    http-log-enabled: root.http-log-enabled;
                     appearance <=> root.appearance;
                     save-auto-login => { root.save-auto-login(); }
                     save-startup => { root.save-startup(); }
+                    toggle-http-log => { root.toggle-http-log(); }
                     save-appearance => { root.save-appearance(); }
                 }
                 MaintenancePage {
@@ -347,21 +346,15 @@ export component MainWindow inherits Window {
                 AboutPage {
                     visible: root.page == 4;
                     open-link(index) => { root.open-about-link(index); }
-                    version-clicked => {
-                        if !root.http-log-enabled {
-                            root.version-clicks += 1;
-                            if root.version-clicks >= 5 { root.version-clicks = 0; root.toggle-http-log(); }
-                        }
-                    }
                 }
                 VerticalLayout {
                     visible: root.page == 6 && root.http-log-enabled;
                     spacing: 12px;
-                    HorizontalLayout {
-                        Text { text: "HTTP 日志"; font-size: 22px; font-weight: 700; color: AppTheme.text; }
-                        Button { text: "刷新"; clicked => { root.refresh-http-log(); } }
-                        Button { text: "清空"; clicked => { root.clear-http-log(); } }
-                        Button { text: "关闭日志"; clicked => { root.toggle-http-log(); } }
+                    log-header := HorizontalLayout {
+                        spacing: 8px;
+                        Text { text: "HTTP 日志"; font-size: 22px; font-weight: 700; color: AppTheme.text; horizontal-stretch: 1; }
+                        Button { text: "刷新"; width: max(60px, log-header.width / 6); clicked => { root.refresh-http-log(); } }
+                        Button { text: "清空"; width: max(60px, log-header.width / 6); clicked => { root.clear-http-log(); } }
                     }
                     HorizontalLayout {
                         spacing: 8px;
@@ -371,46 +364,29 @@ export component MainWindow inherits Window {
                         Button { text: "刷新事件"; checkable: true; checked: root.http-log-filter == 3; clicked => { root.http-log-filter = 3; root.refresh-http-log(); } }
                     }
                     Text { text: root.http-log-diagnostics; color: AppTheme.muted; wrap: word-wrap; }
-                    ScrollView {
+                    log-list := ScrollView {
                         vertical-stretch: 1;
                         content-width: self.visible-width;
                         VerticalLayout {
                             spacing: 4px;
                             if root.http-log-items.length == 0: Text { text: "暂无日志"; color: AppTheme.muted; }
                             for item in root.http-log-items: Rectangle {
-                                private property <bool> pointer-focus;
-                                height: 38px;
+                                height: max(38px, log-entry.preferred-height + 16px);
                                 border-radius: 6px;
-                                border-width: log-focus.has-focus && !self.pointer-focus ? 1px : 0px;
-                                border-color: AppTheme.accent;
-                                background: log-touch.has-hover ? AppTheme.hover : AppTheme.surface;
-                                accessible-role: button;
-                                accessible-label: item;
-                                accessible-action-default => { root.http-log-text = item; }
-                                forward-focus: log-focus;
-                                Text { x: 8px; width: parent.width - 16px; height: parent.height; text: item; color: AppTheme.text; overflow: elide; vertical-alignment: center; }
-                                log-focus := FocusScope {
-                                    changed has-focus => { if !self.has-focus { parent.pointer-focus = false; } }
-                                    key-pressed(event) => { parent.pointer-focus = false; if event.text == " " || event.text == "\n" { root.http-log-text = item; return accept; } return reject; }
+                                background: AppTheme.surface;
+                                log-entry := TextInput {
+                                    x: 8px;
+                                    y: 8px;
+                                    width: parent.width - 16px;
+                                    height: max(parent.height - 16px, self.preferred-height);
+                                    text: item;
+                                    accessible-label: item;
+                                    read-only: true;
+                                    single-line: false;
+                                    color: AppTheme.text;
+                                    wrap: word-wrap;
                                 }
-                                log-touch := TouchArea { clicked => { parent.pointer-focus = true; root.http-log-text = item; log-focus.focus(); } }
                             }
-                        }
-                    }
-                    Text { text: "详情（选择后可复制）"; color: AppTheme.muted; }
-                    ScrollView {
-                        height: 72px;
-                        content-width: self.visible-width;
-                        content-height: max(self.visible-height, log-content.preferred-height);
-                        log-content := TextInput {
-                            text: root.http-log-text;
-                            accessible-label: "日志详情，可选择并复制";
-                            read-only: true;
-                            single-line: false;
-                            width: parent.visible-width;
-                            height: max(parent.visible-height, self.preferred-height);
-                            color: AppTheme.text;
-                            wrap: word-wrap;
                         }
                     }
                 }

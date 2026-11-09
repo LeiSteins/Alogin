@@ -861,7 +861,6 @@ fn refresh_http_log(window: &MainWindow) {
         .map(slint::SharedString::from)
         .collect::<Vec<_>>();
     window.set_http_log_items(ModelRc::new(VecModel::from(rows)));
-    window.set_http_log_text("".into());
 }
 fn log_time(time: std::time::SystemTime) -> String {
     use windows_sys::Win32::{
@@ -977,6 +976,8 @@ fn set_labels(window: &MainWindow) {
     preferences.set_light(strings::APPEARANCE_LIGHT.into());
     preferences.set_dark(strings::APPEARANCE_DARK.into());
     preferences.set_auto_login(strings::AUTO.into());
+    preferences.set_http_log(strings::HTTP_LOG.into());
+    preferences.set_http_log_summary(strings::HTTP_LOG_SUMMARY.into());
     preferences.set_startup(strings::STARTUP.into());
     preferences.set_startup_summary(strings::STARTUP_SUMMARY.into());
     preferences.set_app(strings::APP.into());
