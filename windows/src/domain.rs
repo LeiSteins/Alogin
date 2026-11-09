@@ -2,7 +2,8 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::{net::Ipv4Addr, sync::LazyLock};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Portal {
     Wlgn,
     Eportal,
@@ -13,6 +14,21 @@ pub enum Online {
     Yes,
     No,
     Unknown,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LoginStatus {
+    pub online: Online,
+    pub verified_portal: Option<Portal>,
+}
+
+impl LoginStatus {
+    pub fn unknown() -> Self {
+        Self {
+            online: Online::Unknown,
+            verified_portal: None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

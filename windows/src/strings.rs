@@ -245,6 +245,8 @@ pub fn login_http_error(status: u32) -> String {
     format!("认证服务返回 HTTP {status}。")
 }
 
+pub const LOGIN_PORTAL_CACHE_FAILED: &str = "登录接口缓存保存失败，下次检测时将重试";
+
 #[cfg(test)]
 mod tests {
     use super::*;

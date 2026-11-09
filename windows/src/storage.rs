@@ -1,6 +1,11 @@
-use crate::{domain::Preferences, platform::wide, strings};
+use crate::{
+    domain::{Network, NetworkKind, Portal, Preferences},
+    platform::wide,
+    strings,
+};
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::BTreeMap,
     fs::{self, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
@@ -25,6 +30,8 @@ pub struct Settings {
     accounts: Vec<Account>,
     pub selected: Option<String>,
     pub preferences: Preferences,
+    #[serde(default)]
+    pub wifi_login_portals: BTreeMap<String, Portal>,
 }
 
 impl Default for Settings {
@@ -34,11 +41,37 @@ impl Default for Settings {
             accounts: Vec::new(),
             selected: None,
             preferences: Preferences::default(),
+            wifi_login_portals: BTreeMap::new(),
         }
     }
 }
 
 impl Settings {
+    pub fn cache_ssid<'a>(&self, network: &'a Network) -> Option<&'a str> {
+        network.ssid.as_deref().filter(|ssid| {
+            network.kind == NetworkKind::Wifi
+                && !ssid.trim().is_empty()
+                && self
+                    .preferences
+                    .target_ssids
+                    .iter()
+                    .any(|target| target == ssid)
+        })
+    }
+
+    pub fn preferred_portal(&self, network: &Network) -> Option<Portal> {
+        let ssid = self.cache_ssid(network)?;
+        self.wifi_login_portals
+            .get(ssid)
+            .copied()
+            .or_else(|| (ssid == "bjut_wifi").then_some(Portal::Wlgn))
+    }
+
+    pub fn prune_wifi_login_portals(&mut self) {
+        self.wifi_login_portals
+            .retain(|ssid, _| self.preferences.target_ssids.contains(ssid));
+    }
+
     pub fn usernames(&self) -> Vec<String> {
         self.accounts.iter().map(|a| a.username.clone()).collect()
     }
@@ -247,6 +280,42 @@ mod tests {
     }
 
     #[test]
+    fn portal_cache_is_exact_per_target_ssid_and_never_applies_to_other_connections() {
+        let mut settings = Settings::default();
+        settings
+            .preferences
+            .target_ssids
+            .extend(["custom".into(), "CUSTOM".into()]);
+        settings
+            .wifi_login_portals
+            .insert("custom".into(), Portal::Eportal);
+        let mut network = Network {
+            kind: NetworkKind::Wifi,
+            ssid: Some("bjut_wifi".into()),
+            ..Network::default()
+        };
+        assert_eq!(settings.preferred_portal(&network), Some(Portal::Wlgn));
+        network.ssid = Some("custom".into());
+        assert_eq!(settings.preferred_portal(&network), Some(Portal::Eportal));
+        for ssid in [
+            None,
+            Some(""),
+            Some("CUSTOM"),
+            Some(" custom"),
+            Some("other"),
+        ] {
+            network.ssid = ssid.map(str::to_owned);
+            assert_eq!(settings.preferred_portal(&network), None);
+        }
+        network.ssid = Some("custom".into());
+        for kind in [NetworkKind::Ethernet, NetworkKind::Unknown] {
+            network.kind = kind;
+            assert_eq!(settings.cache_ssid(&network), None);
+            assert_eq!(settings.preferred_portal(&network), None);
+        }
+    }
+
+    #[test]
     fn credentials_roundtrip_encrypted_and_selected_account_survives_restart() {
         let path = temp_path();
         let (store, mut settings) = Store::at(path.clone()).unwrap();
@@ -284,6 +353,10 @@ mod tests {
             settings.preferences.appearance,
             crate::domain::Appearance::System
         );
+        assert!(settings.wifi_login_portals.is_empty());
+        settings
+            .wifi_login_portals
+            .insert("custom".into(), Portal::Eportal);
         settings.preferences.appearance = crate::domain::Appearance::Dark;
         assert_eq!(
             settings.preferences.maintenance,
@@ -298,6 +371,7 @@ mod tests {
             restored.preferences.appearance,
             crate::domain::Appearance::Dark
         );
+        assert_eq!(restored.wifi_login_portals["custom"], Portal::Eportal);
         assert!(restored.preferences.auto_login);
         assert_eq!(restored.preferences.maintenance.check_interval_secs, 60);
         assert_eq!(restored.preferences.maintenance.retry_initial_secs, 30);

@@ -159,12 +159,13 @@ trait Services {
     fn set_startup(&self, enabled: bool) -> Result<(), String>;
     fn snapshot(&self) -> Network;
     fn revision(&self) -> u64;
-    fn status(&self, network: &Network) -> Result<Online, String>;
+    fn status(&self, network: &Network, preferred: Option<Portal>) -> Result<LoginStatus, String>;
     fn login(
         &self,
         username: &str,
         password: &str,
         network: &Network,
+        preferred: Option<Portal>,
     ) -> Result<LoginResult, String>;
     fn account(&self, network: &Network) -> (AccountInfo, Option<crate::account::DeviceSession>);
 }
@@ -180,16 +181,17 @@ impl Services for LiveServices {
     fn revision(&self) -> u64 {
         crate::platform::network::revision()
     }
-    fn status(&self, network: &Network) -> Result<Online, String> {
-        Ok(Campus::new()?.status(network))
+    fn status(&self, network: &Network, preferred: Option<Portal>) -> Result<LoginStatus, String> {
+        Ok(Campus::new()?.status(network, preferred))
     }
     fn login(
         &self,
         username: &str,
         password: &str,
         network: &Network,
+        preferred: Option<Portal>,
     ) -> Result<LoginResult, String> {
-        Campus::new()?.login(username, password, network)
+        Campus::new()?.login(username, password, network, preferred)
     }
     fn account(&self, network: &Network) -> (AccountInfo, Option<crate::account::DeviceSession>) {
         crate::account::load(network)
@@ -326,6 +328,7 @@ impl<S: Services> Session<S> {
                     || preferences.target_ssids != self.settings.preferences.target_ssids;
                 self.update(|settings| {
                     settings.preferences = preferences;
+                    settings.prune_wifi_login_portals();
                     Ok(())
                 })?;
                 if log_changed {
@@ -448,10 +451,11 @@ impl<S: Services> Session<S> {
             return Ok(strings::READY.into());
         }
         self.network_refresh_pending = false;
-        let observed = self
+        let status = self
             .services
-            .status(&self.network)
-            .unwrap_or(Online::Unknown);
+            .status(&self.network, self.settings.preferred_portal(&self.network))
+            .unwrap_or(LoginStatus::unknown());
+        let observed = status.online;
         self.ensure_current("登录维持：检测完成")?;
         let now = Instant::now();
         self.maintenance
@@ -465,6 +469,7 @@ impl<S: Services> Session<S> {
         if observed == Online::Unknown {
             return Ok(strings::UNKNOWN.into());
         }
+        let cache_result = self.remember_portal(status);
         let was_online = self.online == Online::Yes;
         self.online = observed;
         if observed == Online::Yes {
@@ -476,7 +481,7 @@ impl<S: Services> Session<S> {
                 Instant::now(),
                 &self.settings.preferences.maintenance,
             );
-            return Ok(strings::LOGGED_IN.into());
+            return cache_result.map(|_| strings::LOGGED_IN.into());
         }
         self.account_info = AccountInfo::default();
         self.device_session = None;
@@ -485,9 +490,9 @@ impl<S: Services> Session<S> {
             if let Err(error) = &result {
                 self.maintenance_detail = error.clone();
             }
-            result
+            result.and_then(|message| cache_result.map(|_| message))
         } else {
-            Ok(strings::LOGGED_OUT.into())
+            cache_result.map(|_| strings::LOGGED_OUT.into())
         }
     }
 
@@ -542,7 +547,12 @@ impl<S: Services> Session<S> {
                 return Err(error);
             }
         };
-        let result = match self.services.login(username, &password, &self.network) {
+        let result = match self.services.login(
+            username,
+            &password,
+            &self.network,
+            self.settings.preferred_portal(&self.network),
+        ) {
             Ok(result) => result,
             Err(error) => {
                 self.maintenance
@@ -602,10 +612,15 @@ impl<S: Services> Session<S> {
         self.account_info = AccountInfo::default();
         self.device_session = None;
         self.remember_detected_wifi()?;
-        if usable_ipv4(&self.network.ipv4) {
-            self.online = self.services.status(&self.network)?;
-        }
+        let status = if usable_ipv4(&self.network.ipv4) {
+            self.services
+                .status(&self.network, self.settings.preferred_portal(&self.network))?
+        } else {
+            LoginStatus::unknown()
+        };
         self.ensure_current("刷新认证状态：检测完成")?;
+        self.online = status.online;
+        let cache_result = self.remember_portal(status);
         self.load_account()?;
         if self.eligible() {
             self.maintenance.observed(
@@ -617,6 +632,7 @@ impl<S: Services> Session<S> {
                 self.maintenance.deadline = Some(Instant::now());
             }
         }
+        cache_result?;
         Ok(if self.network.ipv4.is_empty() {
             strings::NO_NETWORK
         } else {
@@ -627,6 +643,27 @@ impl<S: Services> Session<S> {
             }
         }
         .into())
+    }
+
+    fn remember_portal(&mut self, status: LoginStatus) -> Result<(), String> {
+        if status.online == Online::Unknown {
+            return Ok(());
+        }
+        let Some(portal) = status.verified_portal else {
+            return Ok(());
+        };
+        let Some(ssid) = self.settings.cache_ssid(&self.network).map(str::to_owned) else {
+            return Ok(());
+        };
+        if self.settings.wifi_login_portals.get(&ssid) == Some(&portal) {
+            return Ok(());
+        }
+        // The caller has checked the full physical snapshot after status verification.
+        self.update(|settings| {
+            settings.wifi_login_portals.insert(ssid, portal);
+            Ok(())
+        })
+        .map_err(|_| strings::LOGIN_PORTAL_CACHE_FAILED.to_owned())
     }
 
     fn remember_detected_wifi(&mut self) -> Result<(), String> {
@@ -742,6 +779,9 @@ mod tests {
         network: RefCell<Network>,
         revision: Cell<u64>,
         online: Cell<Online>,
+        verified_portal: Cell<Option<Portal>>,
+        status_preferred: Cell<Option<Portal>>,
+        login_preferred: Cell<Option<Portal>>,
         status_count: Cell<u32>,
         login_count: Cell<u32>,
         account_count: Cell<u32>,
@@ -768,7 +808,8 @@ mod tests {
         fn revision(&self) -> u64 {
             self.revision.get()
         }
-        fn status(&self, _: &Network) -> Result<Online, String> {
+        fn status(&self, _: &Network, preferred: Option<Portal>) -> Result<LoginStatus, String> {
+            self.status_preferred.set(preferred);
             self.status_count.set(self.status_count.get() + 1);
             if self.notify_on_status.replace(false) {
                 self.revision.set(self.revision.get() + 1);
@@ -776,9 +817,19 @@ mod tests {
             if let Some(network) = self.next_status_network.take() {
                 *self.network.borrow_mut() = network;
             }
-            Ok(self.online.get())
+            Ok(LoginStatus {
+                online: self.online.get(),
+                verified_portal: self.verified_portal.get(),
+            })
         }
-        fn login(&self, _: &str, _: &str, _: &Network) -> Result<LoginResult, String> {
+        fn login(
+            &self,
+            _: &str,
+            _: &str,
+            _: &Network,
+            preferred: Option<Portal>,
+        ) -> Result<LoginResult, String> {
+            self.login_preferred.set(preferred);
             self.login_count.set(self.login_count.get() + 1);
             if self.notify_on_login.replace(false) {
                 self.revision.set(self.revision.get() + 1);
@@ -811,6 +862,120 @@ mod tests {
                 None,
             )
         }
+    }
+
+    #[test]
+    fn verified_portal_is_persisted_and_shared_by_manual_and_background_login() {
+        let (mut session, directory) = maintenance_fixture();
+        session.services.verified_portal.set(Some(Portal::Eportal));
+        session.refresh().unwrap();
+        assert_eq!(session.services.status_preferred.get(), Some(Portal::Wlgn));
+        assert_eq!(
+            Store::at(directory.0.join("settings.json"))
+                .unwrap()
+                .1
+                .preferred_portal(&session.network),
+            Some(Portal::Eportal)
+        );
+        session.login(None, false).unwrap();
+        assert_eq!(
+            session.services.login_preferred.get(),
+            Some(Portal::Eportal)
+        );
+        session.maintenance.restart(Instant::now());
+        session.services.verified_portal.set(Some(Portal::Wlgn));
+        session.maintain().unwrap();
+        assert_eq!(
+            session.services.status_preferred.get(),
+            Some(Portal::Eportal)
+        );
+        assert_eq!(session.services.login_preferred.get(), Some(Portal::Wlgn));
+        assert_eq!(
+            session.settings.wifi_login_portals["bjut_wifi"],
+            Portal::Wlgn
+        );
+    }
+
+    #[test]
+    fn changed_network_and_unknown_status_cannot_poison_portal_cache() {
+        let (mut session, _directory) = maintenance_fixture();
+        session.services.verified_portal.set(Some(Portal::Eportal));
+        session.services.online.set(Online::Unknown);
+        session.refresh().unwrap();
+        assert!(session.settings.wifi_login_portals.is_empty());
+        session.services.online.set(Online::No);
+        let mut changed = session.network.clone();
+        changed.ipv4 = "10.1.2.4".into();
+        *session.services.next_status_network.borrow_mut() = Some(changed);
+        assert_eq!(session.refresh().unwrap_err(), strings::NETWORK_CHANGED);
+        assert!(session.settings.wifi_login_portals.is_empty());
+    }
+
+    #[test]
+    fn removing_target_clears_only_its_cache_and_unrelated_preferences_preserve_it() {
+        let (mut session, directory) = maintenance_fixture();
+        session
+            .settings
+            .preferences
+            .target_ssids
+            .push("custom".into());
+        session
+            .settings
+            .wifi_login_portals
+            .insert("bjut_wifi".into(), Portal::Eportal);
+        session
+            .settings
+            .wifi_login_portals
+            .insert("custom".into(), Portal::Wlgn);
+        let mut preferences = session.settings.preferences.clone();
+        preferences.appearance = Appearance::Dark;
+        session
+            .handle(Command::SavePreferences(preferences.clone()))
+            .unwrap();
+        assert_eq!(session.settings.wifi_login_portals.len(), 2);
+        preferences.target_ssids.retain(|ssid| ssid != "bjut_wifi");
+        session
+            .handle(Command::SavePreferences(preferences))
+            .unwrap();
+        let restored = Store::at(directory.0.join("settings.json")).unwrap().1;
+        assert_eq!(restored.wifi_login_portals.len(), 1);
+        assert_eq!(restored.wifi_login_portals["custom"], Portal::Wlgn);
+    }
+
+    #[test]
+    fn cache_write_failure_preserves_memory_disk_and_confirmed_online_identity() {
+        let (mut session, directory) = maintenance_fixture();
+        session
+            .settings
+            .wifi_login_portals
+            .insert("bjut_wifi".into(), Portal::Wlgn);
+        session.store.save(&session.settings).unwrap();
+        fs::create_dir(directory.0.join("settings.json.tmp")).unwrap();
+        session.services.online.set(Online::Yes);
+        session.services.verified_portal.set(Some(Portal::Eportal));
+        assert_eq!(
+            session.refresh().unwrap_err(),
+            strings::LOGIN_PORTAL_CACHE_FAILED
+        );
+        assert_eq!(session.online, Online::Yes);
+        assert_eq!(
+            session.account_info.username.as_deref(),
+            Some("test-student")
+        );
+        assert_eq!(
+            session.settings.wifi_login_portals["bjut_wifi"],
+            Portal::Wlgn
+        );
+        assert_eq!(
+            Store::at(directory.0.join("settings.json"))
+                .unwrap()
+                .1
+                .wifi_login_portals["bjut_wifi"],
+            Portal::Wlgn
+        );
+        // An unchanged verified method must not attempt another write.
+        session.services.verified_portal.set(Some(Portal::Wlgn));
+        session.refresh().unwrap();
     }
 
     #[test]
@@ -879,6 +1044,9 @@ mod tests {
                 services: MockServices {
                     network: RefCell::new(network),
                     revision: Cell::new(0),
+                    verified_portal: Cell::new(None),
+                    status_preferred: Cell::new(None),
+                    login_preferred: Cell::new(None),
                     online: Cell::new(Online::No),
                     status_count: Cell::new(0),
                     login_count: Cell::new(0),

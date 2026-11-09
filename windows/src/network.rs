@@ -31,124 +31,152 @@ impl Campus {
         username: &str,
         password: &str,
         network: &Network,
+        preferred: Option<Portal>,
     ) -> Result<LoginResult, String> {
-        login_with(&self.http, username, password, &|| snapshot() == *network)
+        login_with(&self.http, username, password, preferred, &|| {
+            snapshot() == *network
+        })
     }
 
-    pub fn status(&self, network: &Network) -> Online {
-        let mut logged_out = false;
-        let mut unresolved = false;
-        for host in [Host::Eportal, Host::Wlgn] {
-            let Ok(response) = self.http.get(
-                host,
-                false,
-                if matches!(host, Host::Wlgn) {
-                    "/a79.htm"
-                } else {
-                    "/"
-                },
-            ) else {
-                continue;
-            };
-            if (300..400).contains(&response.status) && points_to_lgn(&response.location) {
-                return Online::Yes;
-            }
-            if !response.success() {
-                continue;
-            }
+    pub fn status(&self, network: &Network, preferred: Option<Portal>) -> LoginStatus {
+        status_with(&self.http, network, preferred)
+    }
+}
+
+fn status_with(
+    client: &impl Transport,
+    network: &Network,
+    preferred: Option<Portal>,
+) -> LoginStatus {
+    let methods = match preferred {
+        Some(Portal::Wlgn) => [Portal::Wlgn, Portal::Eportal],
+        _ => [Portal::Eportal, Portal::Wlgn],
+    };
+    let mut offline_portal = None;
+    let mut unresolved = false;
+    for portal in methods {
+        let host = match portal {
+            Portal::Eportal => Host::Eportal,
+            Portal::Wlgn => Host::Wlgn,
+        };
+        let Ok(response) = client.get(
+            host,
+            false,
+            if portal == Portal::Wlgn {
+                "/a79.htm"
+            } else {
+                "/"
+            },
+        ) else {
+            continue;
+        };
+        let online = if (300..400).contains(&response.status) && points_to_lgn(&response.location) {
+            Online::Yes
+        } else if response.success() {
             let text = response.text();
             if page_state(&text) == Online::Yes {
-                return Online::Yes;
+                Online::Yes
+            } else if is_dynamic(&text) {
+                let state =
+                    dynamic_status_inner(client, host, &text, network).unwrap_or(Online::Unknown);
+                unresolved |= state == Online::Unknown;
+                state
+            } else {
+                page_state(&text)
             }
-            if is_dynamic(&text) {
-                match self.dynamic_status(host, &text, network) {
-                    Online::Yes => return Online::Yes,
-                    Online::No => logged_out = true,
-                    Online::Unknown => unresolved = true,
-                }
-            } else if page_state(&text) == Online::No {
-                logged_out = true;
-            }
-        }
-        if logged_out && !unresolved {
-            Online::No
         } else {
             Online::Unknown
-        }
-    }
-
-    fn dynamic_status(&self, host: Host, page: &str, network: &Network) -> Online {
-        self.dynamic_status_inner(host, page, network)
-            .unwrap_or(Online::Unknown)
-    }
-
-    fn dynamic_status_inner(&self, host: Host, page: &str, network: &Network) -> Option<Online> {
-        let ip = &network.ipv4;
-        if !usable_ipv4(ip) {
-            return None;
-        }
-        let vlan = page_variable(page, "vlanid");
-        let encoded_ip = base64::engine::general_purpose::STANDARD.encode(ip);
-        let config_path = format!(
-            "/eportal/portal/page/loadConfig?{}",
-            query(&[
-                ("callback", "dr1003"),
-                ("program_index", ""),
-                ("wlan_vlan_id", if vlan.is_empty() { "0" } else { &vlan }),
-                ("wlan_user_ip", &encoded_ip),
-                ("wlan_user_ipv6", ""),
-                ("wlan_user_ssid", ""),
-                ("wlan_user_areaid", ""),
-                ("wlan_ac_ip", ""),
-                ("wlan_ap_mac", ""),
-                ("gw_id", ""),
-                ("jsVersion", "4.X"),
-            ])
-        );
-        let response = self.http.get(host, true, &config_path).ok()?;
-        if !response.success() {
-            return None;
-        }
-        let config = jsonp(&response.text())?;
-        let method = &config["data"]["check_online_method"];
-        let (api, path) = if method == 0 || method == "0" {
-            (
-                false,
-                "/drcom/chkstatus?callback=dr1003&jsVersion=4.X".to_owned(),
-            )
-        } else if method == 1 || method == "1" {
-            let decimal = u32::from(ip.parse::<std::net::Ipv4Addr>().ok()?).to_string();
-            (
-                true,
-                format!(
-                    "/eportal/portal/online_list?{}",
-                    query(&[
-                        ("user_account", ""),
-                        ("user_password", ""),
-                        (
-                            "wlan_user_mac",
-                            &page_variable(page, "ss4").to_ascii_uppercase()
-                        ),
-                        ("wlan_user_ip", &decimal),
-                        ("curr_user_ip", &decimal),
-                        ("callback", "dr1003"),
-                        ("jsVersion", "4.X"),
-                    ])
-                ),
-            )
-        } else {
-            return None;
         };
-        let response = self.http.get(host, api, &path).ok()?;
-        if !response.success() {
-            return None;
+        if online == Online::Yes || online == Online::No && preferred == Some(portal) {
+            return LoginStatus {
+                online,
+                verified_portal: Some(portal),
+            };
         }
-        let status = jsonp(&response.text())?;
-        match &status["result"] {
-            value if value == 1 || value == "1" => Some(Online::Yes),
-            value if value == 0 || value == "0" => Some(Online::No),
-            _ => None,
+        if online == Online::No && offline_portal.is_none() {
+            offline_portal = Some(portal);
         }
+    }
+    match offline_portal.filter(|_| !unresolved) {
+        Some(portal) => LoginStatus {
+            online: Online::No,
+            verified_portal: Some(portal),
+        },
+        None => LoginStatus::unknown(),
+    }
+}
+
+fn dynamic_status_inner(
+    client: &impl Transport,
+    host: Host,
+    page: &str,
+    network: &Network,
+) -> Option<Online> {
+    let ip = &network.ipv4;
+    if !usable_ipv4(ip) {
+        return None;
+    }
+    let vlan = page_variable(page, "vlanid");
+    let encoded_ip = base64::engine::general_purpose::STANDARD.encode(ip);
+    let config_path = format!(
+        "/eportal/portal/page/loadConfig?{}",
+        query(&[
+            ("callback", "dr1003"),
+            ("program_index", ""),
+            ("wlan_vlan_id", if vlan.is_empty() { "0" } else { &vlan }),
+            ("wlan_user_ip", &encoded_ip),
+            ("wlan_user_ipv6", ""),
+            ("wlan_user_ssid", ""),
+            ("wlan_user_areaid", ""),
+            ("wlan_ac_ip", ""),
+            ("wlan_ap_mac", ""),
+            ("gw_id", ""),
+            ("jsVersion", "4.X"),
+        ])
+    );
+    let response = client.get(host, true, &config_path).ok()?;
+    if !response.success() {
+        return None;
+    }
+    let config = jsonp(&response.text())?;
+    let method = &config["data"]["check_online_method"];
+    let (api, path) = if method == 0 || method == "0" {
+        (
+            false,
+            "/drcom/chkstatus?callback=dr1003&jsVersion=4.X".to_owned(),
+        )
+    } else if method == 1 || method == "1" {
+        let decimal = u32::from(ip.parse::<std::net::Ipv4Addr>().ok()?).to_string();
+        (
+            true,
+            format!(
+                "/eportal/portal/online_list?{}",
+                query(&[
+                    ("user_account", ""),
+                    ("user_password", ""),
+                    (
+                        "wlan_user_mac",
+                        &page_variable(page, "ss4").to_ascii_uppercase()
+                    ),
+                    ("wlan_user_ip", &decimal),
+                    ("curr_user_ip", &decimal),
+                    ("callback", "dr1003"),
+                    ("jsVersion", "4.X"),
+                ])
+            ),
+        )
+    } else {
+        return None;
+    };
+    let response = client.get(host, api, &path).ok()?;
+    if !response.success() {
+        return None;
+    }
+    let status = jsonp(&response.text())?;
+    match &status["result"] {
+        value if value == 1 || value == "1" => Some(Online::Yes),
+        value if value == 0 || value == "0" => Some(Online::No),
+        _ => None,
     }
 }
 
@@ -177,10 +205,14 @@ fn login_with(
     client: &impl Transport,
     username: &str,
     password: &str,
+    preferred: Option<Portal>,
     current: &impl Fn() -> bool,
 ) -> Result<LoginResult, String> {
     require_current(current)?;
-    let portal = detect(client)?;
+    let portal = match preferred {
+        Some(portal) => portal,
+        None => detect(client)?,
+    };
     // Discovery and IP lookup must belong to the same physical network snapshot.
     require_current(current)?;
     let path = match portal {
@@ -364,6 +396,156 @@ mod tests {
     }
 
     #[test]
+    fn preferred_portal_stops_after_a_confirmed_state() {
+        for (portal, host, path) in [
+            (Portal::Wlgn, Host::Wlgn, "/a79.htm"),
+            (Portal::Eportal, Host::Eportal, "/"),
+        ] {
+            for (page, online) in [
+                ("<title>上网登录页</title>", Online::No),
+                ("<title>注销页</title>", Online::Yes),
+            ] {
+                let client = fake(vec![response(200, page)]);
+                assert_eq!(
+                    status_with(&client, &Network::default(), Some(portal)),
+                    LoginStatus {
+                        online,
+                        verified_portal: Some(portal)
+                    }
+                );
+                assert_eq!(*client.requests.borrow(), [(host, false, path.into())]);
+            }
+        }
+    }
+
+    #[test]
+    fn unavailable_preferred_portal_falls_back_and_learns_the_verified_portal() {
+        for failure in [
+            Err("timeout".into()),
+            response(503, ""),
+            response(200, "unknown"),
+        ] {
+            let client = fake(vec![failure, response(200, "<title>上网登录页</title>")]);
+            assert_eq!(
+                status_with(&client, &Network::default(), Some(Portal::Wlgn)),
+                LoginStatus {
+                    online: Online::No,
+                    verified_portal: Some(Portal::Eportal)
+                }
+            );
+            assert_eq!(client.requests.borrow()[0].0, Host::Wlgn);
+            assert_eq!(client.requests.borrow()[1].0, Host::Eportal);
+        }
+    }
+
+    #[test]
+    fn first_probe_checks_both_portals_and_unknown_dynamic_state_is_not_cached() {
+        let client = fake(vec![
+            response(200, "<title>上网登录页</title>"),
+            response(200, "<title>注销页</title>"),
+        ]);
+        assert_eq!(
+            status_with(&client, &Network::default(), None),
+            LoginStatus {
+                online: Online::Yes,
+                verified_portal: Some(Portal::Wlgn)
+            }
+        );
+        let client = fake(vec![
+            response(200, "<title>上网登录页</title>"),
+            response(200, "page.run();"),
+        ]);
+        assert_eq!(
+            status_with(&client, &Network::default(), None),
+            LoginStatus::unknown()
+        );
+        let client = fake(vec![response(200, "unknown"), response(200, "unknown")]);
+        assert_eq!(
+            status_with(&client, &Network::default(), Some(Portal::Wlgn)),
+            LoginStatus::unknown()
+        );
+    }
+
+    #[test]
+    fn cached_login_skips_detection_but_eportal_still_fetches_a_fresh_ip() {
+        let client = fake(vec![
+            response(200, r#"{"v46ip":"10.1.2.3"}"#),
+            response(200, r#"{"result":1}"#),
+        ]);
+        assert_eq!(
+            login_with(
+                &client,
+                "student",
+                "test-password",
+                Some(Portal::Eportal),
+                &|| true
+            ),
+            Ok(LoginResult::Success)
+        );
+        let requests = client.requests.borrow();
+        assert_eq!(requests.len(), 2);
+        assert!(requests[0].2.starts_with("/drcom/chkstatus?"));
+        assert!(requests[1].2.contains("wlan_user_ip=10.1.2.3&"));
+        drop(requests);
+        let client = fake(vec![response(200, r#"{"result":1}"#)]);
+        assert_eq!(
+            login_with(
+                &client,
+                "student",
+                "test-password",
+                Some(Portal::Wlgn),
+                &|| true
+            ),
+            Ok(LoginResult::Success)
+        );
+        assert_eq!(client.requests.borrow().len(), 1);
+        assert_eq!(client.requests.borrow()[0].0, Host::Wlgn);
+    }
+
+    #[test]
+    fn cached_login_never_replays_credentials_on_failure_and_rechecks_network() {
+        for failure in [
+            Err("timeout".into()),
+            response(500, ""),
+            response(200, r#"{"result":0,"msg":"密码错误"}"#),
+        ] {
+            let client = fake(vec![failure]);
+            let result = login_with(
+                &client,
+                "student",
+                "test-password",
+                Some(Portal::Wlgn),
+                &|| true,
+            );
+            assert!(!matches!(result, Ok(LoginResult::Success)));
+            assert_eq!(client.requests.borrow().len(), 1);
+        }
+        let client = fake(vec![response(200, r#"{"v46ip":"10.1.2.3"}"#)]);
+        assert_eq!(
+            login_with(
+                &client,
+                "student",
+                "test-password",
+                Some(Portal::Eportal),
+                &|| client.requests.borrow().is_empty()
+            ),
+            Err(strings::NETWORK_CHANGED.into())
+        );
+        assert_eq!(client.requests.borrow().len(), 1);
+        let client = fake(vec![response(200, r#"{"result":1}"#)]);
+        assert_eq!(
+            login_with(
+                &client,
+                "student",
+                "test-password",
+                Some(Portal::Wlgn),
+                &|| client.requests.borrow().is_empty()
+            ),
+            Err(strings::NETWORK_CHANGED.into())
+        );
+    }
+
+    #[test]
     fn portal_address_uses_first_valid_server_field_and_trims_padding() {
         for (body, expected) in [
             ("v46ip=' 10.1.2.3 ';ss5='10.4.5.6';", "10.1.2.3"),
@@ -430,7 +612,7 @@ mod tests {
             response(200, r#"{"result":1}"#),
         ]);
         assert_eq!(
-            login_with(&client, "student", "test-password", &|| true),
+            login_with(&client, "student", "test-password", None, &|| true),
             Ok(LoginResult::Success)
         );
         let requests = client.requests.borrow();
@@ -470,7 +652,7 @@ mod tests {
                 response(200, r#"{"result":1}"#),
             ]);
             assert_eq!(
-                login_with(&client, "student", "test-password", &|| true),
+                login_with(&client, "student", "test-password", None, &|| true),
                 Ok(LoginResult::Success)
             );
             let requests = client.requests.borrow();
@@ -489,7 +671,7 @@ mod tests {
             response(200, "no IP"),
         ]);
         assert_eq!(
-            login_with(&client, "student", "test-password", &|| true),
+            login_with(&client, "student", "test-password", None, &|| true),
             Err(strings::PORTAL_IP_UNAVAILABLE.into())
         );
         let requests = client.requests.borrow();
@@ -506,7 +688,7 @@ mod tests {
                 response(200, r#"{"v46ip":"10.1.2.3"}"#),
             ]);
             let checks = Cell::new(0);
-            let result = login_with(&client, "student", "test-password", &|| {
+            let result = login_with(&client, "student", "test-password", None, &|| {
                 let count = checks.get();
                 checks.set(count + 1);
                 count < allowed_checks
@@ -529,7 +711,7 @@ mod tests {
             response(200, r#"{"v46ip":"10.1.2.3"}"#),
             response(200, r#"{"result":1}"#),
         ]);
-        let result = login_with(&client, "student", "test-password", &|| {
+        let result = login_with(&client, "student", "test-password", None, &|| {
             client.requests.borrow().len() < 3
         });
         assert_eq!(result, Err(strings::NETWORK_CHANGED.into()));
@@ -542,7 +724,7 @@ mod tests {
             response(200, r#"{"result":1}"#),
         ]);
         assert_eq!(
-            login_with(&client, "student", "test-password", &|| true),
+            login_with(&client, "student", "test-password", None, &|| true),
             Ok(LoginResult::Success)
         );
         let requests = client.requests.borrow();
