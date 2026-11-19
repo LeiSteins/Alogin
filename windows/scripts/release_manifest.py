@@ -5,12 +5,14 @@ import hashlib
 import json
 from pathlib import Path
 import re
+from textwrap import indent
 import tomllib
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 VERSION = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", re.ASCII)
 BASE_URL = "https://aloginupdate.steins.top/windows/"
+PACKAGE_FILES = ("README.md", "alogin-windows.exe", "release-notes.md")
 
 
 def version_parts(version):
@@ -69,12 +71,9 @@ def validate_promotion(incoming, current):
         raise ValueError("A published version cannot be replaced with different content")
 
 
-def third_party_files(metadata):
-    """Include Cargo license declarations and shipped license/notice texts."""
-    files = {}
-    lines = ["# Third-party dependencies", "", "Generated from Cargo.lock and cargo metadata.",
-             "Slint is used under GPL-3.0; other choices remain as declared below.",
-             "Source crates are available at https://crates.io/ and upstream links.", ""]
+def third_party_notices(metadata):
+    declarations = ["### 第三方依赖声明", "", "Slint 按 GPL-3.0 使用。", ""]
+    texts = []
     for package in sorted(metadata["packages"], key=lambda p: (p["name"], p["version"])):
         if package.get("source") is None:
             continue
@@ -82,19 +81,33 @@ def third_party_files(metadata):
         license_name = package.get("license")
         if not license_name and not package.get("license_file"):
             raise ValueError(f"Missing license information: {identity}")
-        lines.append(f'- {identity}: {license_name or "see license file"}; '
-                     f'https://crates.io/crates/{package["name"]}/{package["version"]}')
+        source_url = f'https://crates.io/crates/{package["name"]}/{package["version"]}'
+        declarations.append(f'- [{identity}]({source_url}) · {license_name or "见许可文本"}')
         directory = Path(package["manifest_path"]).parent
-        candidates = [p for p in directory.iterdir() if p.is_file() and
-                      p.name.lower().startswith(("license", "licence", "copying", "notice", "copyright"))]
+        candidates = {p for p in directory.iterdir() if p.is_file() and
+                      p.name.lower().startswith(("license", "licence", "copying", "notice", "copyright"))}
         if package.get("license_file"):
-            candidates.append(directory / package["license_file"])
-        for path in candidates:
-            files[f"licenses/{identity}/{path.name}"] = path.read_bytes()
-    if not files:
+            candidates.add(directory / package["license_file"])
+        for path in sorted(candidates):
+            text = path.read_text(encoding="utf-8").rstrip("\n")
+            texts.extend([f"#### `{identity}/{path.name}`", "", indent(text, "    "), ""])
+    if not texts:
         raise ValueError("No third-party license files found")
-    files["THIRD-PARTY-NOTICES.md"] = ("\n".join(lines) + "\n").encode("utf-8")
-    return files
+    return "\n".join([*declarations, "", "### 第三方许可文本", "", *texts])
+
+
+def release_readme(root, tag, metadata):
+    readme = (root / "README.md").read_text(encoding="utf-8").rstrip("\n")
+    license_text = (root.parent / "LICENSE").read_text(encoding="utf-8").rstrip("\n")
+    source = f"https://github.com/LeiSteins/alogin/tree/{tag}"
+    source_archive = f"https://github.com/LeiSteins/alogin/archive/refs/tags/{tag}.zip"
+    return "\n".join([
+        readme, "", "## 发布包源码与许可证", "",
+        f"[对应版本源码与构建说明]({source}) · [下载源码 ZIP]({source_archive}) · "
+        f"[依赖及其版本]({source}/windows/Cargo.lock)", "",
+        "### 项目许可证（GPL-3.0）", "", indent(license_text, "    "), "",
+        third_party_notices(metadata),
+    ]).encode("utf-8")
 
 
 def package_release(tag, executable, metadata_path, output, root=ROOT):
@@ -106,17 +119,11 @@ def package_release(tag, executable, metadata_path, output, root=ROOT):
     binary = executable.read_bytes()
     if not binary.startswith(b"MZ"):
         raise ValueError("Expected a Windows executable")
-    files = third_party_files(metadata)
-    files.update({
+    files = {
         "alogin-windows.exe": binary,
-        "README.md": (root / "README.md").read_bytes(),
-        "LICENSE": (root.parent / "LICENSE").read_bytes(),
+        "README.md": release_readme(root, tag, metadata),
         "release-notes.md": (notes + "\n").encode("utf-8"),
-        "SOURCE.txt": (f"Corresponding source and build instructions:\n"
-                       f"https://github.com/LeiSteins/alogin/tree/{tag}\n"
-                       f"https://github.com/LeiSteins/alogin/archive/refs/tags/{tag}.zip\n"
-                       "Dependency sources and exact versions: windows/Cargo.lock\n").encode("utf-8"),
-    })
+    }
     output.mkdir(parents=True, exist_ok=True)
     name = f"alogin-windows-v{version}-x64.zip"
     archive = output / name
@@ -150,11 +157,13 @@ def verify_release(directory):
     if (directory / "release-notes.md").read_text(encoding="utf-8").strip() != manifest["releaseNotes"]:
         raise ValueError("Release notes mismatch")
     with zipfile.ZipFile(archive) as bundle:
+        if tuple(sorted(bundle.namelist())) != PACKAGE_FILES:
+            raise ValueError("Expected exactly README.md, alogin-windows.exe and release-notes.md")
         if bundle.testzip() is not None:
             raise ValueError("Corrupt archive")
-        for name in ["alogin-windows.exe", "README.md", "LICENSE", "SOURCE.txt", "THIRD-PARTY-NOTICES.md", "release-notes.md"]:
+        for name in PACKAGE_FILES:
             if not bundle.read(name):
-                raise ValueError(f"Missing package content: {name}")
+                raise ValueError(f"Empty package file: {name}")
 
 
 def main():

@@ -1,6 +1,6 @@
 use crate::{
     domain::*,
-    maintenance::{Maintenance, PauseReason},
+    maintenance::{IdentityRetry, Maintenance, PauseReason},
     network::Campus,
     platform::network::snapshot,
     storage::{Settings, Store},
@@ -124,6 +124,7 @@ impl Worker {
                     network: Network::default(),
                     online: Online::Unknown,
                     account_info: AccountInfo::default(),
+                    identity_retry: IdentityRetry::default(),
                     device_session: None,
                     device_generation: 0,
                     maintenance: Maintenance::default(),
@@ -205,6 +206,7 @@ struct Session<S = LiveServices> {
     network: Network,
     online: Online,
     account_info: AccountInfo,
+    identity_retry: IdentityRetry,
     device_session: Option<crate::account::DeviceSession>,
     device_generation: u64,
     maintenance: Maintenance,
@@ -316,7 +318,7 @@ impl<S: Services> Session<S> {
                 self.maintenance_detail.clear();
                 Ok(strings::DELETED.into())
             }
-            Command::SavePreferences(preferences) => {
+            Command::SavePreferences(mut preferences) => {
                 if !preferences.maintenance.valid() {
                     return Err(strings::INVALID_MAINTENANCE.into());
                 }
@@ -324,6 +326,12 @@ impl<S: Services> Session<S> {
                     preferences.http_log_enabled != self.settings.preferences.http_log_enabled;
                 let log_enabled = preferences.http_log_enabled;
                 let rearm = preferences.auto_login != self.settings.preferences.auto_login;
+                if rearm && preferences.auto_login {
+                    // Enabling on an already connected dormitory Wi-Fi must not
+                    // depend on another network notification to become eligible.
+                    self.adopt_network();
+                    preferences.add_detected_wifi(&self.network);
+                }
                 let reschedule = preferences.maintenance != self.settings.preferences.maintenance
                     || preferences.target_ssids != self.settings.preferences.target_ssids;
                 self.update(|settings| {
@@ -432,6 +440,7 @@ impl<S: Services> Session<S> {
     fn invalidate_session(&mut self) {
         self.online = Online::Unknown;
         self.account_info = AccountInfo::default();
+        self.identity_retry = IdentityRetry::default();
         self.device_session = None;
         self.device_generation = self.device_generation.wrapping_add(1);
         self.network_refresh_pending = true;
@@ -470,10 +479,9 @@ impl<S: Services> Session<S> {
             return Ok(strings::UNKNOWN.into());
         }
         let cache_result = self.remember_portal(status);
-        let was_online = self.online == Online::Yes;
         self.online = observed;
         if observed == Online::Yes {
-            if !was_online || self.account_info.username.is_none() {
+            if self.account_info.username.is_none() && self.identity_retry.is_due(now) {
                 self.load_account()?;
             }
             self.maintenance.observed(
@@ -484,6 +492,7 @@ impl<S: Services> Session<S> {
             return cache_result.map(|_| strings::LOGGED_IN.into());
         }
         self.account_info = AccountInfo::default();
+        self.identity_retry = IdentityRetry::default();
         self.device_session = None;
         if self.maintenance.can_login(now) {
             let result = self.login(Some(self.network.clone()), true);
@@ -514,6 +523,7 @@ impl<S: Services> Session<S> {
         let network = self.services.snapshot();
         self.online = Online::Unknown;
         self.account_info = AccountInfo::default();
+        self.identity_retry = IdentityRetry::default();
         self.device_session = None;
         if expected.as_ref().is_some_and(|previous| {
             previous != &network
@@ -687,7 +697,15 @@ impl<S: Services> Session<S> {
         };
         self.account_info = info;
         self.device_session = session;
-        self.ensure_current("账号与设备读取结果校验")
+        self.ensure_current("账号与设备读取结果校验")?;
+        match self.online {
+            Online::Yes if self.account_info.username.is_none() => {
+                self.identity_retry.failed(Instant::now());
+            }
+            Online::Yes | Online::No => self.identity_retry = IdentityRetry::default(),
+            Online::Unknown => {}
+        }
+        Ok(())
     }
 
     fn logout_device(&mut self, request: DeviceLogoutRequest) -> Result<String, String> {
@@ -785,6 +803,7 @@ mod tests {
         status_count: Cell<u32>,
         login_count: Cell<u32>,
         account_count: Cell<u32>,
+        identity_failure: Cell<bool>,
         invalid_password: Cell<bool>,
         transient_failure: Cell<bool>,
         notify_on_status: Cell<bool>,
@@ -853,14 +872,19 @@ mod tests {
             if let Some(network) = self.next_account_network.take() {
                 *self.network.borrow_mut() = network;
             }
-            (
+            let info = if self.identity_failure.get() {
+                AccountInfo {
+                    error: Some(strings::IDENTITY_FAILED.into()),
+                    ..Default::default()
+                }
+            } else {
                 AccountInfo {
                     username: Some("test-student".into()),
                     error: Some(strings::ACCOUNT_FAILED.into()),
                     ..Default::default()
-                },
-                None,
-            )
+                }
+            };
+            (info, None)
         }
     }
 
@@ -1035,6 +1059,7 @@ mod tests {
                 network: network.clone(),
                 online: Online::Unknown,
                 account_info: AccountInfo::default(),
+                identity_retry: IdentityRetry::default(),
                 device_session: None,
                 device_generation: 0,
                 maintenance: Maintenance::default(),
@@ -1051,6 +1076,7 @@ mod tests {
                     status_count: Cell::new(0),
                     login_count: Cell::new(0),
                     account_count: Cell::new(0),
+                    identity_failure: Cell::new(false),
                     invalid_password: Cell::new(false),
                     transient_failure: Cell::new(false),
                     notify_on_status: Cell::new(false),
@@ -1063,6 +1089,133 @@ mod tests {
             },
             directory,
         )
+    }
+
+    #[test]
+    fn switching_to_saved_or_new_dormitory_wifi_schedules_automatic_login() {
+        for ssid in ["custom-wifi", "bjut-sushe-101"] {
+            let (mut session, directory) = maintenance_fixture();
+            session.settings.preferences.target_ssids = vec!["custom-wifi".into()];
+            session.store.save(&session.settings).unwrap();
+            session.services.network.borrow_mut().ssid = Some(ssid.into());
+            let (commands, receiver) = mpsc::sync_channel(8);
+            commands.send(Command::NetworkChanged).unwrap();
+            commands.send(Command::NetworkChanged).unwrap();
+            let published = RefCell::new(Vec::new());
+            session.run(&receiver, |view| {
+                // The target must reach disk before the worker can authenticate.
+                let restored = Store::at(directory.0.join("settings.json")).unwrap().1;
+                assert!(restored.preferences.target_ssids.iter().any(|s| s == ssid));
+                assert!(view.background);
+                if view.online == Online::Yes {
+                    commands.send(Command::Shutdown).unwrap();
+                }
+                published.borrow_mut().push(view);
+            });
+            assert_eq!(published.borrow().len(), 2);
+            assert_eq!(published.borrow()[0].online, Online::Unknown);
+            assert_eq!(session.services.status_count.get(), 1);
+            assert_eq!(session.services.login_count.get(), 1);
+            assert_eq!(
+                session.settings.preferences.target_ssids.len(),
+                if ssid == "custom-wifi" { 1 } else { 2 }
+            );
+        }
+    }
+
+    #[test]
+    fn new_dormitory_wifi_is_saved_but_login_requires_enabled_and_confirmed_offline() {
+        for enabled in [false, true] {
+            for online in [Online::No, Online::Yes, Online::Unknown] {
+                let (mut session, directory) = maintenance_fixture();
+                session.settings.preferences.auto_login = enabled;
+                session.services.network.borrow_mut().ssid = Some("bjut-sushe-101".into());
+                session.services.online.set(online);
+                session.network_changed().unwrap();
+                let restored = Store::at(directory.0.join("settings.json")).unwrap().1;
+                assert!(restored.preferences.is_target_wifi(&session.network));
+                session.maintain().unwrap();
+                assert_eq!(
+                    session.services.login_count.get(),
+                    u32::from(enabled && online == Online::No)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn dormitory_target_write_failure_prevents_automatic_login_until_saved() {
+        let (mut session, directory) = maintenance_fixture();
+        session.store.save(&session.settings).unwrap();
+        let staging = directory.0.join("settings.json.tmp");
+        fs::create_dir(&staging).unwrap();
+        session.services.network.borrow_mut().ssid = Some("bjut-sushe-101".into());
+        assert!(session.network_changed().is_err());
+        assert!(!session.eligible());
+        assert!(session.network_refresh_pending);
+        assert_eq!(session.services.status_count.get(), 0);
+        assert_eq!(session.services.login_count.get(), 0);
+        assert_eq!(
+            Store::at(directory.0.join("settings.json"))
+                .unwrap()
+                .1
+                .preferences
+                .target_ssids,
+            ["bjut_wifi"]
+        );
+        fs::remove_dir(staging).unwrap();
+        session.network_changed().unwrap();
+        session.maintain().unwrap();
+        assert_eq!(session.services.login_count.get(), 1);
+    }
+
+    #[test]
+    fn enabling_auto_login_adopts_current_network_and_saves_dormitory_before_scheduling() {
+        for already_adopted in [false, true] {
+            let (mut session, directory) = maintenance_fixture();
+            session.settings.preferences.auto_login = false;
+            session.settings.preferences.target_ssids.clear();
+            session.services.network.borrow_mut().ssid = Some("bjut-sushe-101".into());
+            if already_adopted {
+                session.adopt_network();
+            }
+            let mut preferences = session.settings.preferences.clone();
+            preferences.auto_login = true;
+            session
+                .handle(Command::SavePreferences(preferences))
+                .unwrap();
+            let restored = Store::at(directory.0.join("settings.json")).unwrap().1;
+            assert!(restored.preferences.auto_login);
+            assert_eq!(restored.preferences.target_ssids, ["bjut-sushe-101"]);
+            assert!(session.eligible());
+            assert!(session.maintenance.deadline.is_some());
+            assert_eq!(session.services.login_count.get(), 0);
+            session.maintain().unwrap();
+            assert_eq!(session.services.login_count.get(), 1);
+        }
+    }
+
+    #[test]
+    fn enabling_auto_login_and_saving_dormitory_roll_back_together_on_write_failure() {
+        let (mut session, directory) = maintenance_fixture();
+        session.settings.preferences.auto_login = false;
+        session.store.save(&session.settings).unwrap();
+        fs::create_dir(directory.0.join("settings.json.tmp")).unwrap();
+        session.services.network.borrow_mut().ssid = Some("bjut-sushe-101".into());
+        let mut preferences = session.settings.preferences.clone();
+        preferences.auto_login = true;
+        assert!(
+            session
+                .handle(Command::SavePreferences(preferences))
+                .is_err()
+        );
+        let restored = Store::at(directory.0.join("settings.json")).unwrap().1;
+        assert!(!restored.preferences.auto_login);
+        assert!(!session.settings.preferences.auto_login);
+        assert_eq!(restored.preferences.target_ssids, ["bjut_wifi"]);
+        assert_eq!(session.settings.preferences.target_ssids, ["bjut_wifi"]);
+        assert!(!session.eligible());
+        assert_eq!(session.services.login_count.get(), 0);
     }
 
     #[test]
@@ -1242,6 +1395,81 @@ mod tests {
         session.maintain().unwrap();
         assert_eq!(session.services.login_count.get(), 2);
         assert_eq!(session.services.account_count.get(), 2);
+    }
+
+    #[test]
+    fn background_identity_retry_preserves_status_checks_and_allows_manual_refresh() {
+        let (mut session, _directory) = maintenance_fixture();
+        session.services.online.set(Online::Yes);
+        session.services.identity_failure.set(true);
+        session.maintain().unwrap();
+        session.maintain().unwrap();
+        assert_eq!(session.online, Online::Yes);
+        assert_eq!(
+            session.account_info.error.as_deref(),
+            Some(strings::IDENTITY_FAILED)
+        );
+        assert_eq!(session.services.status_count.get(), 2);
+        assert_eq!(session.services.account_count.get(), 1);
+        assert_eq!(session.services.login_count.get(), 0);
+        assert!(!session.identity_retry.is_due(Instant::now()));
+
+        // Move the recorded failure into the past so the next online check can retry.
+        session.identity_retry = IdentityRetry::default();
+        session
+            .identity_retry
+            .failed(Instant::now() - Duration::from_secs(60));
+        session.maintain().unwrap();
+        assert_eq!(session.services.account_count.get(), 2);
+        assert!(!session.identity_retry.is_due(Instant::now()));
+
+        session.services.identity_failure.set(false);
+        session.handle(Command::Refresh).unwrap();
+        assert_eq!(session.services.account_count.get(), 3);
+        assert!(session.identity_retry.is_due(Instant::now()));
+        assert_eq!(
+            session.account_info.username.as_deref(),
+            Some("test-student")
+        );
+        assert_eq!(
+            session.account_info.error.as_deref(),
+            Some(strings::ACCOUNT_FAILED)
+        );
+        session.maintain().unwrap();
+        assert_eq!(session.services.status_count.get(), 5);
+        assert_eq!(session.services.account_count.get(), 3);
+    }
+
+    #[test]
+    fn background_identity_retry_resets_after_network_change_or_confirmed_offline() {
+        for network_changed in [false, true] {
+            let (mut session, _directory) = maintenance_fixture();
+            session.services.online.set(Online::Yes);
+            session.services.identity_failure.set(true);
+            session.maintain().unwrap();
+            assert!(!session.identity_retry.is_due(Instant::now()));
+
+            if network_changed {
+                session.services.network.borrow_mut().interface += 1;
+                session.network_changed().unwrap();
+            } else {
+                session.maintenance.pause(PauseReason::UserLogout);
+                session.services.online.set(Online::No);
+                session.maintain().unwrap();
+                assert_eq!(session.online, Online::No);
+                session.services.online.set(Online::Yes);
+            }
+
+            assert!(session.identity_retry.is_due(Instant::now()));
+            session.services.identity_failure.set(false);
+            session.maintain().unwrap();
+            assert_eq!(session.services.account_count.get(), 2);
+            assert_eq!(session.online, Online::Yes);
+            assert_eq!(
+                session.account_info.username.as_deref(),
+                Some("test-student")
+            );
+        }
     }
 
     #[test]
@@ -1560,6 +1788,7 @@ mod tests {
             network: Network::default(),
             online: Online::Unknown,
             account_info: AccountInfo::default(),
+            identity_retry: IdentityRetry::default(),
             maintenance: Maintenance::default(),
             maintenance_detail: String::new(),
             services: LiveServices,

@@ -11,9 +11,7 @@ export global PreferencesLabels {
     in property <string> dark;
     in property <string> auto-login;
     in property <string> startup;
-    in property <string> startup-summary;
     in property <string> http-log;
-    in property <string> http-log-summary;
     in property <string> app;
     in property <string> description;
     in property <string> version-label;
@@ -211,12 +209,6 @@ export component SettingsPage inherits VerticalLayout {
                         enabled: root.enabled;
                         toggled => { root.save-startup(); }
                     }
-                    Text {
-                        text: PreferencesLabels.startup-summary;
-                        font-size: 12px;
-                        color: AppTheme.muted;
-                        wrap: word-wrap;
-                    }
                     if root.startup-error != "": Text {
                         text: root.startup-error;
                         font-size: 12px;
@@ -228,19 +220,12 @@ export component SettingsPage inherits VerticalLayout {
             OptionCard {
                 VerticalLayout {
                     padding: 16px;
-                    spacing: 8px;
                     log-switch := CheckBox {
                         text: PreferencesLabels.http-log;
                         switch-style: true;
                         checked: root.http-log-enabled;
                         enabled: root.enabled;
                         toggled => { self.checked = root.http-log-enabled; root.toggle-http-log(); }
-                    }
-                    Text {
-                        text: PreferencesLabels.http-log-summary;
-                        font-size: 12px;
-                        color: AppTheme.muted;
-                        wrap: word-wrap;
                     }
                 }
             }

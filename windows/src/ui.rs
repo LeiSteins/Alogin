@@ -977,9 +977,7 @@ fn set_labels(window: &MainWindow) {
     preferences.set_dark(strings::APPEARANCE_DARK.into());
     preferences.set_auto_login(strings::AUTO.into());
     preferences.set_http_log(strings::HTTP_LOG.into());
-    preferences.set_http_log_summary(strings::HTTP_LOG_SUMMARY.into());
     preferences.set_startup(strings::STARTUP.into());
-    preferences.set_startup_summary(strings::STARTUP_SUMMARY.into());
     preferences.set_app(strings::APP.into());
     preferences.set_description(strings::ABOUT_DESCRIPTION.into());
     preferences.set_version_label(strings::VERSION_LABEL.into());

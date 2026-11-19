@@ -8,6 +8,24 @@ pub enum PauseReason {
     UserLogout,
 }
 
+#[derive(Default)]
+pub struct IdentityRetry {
+    retry_at: Option<Instant>,
+    backoff_step: usize,
+}
+
+impl IdentityRetry {
+    pub fn is_due(&self, now: Instant) -> bool {
+        self.retry_at.is_none_or(|retry| now >= retry)
+    }
+
+    pub fn failed(&mut self, now: Instant) {
+        let delays = [60, 120, 240, 300];
+        self.retry_at = Some(now + Duration::from_secs(delays[self.backoff_step]));
+        self.backoff_step = (self.backoff_step + 1).min(delays.len() - 1);
+    }
+}
+
 /// Scheduling only; Session owns IO and all authenticated state.
 #[derive(Default)]
 pub struct Maintenance {
@@ -98,6 +116,18 @@ impl Maintenance {
 mod tests {
     use super::*;
     use crate::domain::Online;
+
+    #[test]
+    fn identity_retry_backs_off_to_a_five_minute_limit() {
+        let now = Instant::now();
+        let mut retry = IdentityRetry::default();
+        assert!(retry.is_due(now));
+        for seconds in [60, 120, 240, 300, 300] {
+            retry.failed(now);
+            assert!(!retry.is_due(now + Duration::from_secs(seconds - 1)));
+            assert!(retry.is_due(now + Duration::from_secs(seconds)));
+        }
+    }
 
     #[test]
     fn retry_backoff_survives_notifications_and_is_reset_only_by_confirmed_online() {

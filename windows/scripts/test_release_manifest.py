@@ -3,6 +3,7 @@ import hashlib
 import json
 from pathlib import Path
 import tempfile
+from textwrap import indent
 import tomllib
 import unittest
 import zipfile
@@ -63,7 +64,7 @@ class WindowsReleaseTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 release_info("windows-v0.0.1", root)
 
-    def test_package_includes_notices_and_detects_corruption_before_publication(self):
+    def test_three_file_package_preserves_notices_and_detects_corruption(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             executable = directory / "app.exe"
@@ -85,8 +86,17 @@ class WindowsReleaseTests(unittest.TestCase):
             archive = next(output.glob("*.zip"))
             original_digest = hashlib.sha256(archive.read_bytes()).hexdigest()
             with zipfile.ZipFile(archive) as bundle:
+                self.assertCountEqual(bundle.namelist(), ["alogin-windows.exe", "README.md", "release-notes.md"])
                 self.assertEqual(bundle.read("alogin-windows.exe"), executable.read_bytes())
-                self.assertEqual(bundle.read("licenses/sample-1.0.0/LICENSE-MIT"), b"Synthetic license")
+                self.assertEqual(bundle.read("release-notes.md").decode("utf-8"),
+                                 (output / "release-notes.md").read_text(encoding="utf-8"))
+                readme = bundle.read("README.md").decode("utf-8")
+                self.assertTrue(readme.startswith((ROOT / "README.md").read_text(encoding="utf-8")))
+                self.assertIn(f"https://github.com/LeiSteins/alogin/archive/refs/tags/{tag}.zip", readme)
+                gpl = (ROOT.parent / "LICENSE").read_text(encoding="utf-8").rstrip("\n")
+                self.assertIn(indent(gpl, "    "), readme)
+                self.assertIn("[sample-1.0.0](https://crates.io/crates/sample/1.0.0) · MIT", readme)
+                self.assertIn("#### `sample-1.0.0/LICENSE-MIT`\n\n    Synthetic license", readme)
             package_release(tag, executable, metadata, output)
             self.assertEqual(hashlib.sha256(archive.read_bytes()).hexdigest(), original_digest)
             archive.write_bytes(archive.read_bytes() + b"tampered")
