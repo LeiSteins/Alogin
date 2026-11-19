@@ -31,7 +31,7 @@ Windows 原生客户端采用 Rust + Slint，支持 Windows 10/11 x64，提供�
 前往 [GitHub Releases](https://github.com/LeiSteins/alogin/releases) 下载最新版本的 `alogin-v<版本号>.apk`，然后在 Android 设备上打开 APK 并按提示完成安装。若系统阻止安装，请根据提示允许当前下载来源安装未知应用。
 
 Windows 请下载标题为 **Alogin Windows** 的 Release 中的 `alogin-windows-v<版本号>-x64.zip`，
-或使用[服务器下载 v0.0.1](https://aloginupdate.steins.top/windows/alogin-windows-v0.0.1-x64.zip)。
+或使用[服务器下载 v0.0.3](https://aloginupdate.steins.top/windows/alogin-windows-v0.0.3-x64.zip)。
 解压到固定目录后运行 `alogin-windows.exe`；更新前从托盘“退出”，再覆盖程序文件。
 账号和设置保存在 `%LOCALAPPDATA%\Alogin\`。Windows 与 Android 独立版本，下载时请核对平台。
 

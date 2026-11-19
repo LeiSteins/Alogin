@@ -4,9 +4,9 @@ Rust + Slint 的 Windows 原生客户端，目标系统为 Windows 10/11 x64。
 
 ## 下载与使用
 
-当前版本为 **v0.0.2**，Git 标签为 `windows-v0.0.2`。前往
-[Windows v0.0.2 Release](https://github.com/LeiSteins/alogin/releases/tag/windows-v0.0.2)
-下载 `alogin-windows-v0.0.2-x64.zip`，也可使用[服务器下载](https://aloginupdate.steins.top/windows/alogin-windows-v0.0.2-x64.zip)。
+当前版本为 **v0.0.3**，Git 标签为 `windows-v0.0.3`。前往
+[Windows v0.0.3 Release](https://github.com/LeiSteins/Alogin/releases/tag/windows-v0.0.3)
+下载 `alogin-windows-v0.0.3-x64.zip`，也可使用[服务器下载](https://aloginupdate.steins.top/windows/alogin-windows-v0.0.3-x64.zip)。
 核对同名 `.sha256` 文件后，将 ZIP 解压到固定目录，运行 `alogin-windows.exe`。
 程序无需管理员权限，支持在设置中启用开机自启；移动目录后需要在新位置重新启用。
 
